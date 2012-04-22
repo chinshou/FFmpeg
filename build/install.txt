@@ -44,6 +44,39 @@ run sudo make install
 
 ./lame.sh
 
+9.xvid
+
+cd ./build/generic
+xvid.sh
+
+10.opencore_amr
+
+./amr.sh
+
+11.openjpeg
+
+./jpeg.sh
+
+12.vpx
+
+./vpx.sh
+make clean
+make
+
+12.xavs
+
+make clean
+make
+
+12. orc
+
+./orc.sh
+
+13. schroedinger
+
+export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
+./schroedinger.sh
+
 7.ogg
 
 ./ogg.sh
