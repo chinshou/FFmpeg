@@ -68,6 +68,29 @@ make
 make clean
 make
 
+13.ogg
+
+./ogg.sh
+
+14.theora
+
+./theora.sh
+
+15. x264
+
+./x264.sh
+
+16. iconv
+
+./iconv.sh
+
+17. cdio
+
+sudo apt-get install libtool
+sudo apt-get install texinfo
+./autogen.sh
+./cdio.sh
+
 12. orc
 
 ./orc.sh
@@ -77,9 +100,6 @@ make
 export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
 ./schroedinger.sh
 
-7.ogg
-
-./ogg.sh
 
 
 8.zlib
