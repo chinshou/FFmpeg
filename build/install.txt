@@ -80,6 +80,29 @@ make
 
 ./x264.sh
 
+16.zlib
+
+make clean
+make
+sudo cp zlib.h zconf.h /usr/i686-mingw32/include/
+
+17.bzlib
+
+make clean
+make
+
+18.polarssl
+
+cd library
+./ssl.sh
+make
+cd ..
+sudo cp -r include/polarssl /usr/i686-mingw32/include/
+sudo cp library/libpolarssl.a /usr/i686-mingw32/lib/
+
+19.rtmp
+
+
 16. iconv
 
 ./iconv.sh
@@ -99,15 +122,6 @@ sudo apt-get install texinfo
 
 export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
 ./schroedinger.sh
-
-
-
-8.zlib
-
-make clean
-make
-sudo cp zlib.h zconf.h /usr/i686-mingw32/include/
-
 
 
 
