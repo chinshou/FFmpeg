@@ -7,10 +7,10 @@ libavutil\pixdesc.h
 libavutil\pixdesc.c
 libavfilter\allfilters.c          
 libavfilter\af_aformat.c 
-libavfilter\vsrc_movie.c
 libavfilter\makefile
 libavformat\makefile             
 libavformat\avisynth.c 
 libavdevice\alldevices.c          ok
 libavdevice\gdi.c                 ok
+libavdevice\waveform.c            ok
 libavdevice\makefile              ok

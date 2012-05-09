@@ -1671,6 +1671,8 @@ bktr_indev_deps_any="dev_bktr_ioctl_bt848_h machine_ioctl_bt848_h dev_video_bktr
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
+gdi_indev_deps="GetDeviceCaps"
+gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 jack_indev_deps="jack_jack_h sem_timedwait"
 lavfi_indev_deps="avfilter"
@@ -1688,6 +1690,8 @@ v4l_indev_deps="linux_videodev_h"
 v4l2_indev_deps_any="linux_videodev2_h sys_videoio_h"
 vfwcap_indev_deps="capCreateCaptureWindow vfwcap_defines"
 vfwcap_indev_extralibs="-lavicap32"
+waveform_indev_deps="waveInOpen"
+waveform_indev_extralibs="-lwinmm"
 x11_grab_device_indev_deps="x11grab XShmCreateImage"
 
 # protocols
