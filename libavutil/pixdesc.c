@@ -1479,3 +1479,8 @@ char *av_get_pix_fmt_string (char *buf, int buf_size, enum PixelFormat pix_fmt)
 
     return buf;
 }
+
+const AVPixFmtDescriptor *av_get_pix_fmt_descriptor(enum PixelFormat pix_fmt)
+{
+	return &av_pix_fmt_descriptors[pix_fmt];
+}
