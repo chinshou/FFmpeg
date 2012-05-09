@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008 BBC, Anuradha Suraparaju <asuraparaju at gmail dot com >
+ * Copyright (c) 2012 Clément Bœsch
  *
  * This file is part of FFmpeg.
  *
@@ -19,26 +19,25 @@
  */
 
 /**
-* @file
-* data structures common to libdirac encoder and decoder
-*/
+ * @file
+ * JACOsub shared utils
+ */
 
-#ifndef AVCODEC_LIBDIRAC_H
-#define AVCODEC_LIBDIRAC_H
+#ifndef AVCODEC_JACOSUB_H
+#define AVCODEC_JACOSUB_H
 
-#include "avcodec.h"
-#include <libdirac_common/dirac_types.h>
+#define JSS_MAX_LINESIZE 512
 
-/**
-* Table providing a Dirac chroma format to FFmpeg pixel format mapping.
-*/
-static const struct {
-    enum PixelFormat ff_pix_fmt;
-    dirac_chroma_t dirac_pix_fmt;
-} dirac_pixel_format_map[] = {
-    { PIX_FMT_YUV420P, format420 },
-    { PIX_FMT_YUV422P, format422 },
-    { PIX_FMT_YUV444P, format444 },
-};
+static av_always_inline int jss_whitespace(char c)
+{
+    return c == ' ' || (c >= '\t' && c <= '\r');
+}
 
-#endif /* AVCODEC_LIBDIRAC_H */
+static av_always_inline const char *jss_skip_whitespace(const char *p)
+{
+    while (jss_whitespace(*p))
+        p++;
+    return p;
+}
+
+#endif /* AVCODEC_JACOSUB_H */
