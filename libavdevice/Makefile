@@ -21,6 +21,7 @@ OBJS-$(CONFIG_DSHOW_INDEV)               += dshow.o dshow_enummediatypes.o \
                                             dshow_enumpins.o dshow_filter.o \
                                             dshow_pin.o dshow_common.o
 OBJS-$(CONFIG_DV1394_INDEV)              += dv1394.o
+OBJS-$(CONFIG_GDI_INDEV)               += gdi.o
 OBJS-$(CONFIG_FBDEV_INDEV)               += fbdev.o
 OBJS-$(CONFIG_IEC61883_INDEV)            += iec61883.o
 OBJS-$(CONFIG_JACK_INDEV)                += jack_audio.o timefilter.o
@@ -36,6 +37,7 @@ OBJS-$(CONFIG_V4L2_INDEV)                += v4l2.o timefilter.o
 OBJS-$(CONFIG_V4L_INDEV)                 += v4l.o
 OBJS-$(CONFIG_VFWCAP_INDEV)              += vfwcap.o
 OBJS-$(CONFIG_X11GRAB_INDEV)             += x11grab.o
+OBJS-$(CONFIG_WAVEFORM_INDEV)            += waveform.o
 
 # external libraries
 OBJS-$(CONFIG_LIBCDIO_INDEV)             += libcdio.o
