@@ -37,10 +37,10 @@ OBJS = allfilters.o                                                     \
        graphparser.o                                                    \
        src_buffer.o                                                     \
        transform.o                                                      \
+       subreader.o  							\
        vf_scale.o                                                       \
        video.o                                                          \
-
-
+       
 OBJS-$(CONFIG_AVCODEC)                       += avcodec.o
 OBJS-$(CONFIG_AVFORMAT)                      += lavfutils.o
 OBJS-$(CONFIG_SWSCALE)                       += lswsutils.o
@@ -66,6 +66,7 @@ OBJS-$(CONFIG_PAN_FILTER)                    += af_pan.o
 OBJS-$(CONFIG_RESAMPLE_FILTER)               += af_resample.o
 OBJS-$(CONFIG_SILENCEDETECT_FILTER)          += af_silencedetect.o
 OBJS-$(CONFIG_VOLUME_FILTER)                 += af_volume.o
+OBJS-$(CONFIG_SOX_FILTER)                    += af_sox.o
 
 OBJS-$(CONFIG_AEVALSRC_FILTER)               += asrc_aevalsrc.o
 OBJS-$(CONFIG_AMOVIE_FILTER)                 += src_movie.o
@@ -129,6 +130,7 @@ OBJS-$(CONFIG_UNSHARP_FILTER)                += vf_unsharp.o
 OBJS-$(CONFIG_VFLIP_FILTER)                  += vf_vflip.o
 OBJS-$(CONFIG_YADIF_FILTER)                  += vf_yadif.o
 
+OBJS-$(CONFIG_ASS_FILTER)                    += vf_ass.o
 OBJS-$(CONFIG_CELLAUTO_FILTER)               += vsrc_cellauto.o
 OBJS-$(CONFIG_COLOR_FILTER)                  += vsrc_color.o
 OBJS-$(CONFIG_FREI0R_SRC_FILTER)             += vf_frei0r.o
@@ -198,6 +200,9 @@ OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/pullup.o
 # transmedia filters
 OBJS-$(CONFIG_SHOWWAVES_FILTER)              += avf_showwaves.o
 
+
+CFLAGS += -I/usr/i686-mingw32/include/ass
+EXTRALIBS += -lass -lfreetype -liconv
 TESTPROGS = drawutils formats
 
 TOOLS = graph2dot                                                       \

@@ -192,6 +192,7 @@ External library support:
   --enable-libpulse        enable Pulseaudio input via libpulse [no]
   --enable-librtmp         enable RTMP[E] support via librtmp [no]
   --enable-libschroedinger enable Dirac support via libschroedinger [no]
+  --enable-libsox          enable audio filtering via libsox [no]
   --enable-libspeex        enable Speex support via libspeex [no]
   --enable-libstagefright-h264  enable H.264 decoding via libstagefright [no]
   --enable-libtheora       enable Theora encoding via libtheora [no]
@@ -1063,6 +1064,7 @@ CONFIG_LIST="
     libpulse
     librtmp
     libschroedinger
+    libsox
     libspeex
     libstagefright_h264
     libtheora
@@ -1671,7 +1673,7 @@ bktr_indev_deps_any="dev_bktr_ioctl_bt848_h machine_ioctl_bt848_h dev_video_bktr
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
-gdi_indev_deps="GetDeviceCaps"
+#gdi_indev_deps="GetDeviceCaps"
 gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 jack_indev_deps="jack_jack_h sem_timedwait"
@@ -1690,7 +1692,7 @@ v4l_indev_deps="linux_videodev_h"
 v4l2_indev_deps_any="linux_videodev2_h sys_videoio_h"
 vfwcap_indev_deps="capCreateCaptureWindow vfwcap_defines"
 vfwcap_indev_extralibs="-lavicap32"
-waveform_indev_deps="waveInOpen"
+#waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 x11_grab_device_indev_deps="x11grab XShmCreateImage"
 
@@ -1751,6 +1753,7 @@ pan_filter_deps="swresample"
 removelogo_filter_deps="avcodec avformat swscale"
 scale_filter_deps="swscale"
 select_filter_deps="avcodec"
+sox_filter_deps="libsox"
 super2xsai_filter_deps="gpl"
 tinterlace_filter_deps="gpl"
 yadif_filter_deps="gpl"
@@ -3302,6 +3305,7 @@ enabled libopenjpeg && require libopenjpeg openjpeg.h opj_version -lopenjpeg
 enabled libpulse && require_pkg_config libpulse-simple pulse/simple.h pa_simple_new
 enabled librtmp    && require_pkg_config librtmp librtmp/rtmp.h RTMP_Socket
 enabled libschroedinger && require_pkg_config schroedinger-1.0 schroedinger/schro.h schro_init
+enabled libsox     && require  libsox sox.h sox_create_effect -lsox
 enabled libspeex   && require  libspeex speex/speex.h speex_decoder_init -lspeex
 enabled libstagefright_h264  && require_cpp libstagefright_h264 "binder/ProcessState.h media/stagefright/MetaData.h
     media/stagefright/MediaBufferGroup.h media/stagefright/MediaDebug.h media/stagefright/MediaDefs.h

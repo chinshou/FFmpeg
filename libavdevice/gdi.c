@@ -33,7 +33,7 @@ struct gdi_ctx {
     int y_off;
 };
 
-static int gdi_read_header(AVFormatContext *s, AVFormatParameters *ap)
+static int gdi_read_header(AVFormatContext *s)
 {
     struct gdi_ctx *ctx = s->priv_data;
     AVCodecContext *codec;
@@ -48,16 +48,17 @@ static int gdi_read_header(AVFormatContext *s, AVFormatParameters *ap)
     width   = GetSystemMetrics( SM_CXSCREEN );
     height  = GetSystemMetrics( SM_CYSCREEN );
 
-    if( ctx->x_off + ap->width > width || ctx->y_off + ap->height > height )
+    if( ctx->x_off  > width || ctx->y_off  > height )
     {
         av_log( s, AV_LOG_ERROR, "Specified size greater than Desktop size."
-                " %d+%dx%d+%d > %dx%d\n", ctx->x_off, ap->width,
-                ctx->y_off, ap->height, width, height );
+                " %dx%d > %dx%d\n", ctx->x_off, 
+                ctx->y_off, width, height );
         return AVERROR(EIO);
     }
 
-    width  = ap->width  ? ap->width  : width  - ctx->x_off;
-    height = ap->height ? ap->height : height - ctx->y_off;
+    width  = width  - ctx->x_off;
+    height = height - ctx->y_off;
+
 
     ctx->hDesktopWnd = GetDesktopWindow( );
     ctx->hDesktopDC = GetDC( ctx->hDesktopWnd );
@@ -81,7 +82,7 @@ static int gdi_read_header(AVFormatContext *s, AVFormatParameters *ap)
     GetDIBits( ctx->hCaptureDC, ctx->hCaptureBitmap,
                0, 0, NULL, ctx->bih, DIB_RGB_COLORS );
 
-    st = av_new_stream( s, 0 );
+    st = avformat_new_stream( s, NULL );
     if ( !st )
         return AVERROR(ENOMEM);
 
@@ -102,7 +103,7 @@ static int gdi_read_header(AVFormatContext *s, AVFormatParameters *ap)
         codec->codec_tag = ctx->bih->biCompression;
     codec->width = ctx->bih->biWidth;
     codec->height = ctx->bih->biHeight;
-    codec->time_base = ap->time_base;
+    codec->time_base = (AVRational){1, 15};;
 
     av_set_pts_info( st, 32, 1, 1000 );
 
@@ -142,12 +143,11 @@ static int gdi_read_close( AVFormatContext *s )
 }
 
 AVInputFormat ff_gdi_demuxer = {
-    "gdi",
-    "GDI video grab",
-    sizeof(struct gdi_ctx),
-    NULL,
-    gdi_read_header,
-    gdi_read_packet,
-    gdi_read_close,
+    .name = "gdi",
+    .long_name= "GDI video grab",
+    .priv_data_size =sizeof(struct gdi_ctx),
+    .read_header = gdi_read_header,
+    .read_packet = gdi_read_packet,
+    .read_close = gdi_read_close,
     .flags = AVFMT_NOFILE,
 };
