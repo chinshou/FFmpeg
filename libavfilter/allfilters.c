@@ -92,6 +92,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(TREBLE,         treble,         af);
     REGISTER_FILTER(VOLUME,         volume,         af);
     REGISTER_FILTER(VOLUMEDETECT,   volumedetect,   af);
+    REGISTER_FILTER (SOX,         sox,         af);
 
     REGISTER_FILTER(AEVALSRC,       aevalsrc,       asrc);
     REGISTER_FILTER(ANULLSRC,       anullsrc,       asrc);
