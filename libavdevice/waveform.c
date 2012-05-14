@@ -266,7 +266,8 @@ static int waveform_read_header(AVFormatContext *s)
     st = avformat_new_stream(s, NULL);                                                                                                                        
     if (!st)                                                                                                                                         
         return AVERROR(ENOMEM);                                                                                                                      
-                                                                                                                                                     
+    av_log( s, AV_LOG_ERROR, "new gdi stream %d", 
+         s->nb_streams);                                                                                                                                                
     st->codec->codec_type  = AVMEDIA_TYPE_AUDIO;                                                                                                       
     st->codec->codec_id    = bits_to_codec_id(fx.wBitsPerSample);                                                                                    
     st->codec->sample_rate = fx.nSamplesPerSec;                                                                                                      
