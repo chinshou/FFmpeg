@@ -85,6 +85,7 @@ static int gdi_read_header(AVFormatContext *s)
     st = avformat_new_stream( s, NULL );
     if ( !st )
         return AVERROR(ENOMEM);
+    av_log( s, AV_LOG_ERROR, "new gdi stream %d", s->nb_streams);
 
     codec = st->codec;
     codec->codec_type = AVMEDIA_TYPE_VIDEO;
@@ -143,12 +144,11 @@ static int gdi_read_close( AVFormatContext *s )
 }
 
 AVInputFormat ff_gdi_demuxer = {
-    "gdi",
-    "GDI video grab",
-    sizeof(struct gdi_ctx),
-    NULL,
-    gdi_read_header,
-    gdi_read_packet,
-    gdi_read_close,
+    .name = "gdi",
+    .long_name= "GDI video grab",
+    .priv_data_size =sizeof(struct gdi_ctx),
+    .read_header = gdi_read_header,
+    .read_packet = gdi_read_packet,
+    .read_close = gdi_read_close,
     .flags = AVFMT_NOFILE,
 };

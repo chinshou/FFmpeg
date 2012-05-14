@@ -266,7 +266,8 @@ static int waveform_read_header(AVFormatContext *s)
     st = avformat_new_stream(s, NULL);                                                                                                                        
     if (!st)                                                                                                                                         
         return AVERROR(ENOMEM);                                                                                                                      
-                                                                                                                                                     
+    av_log( s, AV_LOG_ERROR, "new gdi stream %d", 
+         s->nb_streams);                                                                                                                                                
     st->codec->codec_type  = AVMEDIA_TYPE_AUDIO;                                                                                                       
     st->codec->codec_id    = bits_to_codec_id(fx.wBitsPerSample);                                                                                    
     st->codec->sample_rate = fx.nSamplesPerSec;                                                                                                      
@@ -339,13 +340,12 @@ static int waveform_read_packet(AVFormatContext *s, AVPacket *pkt)
 }                                                                                                                                                    
                                                                                                                                                      
 AVInputFormat ff_waveform_demuxer = {                                                                                                                   
-    "waveform",                                                                                                                                      
-    NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
-    sizeof(struct waveform_ctx),                                                                                                                     
-    NULL,                                                                                                                                            
-    waveform_read_header,                                                                                                                            
-    waveform_read_packet,                                                                                                                            
-    waveform_read_close,                                                                                                                             
+    .name ="waveform",                                                                                                                                      
+    .long_name=NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
+    .priv_data_size =sizeof(struct waveform_ctx),                                                                                                                     
+    .read_header =waveform_read_header,                                                                                                                            
+    .read_packet =waveform_read_packet,                                                                                                                            
+    .read_close =waveform_read_close,                                                                                                                             
     .flags = AVFMT_NOFILE,                                                                                                                           
 };                                                                                                                                                   
 
