@@ -18,6 +18,8 @@ OBJS = allformats.o         \
        sdp.o                \
        seek.o               \
        utils.o              \
+       lang.o              \
+       dvdnav.o             \
 
 OBJS-$(CONFIG_NETWORK)                   += network.o
 
@@ -375,5 +377,7 @@ OBJS-$(CONFIG_TLS_PROTOCOL)              += tls.o
 OBJS-$(CONFIG_UDP_PROTOCOL)              += udp.o
 
 SKIPHEADERS-$(CONFIG_NETWORK)            += network.h rtsp.h
+CFLAGS += -I/usr/i686-mingw32/include/dvdread
+EXTRALIBS += -ldvdnav -ldvdread -ldvdcss
 TESTPROGS = seek
 TOOLS     = aviocat ismindex pktdumper probetest

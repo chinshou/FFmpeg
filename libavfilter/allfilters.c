@@ -46,6 +46,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER (PAN,         pan,         af);
     REGISTER_FILTER (SILENCEDETECT, silencedetect, af);
     REGISTER_FILTER (VOLUME,      volume,      af);
+    REGISTER_FILTER (SOX,         sox,         af);
 
     REGISTER_FILTER (ABUFFER,     abuffer,     asrc);
     REGISTER_FILTER (AEVALSRC,    aevalsrc,    asrc);
@@ -55,7 +56,6 @@ void avfilter_register_all(void)
     REGISTER_FILTER (ABUFFERSINK, abuffersink, asink);
     REGISTER_FILTER (ANULLSINK,   anullsink,   asink);
 
-    REGISTER_FILTER (ASS,         ass,         vf);
     REGISTER_FILTER (BBOX,        bbox,        vf);
     REGISTER_FILTER (BLACKDETECT, blackdetect, vf);
     REGISTER_FILTER (BLACKFRAME,  blackframe,  vf);
@@ -108,6 +108,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER (UNSHARP,     unsharp,     vf);
     REGISTER_FILTER (VFLIP,       vflip,       vf);
     REGISTER_FILTER (YADIF,       yadif,       vf);
+    REGISTER_FILTER (ASS,         ass,         vf);
 
     REGISTER_FILTER (CELLAUTO,    cellauto,    vsrc);
     REGISTER_FILTER (COLOR,       color,       vsrc);
