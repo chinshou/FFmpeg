@@ -155,17 +155,17 @@ static enum CodecID bits_to_codec_id(int n)
     default: return CODEC_ID_NONE;                                                                                                                   
     }                                                                                                                                                
 }                                                                                                                                                    
-static enum SampleFormat bits_to_sample_fmt(int n)                                                                                                   
+static enum AVSampleFormat bits_to_sample_fmt(int n)                                                                                                   
 {                                                                                                                                                    
     switch (n) {                                                                                                                                     
-    case  8: return SAMPLE_FMT_U8;                                                                                                                   
-    case 16: return SAMPLE_FMT_S16;                                                                                                                  
-    case 32: return SAMPLE_FMT_S32;                                                                                                                  
-    default: return SAMPLE_FMT_NONE;                                                                                                                 
+    case  8: return AV_SAMPLE_FMT_U8;                                                                                                                   
+    case 16: return AV_SAMPLE_FMT_S16;                                                                                                                  
+    case 32: return AV_SAMPLE_FMT_S32;                                                                                                                  
+    default: return AV_SAMPLE_FMT_NONE;                                                                                                                 
     }                                                                                                                                                
 }                                                                                                                                                    
                                                                                                                                                      
-static int waveform_read_header(AVFormatContext *s, AVFormatParameters *ap)                                                                          
+static int waveform_read_header(AVFormatContext *s)                                                                          
 {                                                                                                                                                    
     int try_caps = FF_ARRAY_ELEMS(wave_fmt_caps) -1;                                                                                                 
     struct waveform_ctx *ctx = s->priv_data;                                                                                                         
@@ -235,9 +235,9 @@ static int waveform_read_header(AVFormatContext *s, AVFormatParameters *ap)
     ctx->needs_pts[ctx->next_buffer_write] = 1;                                                                                                      
                                                                                                                                                      
     fx.wFormatTag      = WAVE_FORMAT_PCM;                                                                                                            
-    fx.nChannels       = ap->channels;                                                                                                               
-    fx.nSamplesPerSec  = ap->sample_rate;                                                                                                            
-    fx.wBitsPerSample  = av_get_bits_per_sample_format(AV_SAMPLE_FMT_S16);//(ap->sample_fmt);                                                                              
+    fx.nChannels       = 2;//ap->channels;                                                                                                               
+    fx.nSamplesPerSec  = 44100;//ap->sample_rate;                                                                                                            
+    fx.wBitsPerSample  = av_get_bits_per_sample_fmt(AV_SAMPLE_FMT_S16);//(ap->sample_fmt);                                                                              
     fx.nBlockAlign     = fx.nChannels * (fx.wBitsPerSample >> 3);                                                                                    
     fx.nAvgBytesPerSec = fx.nSamplesPerSec * fx.nBlockAlign;                                                                                         
     fx.cbSize          = 0;                                                                                                                          
@@ -263,7 +263,7 @@ static int waveform_read_header(AVFormatContext *s, AVFormatParameters *ap)
                (unsigned int) fx.nSamplesPerSec, fx.wBitsPerSample, fx.nChannels);                                                                   
     }                                                                                                                                                
                                                                                                                                                      
-    st = av_new_stream(s, 0);                                                                                                                        
+    st = avformat_new_stream(s, NULL);                                                                                                                        
     if (!st)                                                                                                                                         
         return AVERROR(ENOMEM);                                                                                                                      
                                                                                                                                                      
@@ -339,13 +339,12 @@ static int waveform_read_packet(AVFormatContext *s, AVPacket *pkt)
 }                                                                                                                                                    
                                                                                                                                                      
 AVInputFormat ff_waveform_demuxer = {                                                                                                                   
-    "waveform",                                                                                                                                      
-    NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
-    sizeof(struct waveform_ctx),                                                                                                                     
-    NULL,                                                                                                                                            
-    waveform_read_header,                                                                                                                            
-    waveform_read_packet,                                                                                                                            
-    waveform_read_close,                                                                                                                             
+    .name ="waveform",                                                                                                                                      
+    .long_name=NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
+    .priv_data_size =sizeof(struct waveform_ctx),                                                                                                                     
+    .read_header =waveform_read_header,                                                                                                                            
+    .read_packet =waveform_read_packet,                                                                                                                            
+    .read_close =waveform_read_close,                                                                                                                             
     .flags = AVFMT_NOFILE,                                                                                                                           
 };                                                                                                                                                   
 

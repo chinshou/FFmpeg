@@ -23,6 +23,8 @@ OBJS = allformats.o         \
        seek.o               \
        subtitles.o          \
        utils.o              \
+       lang.o              \
+       dvdnav.o             \
 
 OBJS-$(CONFIG_NETWORK)                   += network.o
 OBJS-$(CONFIG_RTPDEC)                    += rdt.o                       \
@@ -442,6 +444,8 @@ OBJS-$(CONFIG_UDP_PROTOCOL)              += udp.o
 
 SKIPHEADERS-$(CONFIG_FFRTMPCRYPT_PROTOCOL) += rtmpdh.h
 SKIPHEADERS-$(CONFIG_NETWORK)            += network.h rtsp.h
+CFLAGS += -I/usr/i686-mingw32/include/dvdread
+EXTRALIBS += -ldvdnav -ldvdread -ldvdcss
 TESTPROGS = noproxy                                                     \
             seek                                                        \
             srtp                                                        \
