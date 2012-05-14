@@ -85,6 +85,7 @@ static int gdi_read_header(AVFormatContext *s)
     st = avformat_new_stream( s, NULL );
     if ( !st )
         return AVERROR(ENOMEM);
+    av_log( s, AV_LOG_ERROR, "new gdi stream %d", s->nb_streams);
 
     codec = st->codec;
     codec->codec_type = AVMEDIA_TYPE_VIDEO;
