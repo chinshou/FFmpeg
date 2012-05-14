@@ -3,7 +3,10 @@ include $(SUBDIR)../config.mak
 NAME = avformat
 FFLIBS = avcodec avutil
 
-HEADERS = avformat.h avio.h version.h
+HEADERS = avformat.h                                                    \
+          avio.h                                                        \
+          url.h                                                         \
+          version.h                                                     \
 
 OBJS = allformats.o         \
        avio.o               \
@@ -133,6 +136,8 @@ OBJS-$(CONFIG_ISS_DEMUXER)               += iss.o
 OBJS-$(CONFIG_IV8_DEMUXER)               += iv8.o
 OBJS-$(CONFIG_IVF_DEMUXER)               += ivfdec.o
 OBJS-$(CONFIG_IVF_MUXER)                 += ivfenc.o
+OBJS-$(CONFIG_JACOSUB_DEMUXER)           += jacosubdec.o
+OBJS-$(CONFIG_JACOSUB_MUXER)             += jacosubenc.o
 OBJS-$(CONFIG_JV_DEMUXER)                += jvdec.o
 OBJS-$(CONFIG_LATM_DEMUXER)              += rawdec.o
 OBJS-$(CONFIG_LATM_MUXER)                += latmenc.o
@@ -380,4 +385,8 @@ SKIPHEADERS-$(CONFIG_NETWORK)            += network.h rtsp.h
 CFLAGS += -I/usr/i686-mingw32/include/dvdread
 EXTRALIBS += -ldvdnav -ldvdread -ldvdcss
 TESTPROGS = seek
-TOOLS     = aviocat ismindex pktdumper probetest
+
+TOOLS     = aviocat                                                     \
+            ismindex                                                    \
+            pktdumper                                                   \
+            probetest                                                   \

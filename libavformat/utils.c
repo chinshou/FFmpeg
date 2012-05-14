@@ -297,6 +297,7 @@ int ffio_limit(AVIOContext *s, int size)
 int av_get_packet(AVIOContext *s, AVPacket *pkt, int size)
 {
     int ret;
+    int orig_size = size;
     size= ffio_limit(s, size);
 
     ret= av_new_packet(pkt, size);
@@ -311,6 +312,8 @@ int av_get_packet(AVIOContext *s, AVPacket *pkt, int size)
         av_free_packet(pkt);
     else
         av_shrink_packet(pkt, ret);
+    if (pkt->size < orig_size)
+        pkt->flags |= AV_PKT_FLAG_CORRUPT;
 
     return ret;
 }
@@ -1079,13 +1082,14 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
             }
 
             /* presentation is not delayed : PTS and DTS are the same */
-            if(pkt->pts == AV_NOPTS_VALUE)
+            if (pkt->pts == AV_NOPTS_VALUE)
                 pkt->pts = pkt->dts;
-            update_initial_timestamps(s, pkt->stream_index, pkt->pts, pkt->pts);
-            if(pkt->pts == AV_NOPTS_VALUE)
+            update_initial_timestamps(s, pkt->stream_index, pkt->pts,
+                                      pkt->pts);
+            if (pkt->pts == AV_NOPTS_VALUE)
                 pkt->pts = st->cur_dts;
             pkt->dts = pkt->pts;
-            if(pkt->pts != AV_NOPTS_VALUE)
+            if (pkt->pts != AV_NOPTS_VALUE)
                 st->cur_dts = pkt->pts + duration;
         }
     }
@@ -1977,15 +1981,13 @@ static int has_duration(AVFormatContext *ic)
 {
     int i;
     AVStream *st;
-    if(ic->duration != AV_NOPTS_VALUE)
-        return 1;
 
     for(i = 0;i < ic->nb_streams; i++) {
         st = ic->streams[i];
         if (st->duration != AV_NOPTS_VALUE)
             return 1;
     }
-    if (ic->duration)
+    if (ic->duration != AV_NOPTS_VALUE)
         return 1;
     return 0;
 }
@@ -2522,6 +2524,12 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
         if (read_size >= ic->probesize) {
             ret = count;
             av_log(ic, AV_LOG_DEBUG, "Probe buffer size limit %d reached\n", ic->probesize);
+            for (i = 0; i < ic->nb_streams; i++)
+                if (!ic->streams[i]->r_frame_rate.num &&
+                    ic->streams[i]->info->duration_count <= 1)
+                    av_log(ic, AV_LOG_WARNING,
+                           "Stream #%d: not enough frames to estimate rate; "
+                           "consider increasing probesize\n", i);
             break;
         }
 

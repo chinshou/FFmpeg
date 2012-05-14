@@ -33,7 +33,6 @@ struct gdi_ctx {
     int y_off;
 };
 
-//static int gdi_read_header(AVFormatContext *s, AVFormatParameters *ap)
 static int gdi_read_header(AVFormatContext *s)
 {
     struct gdi_ctx *ctx = s->priv_data;
@@ -59,6 +58,7 @@ static int gdi_read_header(AVFormatContext *s)
 
     width  = width  - ctx->x_off;
     height = height - ctx->y_off;
+
 
     ctx->hDesktopWnd = GetDesktopWindow( );
     ctx->hDesktopDC = GetDC( ctx->hDesktopWnd );
