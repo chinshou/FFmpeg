@@ -74,6 +74,7 @@ typedef int x86_reg;
 #if ARCH_X86_64 && defined(PIC)
 #    define BROKEN_RELOCATIONS 1
 #endif
+#    define BROKEN_RELOCATIONS 1
 
 /*
  * If gcc is not set to support sse (-msse) it will not accept xmm registers

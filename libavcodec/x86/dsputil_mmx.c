@@ -2854,13 +2854,14 @@ static void dsputil_init_mmx2(DSPContext *c, AVCodecContext *avctx,
     }
 
     if (CONFIG_H264QPEL) {
+#if 0    	    
         SET_QPEL_FUNCS(put_qpel,        0, 16, mmx2, );
         SET_QPEL_FUNCS(put_qpel,        1,  8, mmx2, );
         SET_QPEL_FUNCS(put_no_rnd_qpel, 0, 16, mmx2, );
         SET_QPEL_FUNCS(put_no_rnd_qpel, 1,  8, mmx2, );
         SET_QPEL_FUNCS(avg_qpel,        0, 16, mmx2, );
         SET_QPEL_FUNCS(avg_qpel,        1,  8, mmx2, );
-
+#endif
         if (!high_bit_depth) {
             SET_QPEL_FUNCS(put_h264_qpel, 0, 16, mmx2, );
             SET_QPEL_FUNCS(put_h264_qpel, 1,  8, mmx2, );
@@ -2954,13 +2955,14 @@ static void dsputil_init_3dnow(DSPContext *c, AVCodecContext *avctx,
     }
 
     if (CONFIG_H264QPEL) {
+#if 0    	    
         SET_QPEL_FUNCS(put_qpel,        0, 16, 3dnow, );
         SET_QPEL_FUNCS(put_qpel,        1,  8, 3dnow, );
         SET_QPEL_FUNCS(put_no_rnd_qpel, 0, 16, 3dnow, );
         SET_QPEL_FUNCS(put_no_rnd_qpel, 1,  8, 3dnow, );
         SET_QPEL_FUNCS(avg_qpel,        0, 16, 3dnow, );
         SET_QPEL_FUNCS(avg_qpel,        1,  8, 3dnow, );
-
+#endif
         if (!high_bit_depth) {
             SET_QPEL_FUNCS(put_h264_qpel, 0, 16, 3dnow, );
             SET_QPEL_FUNCS(put_h264_qpel, 1,  8, 3dnow, );

@@ -21,8 +21,8 @@
  * OpenAL 1.1 capture device for libavdevice
  **/
 
-#include <AL/al.h>
-#include <AL/alc.h>
+#include <OpenAL/al.h>
+#include <OpenAL/alc.h>
 
 #include "libavutil/opt.h"
 #include "libavformat/internal.h"
@@ -187,10 +187,17 @@ static int read_packet(AVFormatContext* ctx, AVPacket *pkt)
     ALCint nb_samples;
 
     /* Get number of samples available */
+    while (1){
     alcGetIntegerv(ad->device, ALC_CAPTURE_SAMPLES, (ALCsizei) sizeof(ALCint), &nb_samples);
     if (error = al_get_error(ad->device, &error_msg)) goto fail;
 
     /* Create a packet of appropriate size */
+        if (!nb_samples)
+    	    usleep(1000);
+        else
+    	    break;
+    }
+    
     av_new_packet(pkt, nb_samples*ad->sample_step);
     pkt->pts = av_gettime();
 

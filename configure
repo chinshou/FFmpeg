@@ -1627,7 +1627,7 @@ bktr_indev_deps_any="dev_bktr_ioctl_bt848_h machine_ioctl_bt848_h dev_video_bktr
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
-#gdi_indev_deps="GetDeviceCaps"
+gdi_indev_deps="GetDeviceCaps"
 gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 jack_indev_deps="jack_jack_h sem_timedwait"
@@ -1646,7 +1646,7 @@ v4l_indev_deps="linux_videodev_h"
 v4l2_indev_deps_any="linux_videodev2_h sys_videoio_h"
 vfwcap_indev_deps="capCreateCaptureWindow vfwcap_defines"
 vfwcap_indev_extralibs="-lavicap32"
-#waveform_indev_deps="waveInOpen"
+waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 x11_grab_device_indev_deps="x11grab XShmCreateImage"
 
@@ -3240,10 +3240,10 @@ enabled libx264    && require  libx264 x264.h x264_encoder_encode -lx264 &&
                         die "ERROR: libx264 version must be >= 0.118."; }
 enabled libxavs    && require  libxavs xavs.h xavs_encoder_encode -lxavs
 enabled libxvid    && require  libxvid xvid.h xvid_global -lxvidcore
-enabled openal     && { { for al_libs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32"; do
-                        check_lib 'AL/al.h' alGetError "${al_libs}" && break; done } ||
+enabled openal     && { { for al_libs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32" "-Wl,-framework,OpenAL"; do
+                        check_lib 'OpenAL/al.h' alGetError "${al_libs}" && break; done } ||
                         die "ERROR: openal not found"; } &&
-                      { check_cpp_condition "AL/al.h" "defined(AL_VERSION_1_1)" ||
+                      { check_cpp_condition "OpenAL/al.h" "defined(AL_VERSION_1_1)" ||
                         die "ERROR: openal version must be 1.1 or compatible"; }
 enabled openssl    && { check_lib openssl/ssl.h SSL_library_init -lssl -lcrypto ||
                         check_lib openssl/ssl.h SSL_library_init -lssl32 -leay32 ||
