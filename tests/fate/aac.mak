@@ -72,10 +72,10 @@ FATE_AAC_CT = sbr_bc-ps_i.3gp  \
 FATE_AAC += $(FATE_AAC_CT:%=fate-aac-ct-%)
 
 FATE_AAC_ENCODE += fate-aac-aref-encode
-fate-aac-aref-encode: $(AREF)
+fate-aac-aref-encode: ./tests/data/asynth-44100-2.wav
 fate-aac-aref-encode: CMD = enc_dec_pcm adts wav s16le $(REF) -strict -2 -c:a aac -b:a 512k
 fate-aac-aref-encode: CMP = stddev
-fate-aac-aref-encode: REF = ./tests/data/acodec.ref.wav
+fate-aac-aref-encode: REF = ./tests/data/asynth-44100-2.wav
 fate-aac-aref-encode: CMP_SHIFT = -4096
 fate-aac-aref-encode: CMP_TARGET = 1862
 fate-aac-aref-encode: SIZE_TOLERANCE = 2464
@@ -88,7 +88,8 @@ fate-aac-ln-encode: CMP_SHIFT = -4096
 fate-aac-ln-encode: CMP_TARGET = 65
 fate-aac-ln-encode: SIZE_TOLERANCE = 3560
 
-FATE_TESTS += $(FATE_AAC) $(FATE_AAC_ENCODE)
+FATE_SAMPLES_FFMPEG += $(FATE_AAC) $(FATE_AAC_ENCODE)
 fate-aac: $(FATE_AAC) $(FATE_AAC_ENCODE)
+
 $(FATE_AAC): CMP = oneoff
 $(FATE_AAC): FUZZ = 2

@@ -37,6 +37,9 @@
  */
 
 #include "avfilter.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 #include "libavutil/common.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
@@ -129,7 +132,7 @@ static void set_filter_param(FilterParam *fp, int msize_x, int msize_y, double a
     fp->halfscale = 1 << (fp->scalebits - 1);
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     UnsharpContext *unsharp = ctx->priv;
     int lmsize_x = 5, cmsize_x = 5;
@@ -162,7 +165,7 @@ static int query_formats(AVFilterContext *ctx)
         PIX_FMT_YUVJ444P, PIX_FMT_YUVJ440P, PIX_FMT_NONE
     };
 
-    avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
 
     return 0;
 }
@@ -174,7 +177,7 @@ static void init_filter_param(AVFilterContext *ctx, FilterParam *fp, const char 
 
     effect = fp->amount == 0 ? "none" : fp->amount < 0 ? "blur" : "sharpen";
 
-    av_log(ctx, AV_LOG_INFO, "effect:%s type:%s msize_x:%d msize_y:%d amount:%0.2f\n",
+    av_log(ctx, AV_LOG_VERBOSE, "effect:%s type:%s msize_x:%d msize_y:%d amount:%0.2f\n",
            effect, effect_type, fp->msize_x, fp->msize_y, fp->amount / 65535.0);
 
     for (z = 0; z < 2 * fp->steps_y; z++)
@@ -223,8 +226,8 @@ static void end_frame(AVFilterLink *link)
     apply_unsharp(out->data[2], out->linesize[2], in->data[2], in->linesize[2], cw,      ch,      &unsharp->chroma);
 
     avfilter_unref_buffer(in);
-    avfilter_draw_slice(link->dst->outputs[0], 0, link->h, 1);
-    avfilter_end_frame(link->dst->outputs[0]);
+    ff_draw_slice(link->dst->outputs[0], 0, link->h, 1);
+    ff_end_frame(link->dst->outputs[0]);
     avfilter_unref_buffer(out);
 }
 

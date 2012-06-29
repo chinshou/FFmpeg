@@ -25,6 +25,9 @@
  */
 
 #include "avfilter.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 #include "libavutil/avstring.h"
 #include "libavutil/eval.h"
 #include "libavutil/pixdesc.h"
@@ -67,7 +70,7 @@ enum var_name {
 
 static int query_formats(AVFilterContext *ctx)
 {
-    avfilter_set_common_pixel_formats(ctx, ff_draw_supported_pixel_formats(0));
+    ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
     return 0;
 }
 
@@ -87,7 +90,7 @@ typedef struct {
     int needs_copy;
 } PadContext;
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     PadContext *pad = ctx->priv;
     char color_string[128] = "black";
@@ -181,7 +184,7 @@ static int config_input(AVFilterLink *inlink)
     pad->in_w = ff_draw_round_to_sub(&pad->draw, 0, -1, inlink->w);
     pad->in_h = ff_draw_round_to_sub(&pad->draw, 1, -1, inlink->h);
 
-    av_log(ctx, AV_LOG_INFO, "w:%d h:%d -> w:%d h:%d x:%d y:%d color:0x%02X%02X%02X%02X\n",
+    av_log(ctx, AV_LOG_VERBOSE, "w:%d h:%d -> w:%d h:%d x:%d y:%d color:0x%02X%02X%02X%02X\n",
            inlink->w, inlink->h, pad->w, pad->h, pad->x, pad->y,
            pad->rgba_color[0], pad->rgba_color[1], pad->rgba_color[2], pad->rgba_color[3]);
 
@@ -218,9 +221,9 @@ static AVFilterBufferRef *get_video_buffer(AVFilterLink *inlink, int perms, int 
     PadContext *pad = inlink->dst->priv;
     int align = (perms&AV_PERM_ALIGN) ? AVFILTER_ALIGN : 1;
 
-    AVFilterBufferRef *picref = avfilter_get_video_buffer(inlink->dst->outputs[0], perms,
-                                                       w + (pad->w - pad->in_w) + 4*align,
-                                                       h + (pad->h - pad->in_h));
+    AVFilterBufferRef *picref = ff_get_video_buffer(inlink->dst->outputs[0], perms,
+                                                    w + (pad->w - pad->in_w) + 4*align,
+                                                    h + (pad->h - pad->in_h));
     int plane;
 
     picref->video->w = w;
@@ -281,13 +284,13 @@ static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *inpicref)
           )
             break;
     }
-    pad->needs_copy= plane < 4 && outpicref->data[plane];
+    pad->needs_copy= plane < 4 && outpicref->data[plane] || !(outpicref->perms & AV_PERM_WRITE);
     if(pad->needs_copy){
         av_log(inlink->dst, AV_LOG_DEBUG, "Direct padding impossible allocating new frame\n");
         avfilter_unref_buffer(outpicref);
-        outpicref = avfilter_get_video_buffer(inlink->dst->outputs[0], AV_PERM_WRITE | AV_PERM_NEG_LINESIZES,
-                                                       FFMAX(inlink->w, pad->w),
-                                                       FFMAX(inlink->h, pad->h));
+        outpicref = ff_get_video_buffer(inlink->dst->outputs[0], AV_PERM_WRITE | AV_PERM_NEG_LINESIZES,
+                                        FFMAX(inlink->w, pad->w),
+                                        FFMAX(inlink->h, pad->h));
         avfilter_copy_buffer_ref_props(outpicref, inpicref);
     }
 
@@ -296,7 +299,7 @@ static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *inpicref)
     outpicref->video->w = pad->w;
     outpicref->video->h = pad->h;
 
-    avfilter_start_frame(inlink->dst->outputs[0], avfilter_ref_buffer(outpicref, ~0));
+    ff_start_frame(inlink->dst->outputs[0], avfilter_ref_buffer(outpicref, ~0));
 }
 
 static void draw_send_bar_slice(AVFilterLink *link, int y, int h, int slice_dir, int before_slice)
@@ -319,7 +322,7 @@ static void draw_send_bar_slice(AVFilterLink *link, int y, int h, int slice_dir,
                           link->dst->outputs[0]->out_buf->data,
                           link->dst->outputs[0]->out_buf->linesize,
                           0, bar_y, pad->w, bar_h);
-        avfilter_draw_slice(link->dst->outputs[0], bar_y, bar_h, slice_dir);
+        ff_draw_slice(link->dst->outputs[0], bar_y, bar_h, slice_dir);
     }
 }
 
@@ -352,7 +355,7 @@ static void draw_slice(AVFilterLink *link, int y, int h, int slice_dir)
     /* right border */
     ff_fill_rectangle(&pad->draw, &pad->color, outpic->data, outpic->linesize,
                       pad->x + pad->in_w, y, pad->w - pad->x - pad->in_w, h);
-    avfilter_draw_slice(link->dst->outputs[0], y, h, slice_dir);
+    ff_draw_slice(link->dst->outputs[0], y, h, slice_dir);
 
     draw_send_bar_slice(link, y, h, slice_dir, -1);
 }

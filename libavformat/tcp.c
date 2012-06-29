@@ -20,7 +20,6 @@
  */
 #include "avformat.h"
 #include "libavutil/parseutils.h"
-#include <unistd.h>
 #include "internal.h"
 #include "network.h"
 #include "os_support.h"
@@ -28,7 +27,6 @@
 #if HAVE_POLL_H
 #include <poll.h>
 #endif
-#include <sys/time.h>
 
 typedef struct TCPContext {
     int fd;
@@ -65,7 +63,12 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     snprintf(portstr, sizeof(portstr), "%d", port);
-    ret = getaddrinfo(hostname, portstr, &hints, &ai);
+    if (listen_socket)
+        hints.ai_flags |= AI_PASSIVE;
+    if (!hostname[0])
+        ret = getaddrinfo(NULL, portstr, &hints, &ai);
+    else
+        ret = getaddrinfo(hostname, portstr, &hints, &ai);
     if (ret) {
         av_log(h, AV_LOG_ERROR,
                "Failed to resolve hostname %s: %s\n",
@@ -83,9 +86,23 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
 
     if (listen_socket) {
         int fd1;
+        int reuse = 1;
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
         ret = bind(fd, cur_ai->ai_addr, cur_ai->ai_addrlen);
-        listen(fd, 1);
+        if (ret) {
+            ret = ff_neterrno();
+            goto fail1;
+        }
+        ret = listen(fd, 1);
+        if (ret) {
+            ret = ff_neterrno();
+            goto fail1;
+        }
         fd1 = accept(fd, NULL, NULL);
+        if (fd1 < 0) {
+            ret = ff_neterrno();
+            goto fail1;
+        }
         closesocket(fd);
         fd = fd1;
         ff_socket_nonblock(fd, 1);
@@ -125,12 +142,15 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
         }
         /* test error */
         optlen = sizeof(ret);
-        getsockopt (fd, SOL_SOCKET, SO_ERROR, &ret, &optlen);
+        if (getsockopt (fd, SOL_SOCKET, SO_ERROR, &ret, &optlen))
+            ret = AVUNERROR(ff_neterrno());
         if (ret != 0) {
+            char errbuf[100];
+            ret = AVERROR(ret);
+            av_strerror(ret, errbuf, sizeof(errbuf));
             av_log(h, AV_LOG_ERROR,
                    "TCP connection to %s:%d failed: %s\n",
-                   hostname, port, strerror(ret));
-            ret = AVERROR(ret);
+                   hostname, port, errbuf);
             goto fail;
         }
     }
@@ -182,6 +202,22 @@ static int tcp_write(URLContext *h, const uint8_t *buf, int size)
     return ret < 0 ? ff_neterrno() : ret;
 }
 
+static int tcp_shutdown(URLContext *h, int flags)
+{
+    TCPContext *s = h->priv_data;
+    int how;
+
+    if (flags & AVIO_FLAG_WRITE && flags & AVIO_FLAG_READ) {
+        how = SHUT_RDWR;
+    } else if (flags & AVIO_FLAG_WRITE) {
+        how = SHUT_WR;
+    } else {
+        how = SHUT_RD;
+    }
+
+    return shutdown(s->fd, how);
+}
+
 static int tcp_close(URLContext *h)
 {
     TCPContext *s = h->priv_data;
@@ -202,6 +238,7 @@ URLProtocol ff_tcp_protocol = {
     .url_write           = tcp_write,
     .url_close           = tcp_close,
     .url_get_file_handle = tcp_get_file_handle,
+    .url_shutdown        = tcp_shutdown,
     .priv_data_size      = sizeof(TCPContext),
     .flags               = URL_PROTOCOL_FLAG_NETWORK,
 };

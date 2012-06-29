@@ -201,6 +201,10 @@
 #include "avio.h"
 #include "libavformat/version.h"
 
+#if FF_API_AV_GETTIME
+#include "libavutil/time.h"
+#endif
+
 struct AVFormatContext;
 
 
@@ -351,10 +355,16 @@ typedef struct AVProbeData {
 #define AVFMT_NOGENSEARCH   0x4000 /**< Format does not allow to fallback to generic search */
 #define AVFMT_NO_BYTE_SEEK  0x8000 /**< Format does not allow seeking by bytes */
 #define AVFMT_ALLOW_FLUSH  0x10000 /**< Format allows flushing. If not set, the muxer will not receive a NULL packet in the write_packet function. */
+#if LIBAVFORMAT_VERSION_MAJOR <= 54
+#define AVFMT_TS_NONSTRICT 0x8020000 //we try to be compatible to the ABIs of ffmpeg and major forks
+#else
+#define AVFMT_TS_NONSTRICT 0x20000
+#endif
+                                   /**< Format does not require strictly
+                                        increasing timestamps, but they must
+                                        still be monotonic */
+
 #define AVFMT_SEEK_TO_PTS   0x4000000 /**< Seeking is based on PTS */
-#define AVFMT_TS_NONSTRICT  0x8000000 /**< Format does not require strictly
-                                           increasing timestamps, but they must
-                                           still be monotonic */
 
 /**
  * @addtogroup lavf_encoding
@@ -377,7 +387,8 @@ typedef struct AVOutputFormat {
     /**
      * can use flags: AVFMT_NOFILE, AVFMT_NEEDNUMBER, AVFMT_RAWPICTURE,
      * AVFMT_GLOBALHEADER, AVFMT_NOTIMESTAMPS, AVFMT_VARIABLE_FPS,
-     * AVFMT_NODIMENSIONS, AVFMT_NOSTREAMS, AVFMT_ALLOW_FLUSH
+     * AVFMT_NODIMENSIONS, AVFMT_NOSTREAMS, AVFMT_ALLOW_FLUSH,
+     * AVFMT_TS_NONSTRICT
      */
     int flags;
 
@@ -454,7 +465,7 @@ typedef struct AVInputFormat {
     /**
      * Can use flags: AVFMT_NOFILE, AVFMT_NEEDNUMBER, AVFMT_SHOW_IDS,
      * AVFMT_GENERIC_INDEX, AVFMT_TS_DISCONT, AVFMT_NOBINSEARCH,
-     * AVFMT_NOGENSEARCH, AVFMT_NO_BYTE_SEEK.
+     * AVFMT_NOGENSEARCH, AVFMT_NO_BYTE_SEEK, AVFMT_SEEK_TO_PTS.
      */
     int flags;
 
@@ -567,6 +578,7 @@ enum AVStreamParseType {
     AVSTREAM_PARSE_HEADERS,    /**< Only parse headers, do not repack. */
     AVSTREAM_PARSE_TIMESTAMPS, /**< full parsing and interpolation of timestamps for frames not starting on a packet boundary */
     AVSTREAM_PARSE_FULL_ONCE,  /**< full parsing and repack of the first frame only, only implemented for H.264 currently */
+    AVSTREAM_PARSE_FULL_RAW=MKTAG(0,'R','A','W'),       /**< full parsing and repack with timestamp generation for raw */
 };
 
 typedef struct AVIndexEntry {
@@ -718,7 +730,7 @@ typedef struct AVStream {
     /**
      * Stream information used internally by av_find_stream_info()
      */
-#define MAX_STD_TIMEBASES (60*12+5)
+#define MAX_STD_TIMEBASES (60*12+6)
     struct {
         int64_t last_dts;
         int64_t duration_gcd;
@@ -825,6 +837,17 @@ typedef struct AVChapter {
     int64_t start, end;     ///< chapter start/end time in time_base units
     AVDictionary *metadata;
 } AVChapter;
+
+
+/**
+ * The duration of a video can be estimated through various ways, and this enum can be used
+ * to know how the duration was estimated.
+ */
+enum AVDurationEstimationMethod {
+    AVFMT_DURATION_FROM_PTS,    ///< Duration accurately estimated from PTSes
+    AVFMT_DURATION_FROM_STREAM, ///< Duration estimated from a stream with a known duration
+    AVFMT_DURATION_FROM_BITRATE ///< Duration estimated from bitrate (less accurate)
+};
 
 /**
  * Format I/O context.
@@ -1091,7 +1114,20 @@ typedef struct AVFormatContext {
     int raw_packet_buffer_remaining_size;
 
     int avio_flags;
+
+    /**
+     * The duration field can be estimated through various ways, and this field can be used
+     * to know how the duration was estimated.
+     */
+    enum AVDurationEstimationMethod duration_estimation_method;
 } AVFormatContext;
+
+/**
+ * Returns the method used to set ctx->duration.
+ *
+ * @return AVFMT_DURATION_FROM_PTS, AVFMT_DURATION_FROM_STREAM, or AVFMT_DURATION_FROM_BITRATE.
+ */
+enum AVDurationEstimationMethod av_fmt_ctx_get_duration_estimation_method(const AVFormatContext* ctx);
 
 typedef struct AVPacketList {
     AVPacket pkt;
@@ -1830,11 +1866,6 @@ void av_dump_format(AVFormatContext *ic,
                     int is_output);
 
 /**
- * Get the current time in microseconds.
- */
-int64_t av_gettime(void);
-
-/**
  * Return in 'buf' the path with '%d' replaced by a number.
  *
  * Also handles the '%0nd' format where 'n' is the total number
@@ -1911,6 +1942,26 @@ const struct AVCodecTag *avformat_get_riff_video_tags(void);
  * @return the table mapping RIFF FourCCs for audio to CodecID.
  */
 const struct AVCodecTag *avformat_get_riff_audio_tags(void);
+
+/**
+ * Guesses the sample aspect ratio of a frame, based on both the stream and the
+ * frame aspect ratio.
+ *
+ * Since the frame aspect ratio is set by the codec but the stream aspect ratio
+ * is set by the demuxer, these two may not be equal. This function tries to
+ * return the value that you should use if you would like to display the frame.
+ *
+ * Basic logic is to use the stream aspect ratio if it is set to something sane
+ * otherwise use the frame aspect ratio. This way a container setting, which is
+ * usually easy to modify can override the coded value in the frames.
+ *
+ * @param format the format context which the stream is part of
+ * @param stream the stream which the frame is part of
+ * @param frame the frame with the aspect ratio to be determined
+ * @return the guessed (valid) sample_aspect_ratio, 0/1 if no idea
+ */
+AVRational av_guess_sample_aspect_ratio(AVFormatContext *format, AVStream *stream, AVFrame *frame);
+
 /**
  * @}
  */

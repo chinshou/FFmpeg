@@ -25,6 +25,7 @@
  * H.261 decoder.
  */
 
+#include "libavutil/avassert.h"
 #include "dsputil.h"
 #include "avcodec.h"
 #include "mpegvideo.h"
@@ -629,8 +630,8 @@ retry:
     }
     ff_MPV_frame_end(s);
 
-assert(s->current_picture.f.pict_type == s->current_picture_ptr->f.pict_type);
-assert(s->current_picture.f.pict_type == s->pict_type);
+    av_assert0(s->current_picture.f.pict_type == s->current_picture_ptr->f.pict_type);
+    av_assert0(s->current_picture.f.pict_type == s->pict_type);
 
     *pict = s->current_picture_ptr->f;
     ff_print_debug_info(s, pict);
@@ -658,5 +659,6 @@ AVCodec ff_h261_decoder = {
     .close          = h261_decode_end,
     .decode         = h261_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
+    .max_lowres     = 3,
     .long_name      = NULL_IF_CONFIG_SMALL("H.261"),
 };

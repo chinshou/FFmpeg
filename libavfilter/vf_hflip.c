@@ -25,6 +25,9 @@
  */
 
 #include "avfilter.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/imgutils.h"
@@ -64,7 +67,7 @@ static int query_formats(AVFilterContext *ctx)
         PIX_FMT_NONE
     };
 
-    avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
     return 0;
 }
 
@@ -78,6 +81,21 @@ static int config_props(AVFilterLink *inlink)
     flip->vsub = av_pix_fmt_descriptors[inlink->format].log2_chroma_h;
 
     return 0;
+}
+
+static void start_frame(AVFilterLink *inlink, AVFilterBufferRef *picref)
+{
+    AVFilterLink *outlink = inlink->dst->outputs[0];
+
+    outlink->out_buf =
+        ff_get_video_buffer(outlink, AV_PERM_WRITE, outlink->w, outlink->h);
+    avfilter_copy_buffer_ref_props(outlink->out_buf, picref);
+
+    /* copy palette if required */
+    if (av_pix_fmt_descriptors[inlink->format].flags & PIX_FMT_PAL)
+        memcpy(inlink->dst->outputs[0]->out_buf->data[1], picref->data[1], AVPALETTE_SIZE);
+
+    ff_start_frame(outlink, avfilter_ref_buffer(outlink->out_buf, ~0));
 }
 
 static void draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
@@ -141,7 +159,7 @@ static void draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir)
         }
     }
 
-    avfilter_draw_slice(inlink->dst->outputs[0], y, h, slice_dir);
+    ff_draw_slice(inlink->dst->outputs[0], y, h, slice_dir);
 }
 
 AVFilter avfilter_vf_hflip = {
@@ -152,6 +170,7 @@ AVFilter avfilter_vf_hflip = {
 
     .inputs    = (const AVFilterPad[]) {{ .name      = "default",
                                     .type            = AVMEDIA_TYPE_VIDEO,
+                                    .start_frame     = start_frame,
                                     .draw_slice      = draw_slice,
                                     .config_props    = config_props,
                                     .min_perms       = AV_PERM_READ, },

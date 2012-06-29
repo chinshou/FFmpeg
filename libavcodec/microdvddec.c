@@ -101,6 +101,8 @@ static char *microdvd_load_tags(struct microdvd_tag *tags, char *s)
         case 'C':
             tag.persistent = MICRODVD_PERSISTENT_ON;
         case 'c':
+            if (*s == '$')
+                s++;
             tag.data1 = strtol(s, &s, 16) & 0x00ffffff;
             if (*s != '}')
                 break;
@@ -226,7 +228,7 @@ static void microdvd_close_no_persistent_tags(AVBPrint *new_line,
 {
     int i, sidx;
 
-    for (i = sizeof(MICRODVD_TAGS) - 2; i; i--) {
+    for (i = sizeof(MICRODVD_TAGS) - 2; i >= 0; i--) {
         if (tags[i].persistent != MICRODVD_PERSISTENT_OFF)
             continue;
         switch (tags[i].key) {
@@ -261,10 +263,6 @@ static int microdvd_decode_frame(AVCodecContext *avctx,
     char *decoded_sub;
     char *line = avpkt->data;
     char *end = avpkt->data + avpkt->size;
-    int64_t frame_start = avpkt->pts;
-    int64_t frame_end   = avpkt->pts + avpkt->duration;
-    int ts_start = av_rescale_q(frame_start, avctx->time_base, (AVRational){1,100});
-    int ts_end   = av_rescale_q(frame_end,   avctx->time_base, (AVRational){1,100});
     struct microdvd_tag tags[sizeof(MICRODVD_TAGS) - 1] = {{0}};
 
     if (avpkt->size <= 0)
@@ -299,8 +297,14 @@ static int microdvd_decode_frame(AVCodecContext *avctx,
 
 end:
     av_bprint_finalize(&new_line, &decoded_sub);
-    if (*decoded_sub)
-        ff_ass_add_rect(sub, decoded_sub, ts_start, ts_end, 0);
+    if (*decoded_sub) {
+        int64_t start    = avpkt->pts;
+        int64_t duration = avpkt->duration;
+        int ts_start     = av_rescale_q(start,    avctx->time_base, (AVRational){1,100});
+        int ts_duration  = duration != -1 ?
+                           av_rescale_q(duration, avctx->time_base, (AVRational){1,100}) : -1;
+        ff_ass_add_rect(sub, decoded_sub, ts_start, ts_duration, 0);
+    }
     av_free(decoded_sub);
 
     *got_sub_ptr = sub->num_rects > 0;

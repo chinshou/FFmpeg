@@ -24,6 +24,9 @@
  */
 
 #include "avfilter.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 #include "libavutil/avstring.h"
 #include "libavutil/eval.h"
 #include "libavutil/mathematics.h"
@@ -81,7 +84,7 @@ typedef struct {
     char h_expr[256];           ///< height expression string
 } ScaleContext;
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     ScaleContext *scale = ctx->priv;
     const char *p;
@@ -130,21 +133,21 @@ static int query_formats(AVFilterContext *ctx)
         formats = NULL;
         for (pix_fmt = 0; pix_fmt < PIX_FMT_NB; pix_fmt++)
             if (   sws_isSupportedInput(pix_fmt)
-                && (ret = avfilter_add_format(&formats, pix_fmt)) < 0) {
-                avfilter_formats_unref(&formats);
+                && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
+                ff_formats_unref(&formats);
                 return ret;
             }
-        avfilter_formats_ref(formats, &ctx->inputs[0]->out_formats);
+        ff_formats_ref(formats, &ctx->inputs[0]->out_formats);
     }
     if (ctx->outputs[0]) {
         formats = NULL;
         for (pix_fmt = 0; pix_fmt < PIX_FMT_NB; pix_fmt++)
             if (   (sws_isSupportedOutput(pix_fmt) || pix_fmt == PIX_FMT_PAL8)
-                && (ret = avfilter_add_format(&formats, pix_fmt)) < 0) {
-                avfilter_formats_unref(&formats);
+                && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
+                ff_formats_unref(&formats);
                 return ret;
             }
-        avfilter_formats_ref(formats, &ctx->outputs[0]->in_formats);
+        ff_formats_ref(formats, &ctx->outputs[0]->in_formats);
     }
 
     return 0;
@@ -275,15 +278,31 @@ static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
     AVFilterLink *outlink = link->dst->outputs[0];
     AVFilterBufferRef *outpicref;
 
+    if(   picref->video->w != link->w
+       || picref->video->h != link->h
+       || picref->format   != link->format) {
+        int ret;
+        snprintf(scale->w_expr, sizeof(scale->w_expr)-1, "%d", outlink->w);
+        snprintf(scale->h_expr, sizeof(scale->h_expr)-1, "%d", outlink->h);
+
+        link->dst->inputs[0]->format = picref->format;
+        link->dst->inputs[0]->w      = picref->video->w;
+        link->dst->inputs[0]->h      = picref->video->h;
+
+        if ((ret = config_props(outlink)) < 0)
+            av_assert0(0); //what to do here ?
+    }
+
+
     if (!scale->sws) {
-        avfilter_start_frame(outlink, avfilter_ref_buffer(picref, ~0));
+        ff_start_frame(outlink, avfilter_ref_buffer(picref, ~0));
         return;
     }
 
     scale->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
     scale->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
 
-    outpicref = avfilter_get_video_buffer(outlink, AV_PERM_WRITE|AV_PERM_ALIGN, outlink->w, outlink->h);
+    outpicref = ff_get_video_buffer(outlink, AV_PERM_WRITE|AV_PERM_ALIGN, outlink->w, outlink->h);
     avfilter_copy_buffer_ref_props(outpicref, picref);
     outpicref->video->w = outlink->w;
     outpicref->video->h = outlink->h;
@@ -298,7 +317,7 @@ static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
               INT_MAX);
 
     scale->slice_y = 0;
-    avfilter_start_frame(outlink, avfilter_ref_buffer(outpicref, ~0));
+    ff_start_frame(outlink, avfilter_ref_buffer(outpicref, ~0));
 }
 
 static int scale_slice(AVFilterLink *link, struct SwsContext *sws, int y, int h, int mul, int field)
@@ -333,7 +352,7 @@ static void draw_slice(AVFilterLink *link, int y, int h, int slice_dir)
     int out_h;
 
     if (!scale->sws) {
-        avfilter_draw_slice(link->dst->outputs[0], y, h, slice_dir);
+        ff_draw_slice(link->dst->outputs[0], y, h, slice_dir);
         return;
     }
 
@@ -350,7 +369,7 @@ static void draw_slice(AVFilterLink *link, int y, int h, int slice_dir)
 
     if (slice_dir == -1)
         scale->slice_y -= out_h;
-    avfilter_draw_slice(link->dst->outputs[0], scale->slice_y, out_h, slice_dir);
+    ff_draw_slice(link->dst->outputs[0], scale->slice_y, out_h, slice_dir);
     if (slice_dir == 1)
         scale->slice_y += out_h;
 }

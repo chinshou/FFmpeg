@@ -24,23 +24,67 @@
  * logging functions
  */
 
+#include "config.h"
+
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <stdlib.h>
 #include "avutil.h"
 #include "log.h"
+
+#define LINE_SZ 1024
 
 static int av_log_level = AV_LOG_INFO;
 static int flags;
 
 #if defined(_WIN32) && !defined(__MINGW32CE__)
 #include <windows.h>
-static const uint8_t color[] = { 12, 12, 12, 14, 7, 7, 10 };
+#include <io.h>
+static const uint8_t color[16 + AV_CLASS_CATEGORY_NB] = {
+    [AV_LOG_PANIC  /8] = 12,
+    [AV_LOG_FATAL  /8] = 12,
+    [AV_LOG_ERROR  /8] = 12,
+    [AV_LOG_WARNING/8] = 14,
+    [AV_LOG_INFO   /8] =  7,
+    [AV_LOG_VERBOSE/8] = 10,
+    [AV_LOG_DEBUG  /8] = 10,
+    [16+AV_CLASS_CATEGORY_NA              ] =  7,
+    [16+AV_CLASS_CATEGORY_INPUT           ] = 13,
+    [16+AV_CLASS_CATEGORY_OUTPUT          ] =  5,
+    [16+AV_CLASS_CATEGORY_MUXER           ] = 13,
+    [16+AV_CLASS_CATEGORY_DEMUXER         ] =  5,
+    [16+AV_CLASS_CATEGORY_ENCODER         ] = 11,
+    [16+AV_CLASS_CATEGORY_DECODER         ] =  3,
+    [16+AV_CLASS_CATEGORY_FILTER          ] = 10,
+    [16+AV_CLASS_CATEGORY_BITSTREAM_FILTER] =  9,
+};
+
 static int16_t background, attr_orig;
 static HANDLE con;
 #define set_color(x)  SetConsoleTextAttribute(con, background | color[x])
 #define reset_color() SetConsoleTextAttribute(con, attr_orig)
 #else
-static const uint8_t color[] = { 0x41, 0x41, 0x11, 0x03, 9, 9, 2 };
+
+static const uint8_t color[16 + AV_CLASS_CATEGORY_NB] = {
+    [AV_LOG_PANIC  /8] = 0x41,
+    [AV_LOG_FATAL  /8] = 0x41,
+    [AV_LOG_ERROR  /8] = 0x11,
+    [AV_LOG_WARNING/8] = 0x03,
+    [AV_LOG_INFO   /8] =    9,
+    [AV_LOG_VERBOSE/8] = 0x02,
+    [AV_LOG_DEBUG  /8] = 0x02,
+    [16+AV_CLASS_CATEGORY_NA              ] =    9,
+    [16+AV_CLASS_CATEGORY_INPUT           ] = 0x15,
+    [16+AV_CLASS_CATEGORY_OUTPUT          ] = 0x05,
+    [16+AV_CLASS_CATEGORY_MUXER           ] = 0x15,
+    [16+AV_CLASS_CATEGORY_DEMUXER         ] = 0x05,
+    [16+AV_CLASS_CATEGORY_ENCODER         ] = 0x16,
+    [16+AV_CLASS_CATEGORY_DECODER         ] = 0x06,
+    [16+AV_CLASS_CATEGORY_FILTER          ] = 0x12,
+    [16+AV_CLASS_CATEGORY_BITSTREAM_FILTER] = 0x14,
+};
+
 #define set_color(x)  fprintf(stderr, "\033[%d;3%dm", color[x] >> 4, color[x]&15)
 #define reset_color() fprintf(stderr, "\033[0m")
 #endif
@@ -84,6 +128,11 @@ const char *av_default_item_name(void *ptr)
     return (*(AVClass **) ptr)->class_name;
 }
 
+AVClassCategory av_default_get_category(void *ptr)
+{
+    return (*(AVClass **) ptr)->category;
+}
+
 static void sanitize(uint8_t *line){
     while(*line){
         if(*line < 0x08 || (*line > 0x0D && *line < 0x20))
@@ -92,40 +141,67 @@ static void sanitize(uint8_t *line){
     }
 }
 
-void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl,
-                        char *line, int line_size, int *print_prefix)
+static int get_category(void *ptr){
+    AVClass *avc = *(AVClass **) ptr;
+    if(    !avc
+        || (avc->version&0xFF)<100
+        ||  avc->version < (51 << 16 | 59 << 8)
+        ||  avc->category >= AV_CLASS_CATEGORY_NB) return AV_CLASS_CATEGORY_NA + 16;
+
+    if(avc->get_category)
+        return avc->get_category(ptr) + 16;
+
+    return avc->category + 16;
+}
+
+static void format_line(void *ptr, int level, const char *fmt, va_list vl,
+                        char part[3][LINE_SZ], int part_size, int *print_prefix, int type[2])
 {
     AVClass* avc = ptr ? *(AVClass **) ptr : NULL;
-    line[0] = 0;
+    part[0][0] = part[1][0] = part[2][0] = 0;
+    if(type) type[0] = type[1] = AV_CLASS_CATEGORY_NA + 16;
     if (*print_prefix && avc) {
         if (avc->parent_log_context_offset) {
             AVClass** parent = *(AVClass ***) (((uint8_t *) ptr) +
                                    avc->parent_log_context_offset);
             if (parent && *parent) {
-                snprintf(line, line_size, "[%s @ %p] ",
+                snprintf(part[0], part_size, "[%s @ %p] ",
                          (*parent)->item_name(parent), parent);
+                if(type) type[0] = get_category(((uint8_t *) ptr) + avc->parent_log_context_offset);
             }
         }
-        snprintf(line + strlen(line), line_size - strlen(line), "[%s @ %p] ",
+        snprintf(part[1], part_size, "[%s @ %p] ",
                  avc->item_name(ptr), ptr);
+        if(type) type[1] = get_category(ptr);
     }
 
-    vsnprintf(line + strlen(line), line_size - strlen(line), fmt, vl);
+    vsnprintf(part[2], part_size, fmt, vl);
 
-    *print_prefix = strlen(line) && line[strlen(line) - 1] == '\n';
+    *print_prefix = strlen(part[2]) && part[2][strlen(part[2]) - 1] == '\n';
+}
+
+void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl,
+                        char *line, int line_size, int *print_prefix)
+{
+    char part[3][LINE_SZ];
+    format_line(ptr, level, fmt, vl, part, sizeof(part[0]), print_prefix, NULL);
+    snprintf(line, line_size, "%s%s%s", part[0], part[1], part[2]);
 }
 
 void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
 {
     static int print_prefix = 1;
     static int count;
-    static char prev[1024];
-    char line[1024];
+    static char prev[LINE_SZ];
+    char part[3][LINE_SZ];
+    char line[LINE_SZ];
     static int is_atty;
+    int type[2];
 
     if (level > av_log_level)
         return;
-    av_log_format_line(ptr, level, fmt, vl, line, sizeof(line), &print_prefix);
+    format_line(ptr, level, fmt, vl, part, sizeof(part[0]), &print_prefix, type);
+    snprintf(line, sizeof(line), "%s%s%s", part[0], part[1], part[2]);
 
 #if HAVE_ISATTY
     if (!is_atty)
@@ -144,8 +220,12 @@ void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
         count = 0;
     }
     strcpy(prev, line);
-    sanitize(line);
-    colored_fputs(av_clip(level >> 3, 0, 6), line);
+    sanitize(part[0]);
+    colored_fputs(type[0], part[0]);
+    sanitize(part[1]);
+    colored_fputs(type[1], part[1]);
+    sanitize(part[2]);
+    colored_fputs(av_clip(level >> 3, 0, 6), part[2]);
 }
 
 static void (*av_log_callback)(void*, int, const char*, va_list) =
@@ -165,7 +245,8 @@ void av_log(void* avcl, int level, const char *fmt, ...)
 
 void av_vlog(void* avcl, int level, const char *fmt, va_list vl)
 {
-    av_log_callback(avcl, level, fmt, vl);
+    if(av_log_callback)
+        av_log_callback(avcl, level, fmt, vl);
 }
 
 int av_log_get_level(void)

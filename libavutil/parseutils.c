@@ -21,7 +21,6 @@
  * misc parsing utilities
  */
 
-#include <sys/time.h>
 #include <time.h>
 
 #include "avstring.h"
@@ -250,8 +249,8 @@ static const ColorEntry color_table[] = {
     { "LightCoral",           { 0xF0, 0x80, 0x80 } },
     { "LightCyan",            { 0xE0, 0xFF, 0xFF } },
     { "LightGoldenRodYellow", { 0xFA, 0xFA, 0xD2 } },
-    { "LightGrey",            { 0xD3, 0xD3, 0xD3 } },
     { "LightGreen",           { 0x90, 0xEE, 0x90 } },
+    { "LightGrey",            { 0xD3, 0xD3, 0xD3 } },
     { "LightPink",            { 0xFF, 0xB6, 0xC1 } },
     { "LightSalmon",          { 0xFF, 0xA0, 0x7A } },
     { "LightSeaGreen",        { 0x20, 0xB2, 0xAA } },
@@ -724,9 +723,9 @@ int main(void)
         for (i = 0; i < FF_ARRAY_ELEMS(rates); i++) {
             int ret;
             AVRational q = (AVRational){0, 0};
-            ret = av_parse_video_rate(&q, rates[i]),
-            printf("'%s' -> %d/%d ret:%d\n",
-                   rates[i], q.num, q.den, ret);
+            ret = av_parse_video_rate(&q, rates[i]);
+            printf("'%s' -> %d/%d%s\n",
+                   rates[i], q.num, q.den, ret ? " error" : "");
         }
     }
 

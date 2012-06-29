@@ -41,6 +41,9 @@
 #include "libavutil/lfg.h"
 #include "avfilter.h"
 #include "drawutils.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 
 #undef time
 
@@ -204,16 +207,7 @@ static const AVOption drawtext_options[]= {
 {NULL},
 };
 
-static const char *drawtext_get_name(void *ctx)
-{
-    return "drawtext";
-}
-
-static const AVClass drawtext_class = {
-    "DrawTextContext",
-    drawtext_get_name,
-    drawtext_options
-};
+AVFILTER_DEFINE_CLASS(drawtext);
 
 #undef __FTERRORS_H__
 #define FT_ERROR_START_LIST {
@@ -385,7 +379,7 @@ static int load_font(AVFilterContext *ctx)
     return err;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     int err;
     DrawTextContext *dtext = ctx->priv;
@@ -394,7 +388,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     dtext->class = &drawtext_class;
     av_opt_set_defaults(dtext);
 
-    if ((err = (av_set_options_string(dtext, args, "=", ":"))) < 0) {
+    if ((err = av_set_options_string(dtext, args, "=", ":")) < 0) {
         av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
         return err;
     }
@@ -496,7 +490,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    avfilter_set_common_pixel_formats(ctx, ff_draw_supported_pixel_formats(0));
+    ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
     return 0;
 }
 
@@ -517,16 +511,7 @@ static av_cold void uninit(AVFilterContext *ctx)
     av_expr_free(dtext->x_pexpr); dtext->x_pexpr = NULL;
     av_expr_free(dtext->y_pexpr); dtext->y_pexpr = NULL;
     av_expr_free(dtext->draw_pexpr); dtext->draw_pexpr = NULL;
-
-    av_freep(&dtext->boxcolor_string);
-    av_freep(&dtext->expanded_text);
-    av_freep(&dtext->fontcolor_string);
-    av_freep(&dtext->fontfile);
-    av_freep(&dtext->shadowcolor_string);
-    av_freep(&dtext->text);
-    av_freep(&dtext->x_expr);
-    av_freep(&dtext->y_expr);
-    av_freep(&dtext->draw_expr);
+    av_opt_free(dtext);
 
     av_freep(&dtext->positions);
     dtext->nb_positions = 0;
@@ -589,7 +574,7 @@ static int command(AVFilterContext *ctx, const char *cmd, const char *arg, char 
         int ret;
         uninit(ctx);
         dtext->reinit = 1;
-        if ((ret = init(ctx, arg, NULL)) < 0)
+        if ((ret = init(ctx, arg)) < 0)
             return ret;
         return config_input(ctx->inputs[0]);
     }
@@ -816,8 +801,8 @@ static void end_frame(AVFilterLink *inlink)
 
     dtext->var_values[VAR_N] += 1.0;
 
-    avfilter_draw_slice(outlink, 0, picref->video->h, 1);
-    avfilter_end_frame(outlink);
+    ff_draw_slice(outlink, 0, picref->video->h, 1);
+    ff_end_frame(outlink);
 }
 
 AVFilter avfilter_vf_drawtext = {
@@ -830,8 +815,8 @@ AVFilter avfilter_vf_drawtext = {
 
     .inputs    = (const AVFilterPad[]) {{ .name       = "default",
                                     .type             = AVMEDIA_TYPE_VIDEO,
-                                    .get_video_buffer = avfilter_null_get_video_buffer,
-                                    .start_frame      = avfilter_null_start_frame,
+                                    .get_video_buffer = ff_null_get_video_buffer,
+                                    .start_frame      = ff_null_start_frame,
                                     .draw_slice       = null_draw_slice,
                                     .end_frame        = end_frame,
                                     .config_props     = config_input,

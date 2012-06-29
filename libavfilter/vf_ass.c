@@ -35,6 +35,11 @@
 #include <ass_library.h>
 
 #include "avfilter.h"
+<<<<<<< HEAD
+=======
+#include "formats.h"
+#include "video.h"
+>>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 #include "subreader.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/avstring.h"
@@ -268,8 +273,13 @@ static int query_formats(AVFilterContext *ctx)
 	  PIX_FMT_NONE
   };
   
+<<<<<<< HEAD
   avfilter_set_common_pixel_formats
     (ctx, avfilter_make_format_list(pix_fmts));
+=======
+  ff_set_common_formats
+    (ctx, ff_make_format_list(pix_fmts));
+>>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
   return 0;
 }
 
@@ -341,7 +351,11 @@ static int config_input(AVFilterLink *link)
 
 static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
 {
+<<<<<<< HEAD
   avfilter_start_frame(link->dst->outputs[0], picref);
+=======
+  ff_start_frame(link->dst->outputs[0], picref);
+>>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 }
 
 #define _r(c)  ((c)>>24)
@@ -424,8 +438,13 @@ static void end_frame(AVFilterLink *link)
     img = img->next;
   }
 
+<<<<<<< HEAD
   avfilter_draw_slice(output, 0, pic->video->h, 1);
   avfilter_end_frame(output);
+=======
+  ff_draw_slice(output, 0, pic->video->h, 1);
+  ff_end_frame(output);
+>>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 }
 
 static int parse_args(AVFilterContext *ctx, AssContext *context, const char* args)
@@ -509,7 +528,11 @@ AVFilter avfilter_vf_ass=
     .query_formats   = query_formats,
     .inputs    = (AVFilterPad[]) {{ .name            = "default",
                                     .type            = AVMEDIA_TYPE_VIDEO,
+<<<<<<< HEAD
                                     .get_video_buffer = avfilter_null_get_video_buffer,
+=======
+                                    .get_video_buffer = ff_null_get_video_buffer,
+>>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
                                     .start_frame     = start_frame,
                                     .end_frame       = end_frame,
                                     .config_props    = config_input,

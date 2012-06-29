@@ -26,6 +26,8 @@
 typedef void (mix_1_1_func_type)(void *out, const void *in, void *coeffp, int index, int len);
 typedef void (mix_2_1_func_type)(void *out, const void *in1, const void *in2, void *coeffp, int index1, int index2, int len);
 
+typedef void (mix_any_func_type)(void **out, const void **in1, void *coeffp, int len);
+
 typedef struct AudioData{
     uint8_t *ch[SWR_CH_MAX];    ///< samples buffer per channel
     uint8_t *data;              ///< samples buffer
@@ -62,6 +64,11 @@ struct SwrContext {
     int linear_interp;                              /**< if 1 then the resampling FIR filter will be linearly interpolated */
     double cutoff;                                  /**< resampling cutoff frequency. 1.0 corresponds to half the output sample rate */
 
+    float min_compensation;                         ///< minimum below which no compensation will happen
+    float min_hard_compensation;                    ///< minimum below which no silence inject / sample drop will happen
+    float soft_compensation_duration;               ///< duration over which soft compensation is applied
+    float max_soft_compensation;                    ///< maximum soft compensation in seconds over soft_compensation_duration
+
     int resample_first;                             ///< 1 if resampling must come first, 0 if rematrixing
     int rematrix;                                   ///< flag to indicate if rematrixing is needed (basically if input and output layouts mismatch)
     int rematrix_custom;                            ///< flag to indicate that a custom matrix has been defined
@@ -77,6 +84,8 @@ struct SwrContext {
     int in_buffer_count;                            ///< cached buffer length
     int resample_in_constraint;                     ///< 1 if the input end was reach before the output end, 0 otherwise
     int flushed;                                    ///< 1 if data is to be flushed and no further input is expected
+    int64_t outpts;                                 ///< output PTS
+    int drop_output;                                ///< number of output samples to drop
 
     struct AudioConvert *in_convert;                ///< input conversion context
     struct AudioConvert *out_convert;               ///< output conversion context
@@ -86,10 +95,16 @@ struct SwrContext {
     float matrix[SWR_CH_MAX][SWR_CH_MAX];           ///< floating point rematrixing coefficients
     uint8_t *native_matrix;
     uint8_t *native_one;
+    uint8_t *native_simd_matrix;
     int32_t matrix32[SWR_CH_MAX][SWR_CH_MAX];       ///< 17.15 fixed point rematrixing coefficients
     uint8_t matrix_ch[SWR_CH_MAX][SWR_CH_MAX+1];    ///< Lists of input channels per output channel that have non zero rematrixing coefficients
     mix_1_1_func_type *mix_1_1_f;
+    mix_1_1_func_type *mix_1_1_simd;
+
     mix_2_1_func_type *mix_2_1_f;
+    mix_2_1_func_type *mix_2_1_simd;
+
+    mix_any_func_type *mix_any_f;
 
     /* TODO: callbacks for ASM optimizations */
 };
@@ -106,6 +121,7 @@ int swri_resample_double(struct ResampleContext *c,double  *dst, const double  *
 int swri_rematrix_init(SwrContext *s);
 void swri_rematrix_free(SwrContext *s);
 int swri_rematrix(SwrContext *s, AudioData *out, AudioData *in, int len, int mustcopy);
+void swri_rematrix_init_x86(struct SwrContext *s);
 
 void swri_get_dither(SwrContext *s, void *dst, int len, unsigned seed, enum AVSampleFormat out_fmt, enum AVSampleFormat in_fmt);
 

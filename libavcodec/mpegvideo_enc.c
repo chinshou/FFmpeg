@@ -480,6 +480,42 @@ av_cold int ff_MPV_encode_init(AVCodecContext *avctx)
                    avctx->sample_aspect_ratio.num,  avctx->sample_aspect_ratio.den, 255);
     }
 
+    if ((s->codec_id == CODEC_ID_H263  ||
+         s->codec_id == CODEC_ID_H263P) &&
+        (avctx->width  > 2048 ||
+         avctx->height > 1152 )) {
+        av_log(avctx, AV_LOG_ERROR, "H.263 does not support resolutions above 2048x1152\n");
+        return -1;
+    }
+    if ((s->codec_id == CODEC_ID_H263  ||
+         s->codec_id == CODEC_ID_H263P) &&
+        ((avctx->width &3) ||
+         (avctx->height&3) )) {
+        av_log(avctx, AV_LOG_ERROR, "w/h must be a multiple of 4\n");
+        return -1;
+    }
+
+    if (s->codec_id == CODEC_ID_MPEG1VIDEO &&
+        (avctx->width  > 4095 ||
+         avctx->height > 4095 )) {
+        av_log(avctx, AV_LOG_ERROR, "MPEG-1 does not support resolutions above 4095x4095\n");
+        return -1;
+    }
+
+    if (s->codec_id == CODEC_ID_MPEG2VIDEO &&
+        (avctx->width  > 16383 ||
+         avctx->height > 16383 )) {
+        av_log(avctx, AV_LOG_ERROR, "MPEG-2 does not support resolutions above 16383x16383\n");
+        return -1;
+    }
+
+    if ((s->codec_id == CODEC_ID_WMV1 ||
+         s->codec_id == CODEC_ID_WMV2) &&
+         avctx->width & 1) {
+         av_log(avctx, AV_LOG_ERROR, "width must be multiple of 2\n");
+         return -1;
+    }
+
     if ((s->flags & (CODEC_FLAG_INTERLACED_DCT | CODEC_FLAG_INTERLACED_ME)) &&
         s->codec_id != CODEC_ID_MPEG4 && s->codec_id != CODEC_ID_MPEG2VIDEO) {
         av_log(avctx, AV_LOG_ERROR, "interlacing not supported by codec\n");
@@ -542,6 +578,7 @@ av_cold int ff_MPV_encode_init(AVCodecContext *avctx)
         s->codec_id != CODEC_ID_MPEG4      &&
         s->codec_id != CODEC_ID_MPEG1VIDEO &&
         s->codec_id != CODEC_ID_MPEG2VIDEO &&
+        s->codec_id != CODEC_ID_MJPEG      &&
         (s->codec_id != CODEC_ID_H263P)) {
         av_log(avctx, AV_LOG_ERROR,
                "multi threaded encoding not supported by codec\n");
@@ -1791,11 +1828,11 @@ static av_always_inline void encode_mb_internal(MpegEncContext *s,
         ptr_y = ebuf;
         s->dsp.emulated_edge_mc(ebuf + 18 * wrap_y, ptr_cb, wrap_c, 8,
                                 mb_block_height, mb_x * 8, mb_y * 8,
-                                s->width >> 1, s->height >> 1);
+                                (s->width+1) >> 1, (s->height+1) >> 1);
         ptr_cb = ebuf + 18 * wrap_y;
         s->dsp.emulated_edge_mc(ebuf + 18 * wrap_y + 8, ptr_cr, wrap_c, 8,
                                 mb_block_height, mb_x * 8, mb_y * 8,
-                                s->width >> 1, s->height >> 1);
+                                (s->width+1) >> 1, (s->height+1) >> 1);
         ptr_cr = ebuf + 18 * wrap_y + 8;
     }
 
@@ -2336,7 +2373,7 @@ static void write_slice_end(MpegEncContext *s){
 
         ff_mpeg4_stuffing(&s->pb);
     }else if(CONFIG_MJPEG_ENCODER && s->out_format == FMT_MJPEG){
-        ff_mjpeg_encode_stuffing(&s->pb);
+        ff_mjpeg_encode_stuffing(s);
     }
 
     avpriv_align_put_bits(&s->pb);
@@ -2511,12 +2548,14 @@ static int encode_thread(AVCodecContext *c, void *arg){
                 case CODEC_ID_MPEG1VIDEO:
                     if(s->mb_skip_run) is_gob_start=0;
                     break;
+                case CODEC_ID_MJPEG:
+                    if(s->mb_x==0 && s->mb_y!=0) is_gob_start=1;
+                    break;
                 }
 
                 if(is_gob_start){
                     if(s->start_mb_y != mb_y || mb_x!=0){
                         write_slice_end(s);
-
                         if(CONFIG_MPEG4_ENCODER && s->codec_id==CODEC_ID_MPEG4 && s->partitioned_frame){
                             ff_mpeg4_init_partitions(s);
                         }
@@ -3207,6 +3246,7 @@ static int encode_picture(MpegEncContext *s, int picture_number)
         for(i=0; i<s->mb_stride*s->mb_height; i++)
             s->mb_type[i]= CANDIDATE_MB_TYPE_INTRA;
 //printf("Scene change detected, encoding as I Frame %d %d\n", s->current_picture.mb_var_sum, s->current_picture.mc_mb_var_sum);
+        if(s->msmpeg4_version >= 3) s->no_rounding=1;
     }
 
     if(!s->umvplus){

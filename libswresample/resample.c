@@ -37,6 +37,7 @@ typedef struct ResampleContext {
     const AVClass *av_class;
     uint8_t *filter_bank;
     int filter_length;
+    int filter_alloc;
     int ideal_dst_incr;
     int dst_incr;
     int index;
@@ -89,7 +90,7 @@ static double bessel(double x){
  * @param type 0->cubic, 1->blackman nuttall windowed sinc, 2..16->kaiser windowed sinc beta=2..16
  * @return 0 on success, negative on error
  */
-static int build_filter(ResampleContext *c, void *filter, double factor, int tap_count, int phase_count, int scale, int type){
+static int build_filter(ResampleContext *c, void *filter, double factor, int tap_count, int alloc, int phase_count, int scale, int type){
     int ph, i;
     double x, y, w;
     double *tab = av_malloc(tap_count * sizeof(*tab));
@@ -133,19 +134,19 @@ static int build_filter(ResampleContext *c, void *filter, double factor, int tap
         switch(c->format){
         case AV_SAMPLE_FMT_S16P:
             for(i=0;i<tap_count;i++)
-                ((int16_t*)filter)[ph * tap_count + i] = av_clip(lrintf(tab[i] * scale / norm), INT16_MIN, INT16_MAX);
+                ((int16_t*)filter)[ph * alloc + i] = av_clip(lrintf(tab[i] * scale / norm), INT16_MIN, INT16_MAX);
             break;
         case AV_SAMPLE_FMT_S32P:
             for(i=0;i<tap_count;i++)
-                ((int32_t*)filter)[ph * tap_count + i] = av_clip(lrintf(tab[i] * scale / norm), INT32_MIN, INT32_MAX);
+                ((int32_t*)filter)[ph * alloc + i] = av_clip(lrintf(tab[i] * scale / norm), INT32_MIN, INT32_MAX);
             break;
         case AV_SAMPLE_FMT_FLTP:
             for(i=0;i<tap_count;i++)
-                ((float*)filter)[ph * tap_count + i] = tab[i] * scale / norm;
+                ((float*)filter)[ph * alloc + i] = tab[i] * scale / norm;
             break;
         case AV_SAMPLE_FMT_DBLP:
             for(i=0;i<tap_count;i++)
-                ((double*)filter)[ph * tap_count + i] = tab[i] * scale / norm;
+                ((double*)filter)[ph * alloc + i] = tab[i] * scale / norm;
             break;
         }
     }
@@ -225,13 +226,14 @@ ResampleContext *swri_resample_init(ResampleContext *c, int out_rate, int in_rat
         c->linear        = linear;
         c->factor        = factor;
         c->filter_length = FFMAX((int)ceil(filter_size/factor), 1);
-        c->filter_bank   = av_mallocz(c->filter_length*(phase_count+1)*c->felem_size);
+        c->filter_alloc  = FFALIGN(c->filter_length, 8);
+        c->filter_bank   = av_mallocz(c->filter_alloc*(phase_count+1)*c->felem_size);
         if (!c->filter_bank)
             goto error;
-        if (build_filter(c, (void*)c->filter_bank, factor, c->filter_length, phase_count, 1<<c->filter_shift, WINDOW_TYPE))
+        if (build_filter(c, (void*)c->filter_bank, factor, c->filter_length, c->filter_alloc, phase_count, 1<<c->filter_shift, WINDOW_TYPE))
             goto error;
-        memcpy(c->filter_bank + (c->filter_length*phase_count+1)*c->felem_size, c->filter_bank, (c->filter_length-1)*c->felem_size);
-        memcpy(c->filter_bank + (c->filter_length*phase_count  )*c->felem_size, c->filter_bank + (c->filter_length - 1)*c->felem_size, c->felem_size);
+        memcpy(c->filter_bank + (c->filter_alloc*phase_count+1)*c->felem_size, c->filter_bank, (c->filter_alloc-1)*c->felem_size);
+        memcpy(c->filter_bank + (c->filter_alloc*phase_count  )*c->felem_size, c->filter_bank + (c->filter_alloc - 1)*c->felem_size, c->felem_size);
     }
 
     c->compensation_distance= 0;
@@ -354,16 +356,92 @@ int swr_set_compensation(struct SwrContext *s, int sample_delta, int compensatio
 #define OUT(d, v) d = v
 #include "resample_template.c"
 
+#undef RENAME
+#undef FELEM
+#undef FELEM2
+#undef DELEM
+#undef FELEML
+#undef OUT
+#undef FELEM_MIN
+#undef FELEM_MAX
+#undef FILTER_SHIFT
+
+// XXX FIXME the whole C loop should be written in asm so this x86 specific code here isnt needed
+#if ARCH_X86
+#include "x86/resample_mmx.h"
+#define COMMON_CORE COMMON_CORE_INT16_MMX2
+#define RENAME(N) N ## _int16_mmx2
+#define FILTER_SHIFT 15
+#define DELEM  int16_t
+#define FELEM  int16_t
+#define FELEM2 int32_t
+#define FELEML int64_t
+#define FELEM_MAX INT16_MAX
+#define FELEM_MIN INT16_MIN
+#define OUT(d, v) v = (v + (1<<(FILTER_SHIFT-1)))>>FILTER_SHIFT;\
+                  d = (unsigned)(v + 32768) > 65535 ? (v>>31) ^ 32767 : v
+#include "resample_template.c"
+
+#undef COMMON_CORE
+#undef RENAME
+#undef FELEM
+#undef FELEM2
+#undef DELEM
+#undef FELEML
+#undef OUT
+#undef FELEM_MIN
+#undef FELEM_MAX
+#undef FILTER_SHIFT
+
+#if HAVE_SSSE3
+#define COMMON_CORE COMMON_CORE_INT16_SSSE3
+#define RENAME(N) N ## _int16_ssse3
+#define FILTER_SHIFT 15
+#define DELEM  int16_t
+#define FELEM  int16_t
+#define FELEM2 int32_t
+#define FELEML int64_t
+#define FELEM_MAX INT16_MAX
+#define FELEM_MIN INT16_MIN
+#define OUT(d, v) v = (v + (1<<(FILTER_SHIFT-1)))>>FILTER_SHIFT;\
+                  d = (unsigned)(v + 32768) > 65535 ? (v>>31) ^ 32767 : v
+#include "resample_template.c"
+#endif
+#endif // ARCH_X86
 
 int swri_multiple_resample(ResampleContext *c, AudioData *dst, int dst_size, AudioData *src, int src_size, int *consumed){
     int i, ret= -1;
+    int mm_flags = av_get_cpu_flags();
 
     for(i=0; i<dst->ch_count; i++){
-        if(c->format == AV_SAMPLE_FMT_S16P) ret= swri_resample_int16(c, (int16_t*)dst->ch[i], (const int16_t*)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
-        if(c->format == AV_SAMPLE_FMT_S32P) ret= swri_resample_int32(c, (int32_t*)dst->ch[i], (const int32_t*)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
-        if(c->format == AV_SAMPLE_FMT_FLTP) ret= swri_resample_float(c, (float  *)dst->ch[i], (const float  *)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
-        if(c->format == AV_SAMPLE_FMT_DBLP) ret= swri_resample_double(c,(double *)dst->ch[i], (const double *)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
+#if ARCH_X86
+#if HAVE_SSSE3
+             if(c->format == AV_SAMPLE_FMT_S16P && (mm_flags&AV_CPU_FLAG_SSSE3)) ret= swri_resample_int16_ssse3(c, (int16_t*)dst->ch[i], (const int16_t*)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
+        else
+#endif
+             if(c->format == AV_SAMPLE_FMT_S16P && (mm_flags&AV_CPU_FLAG_MMX2 )) ret= swri_resample_int16_mmx2 (c, (int16_t*)dst->ch[i], (const int16_t*)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
+        else
+#endif
+             if(c->format == AV_SAMPLE_FMT_S16P) ret= swri_resample_int16(c, (int16_t*)dst->ch[i], (const int16_t*)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
+        else if(c->format == AV_SAMPLE_FMT_S32P) ret= swri_resample_int32(c, (int32_t*)dst->ch[i], (const int32_t*)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
+        else if(c->format == AV_SAMPLE_FMT_FLTP) ret= swri_resample_float(c, (float  *)dst->ch[i], (const float  *)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
+        else if(c->format == AV_SAMPLE_FMT_DBLP) ret= swri_resample_double(c,(double *)dst->ch[i], (const double *)src->ch[i], consumed, src_size, dst_size, i+1==dst->ch_count);
     }
 
     return ret;
+}
+
+int64_t swr_get_delay(struct SwrContext *s, int64_t base){
+    ResampleContext *c = s->resample;
+    if(c){
+        int64_t num = s->in_buffer_count - (c->filter_length-1)/2;
+        num <<= c->phase_shift;
+        num -= c->index;
+        num *= c->src_incr;
+        num -= c->frac;
+
+        return av_rescale(num, base, s->in_sample_rate*(int64_t)c->src_incr << c->phase_shift);
+    }else{
+        return (s->in_buffer_count*base + (s->in_sample_rate>>1))/ s->in_sample_rate;
+    }
 }

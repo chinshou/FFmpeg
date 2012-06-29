@@ -21,6 +21,7 @@
  */
 
 #include "libavcodec/put_bits.h"
+#include "libavutil/avassert.h"
 #include "avformat.h"
 #include "swf.h"
 
@@ -56,7 +57,7 @@ static void put_swf_end_tag(AVFormatContext *s)
         avio_wl16(pb, (tag << 6) | 0x3f);
         avio_wl32(pb, tag_len - 4);
     } else {
-        assert(tag_len < 0x3f);
+        av_assert0(tag_len < 0x3f);
         avio_wl16(pb, (tag << 6) | tag_len);
     }
     avio_seek(pb, pos, SEEK_SET);
@@ -513,6 +514,7 @@ AVOutputFormat ff_swf_muxer = {
     .write_header      = swf_write_header,
     .write_packet      = swf_write_packet,
     .write_trailer     = swf_write_trailer,
+    .flags             = AVFMT_TS_NONSTRICT,
 };
 #endif
 #if CONFIG_AVM2_MUXER
@@ -526,5 +528,6 @@ AVOutputFormat ff_avm2_muxer = {
     .write_header      = swf_write_header,
     .write_packet      = swf_write_packet,
     .write_trailer     = swf_write_trailer,
+    .flags             = AVFMT_TS_NONSTRICT,
 };
 #endif

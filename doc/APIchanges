@@ -4,7 +4,7 @@ since the last major version increase.
 The last version increases were:
 libavcodec:    2012-01-27
 libavdevice:   2011-04-18
-libavfilter:   2011-04-18
+libavfilter:   2012-06-22
 libavformat:   2012-01-27
 libavresample: 2012-04-24
 libpostproc:   2011-04-18
@@ -15,6 +15,29 @@ libavutil:     2011-04-18
 
 API changes, most recent first:
 
+2012-06-26 - xxxxxxx - lavu 51.63.100 - imgutils.h
+  Add functions to libavutil/imgutils.h:
+  av_image_get_buffer_size()
+  av_image_fill_arrays()
+  av_image_copy_to_buffer()
+
+2012-06-24 - xxxxxxx - lavu 51.62.100 - version.h
+  version moved from avutil.h to version.h
+
+2012-04-11 - xxxxxxx - lavu 51.58.100 - error.h
+  Add av_make_error_string() and av_err2str() utilities to
+  libavutil/error.h.
+
+2012-06-05 - xxxxxxx - lavc 54.24.100
+  Add pkt_duration field to AVFrame.
+
+2012-05-24 - xxxxxxx - lavu 51.54.100
+  Move AVPALETTE_SIZE and AVPALETTE_COUNT macros from
+  libavcodec/avcodec.h to libavutil/pixfmt.h.
+
+2012-05-07 - xxxxxxx - lavf 54.5.100
+  Add av_guess_sample_aspect_ratio() function.
+
 2012-04-20 - xxxxxxx - lavfi 2.70.100
   Add avfilter_unref_bufferp() to avfilter.h.
 
@@ -24,7 +47,55 @@ API changes, most recent first:
 2012-03-26 - a67d9cf - lavfi 2.66.100
   Add avfilter_fill_frame_from_{audio_,}buffer_ref() functions.
 
-2012-xx-xx - xxxxxxx - lavr 0.0.1
+2012-06-22 - xxxxxxx - lavu 51.34.0
+  Add av_usleep()
+
+2012-06-20 - ae0a301 - lavu 51.33.0
+  Move av_gettime() to libavutil, add libavutil/time.h
+
+2012-xx-xx - xxxxxxx - lavr 0.0.3
+  Add a parameter to avresample_build_matrix() for Dolby/DPLII downmixing.
+
+2012-xx-xx - xxxxxxx - lavfi 2.23.0 - avfilter.h
+  Add AVFilterContext.nb_inputs/outputs. Deprecate
+  AVFilterContext.input/output_count.
+
+2012-xx-xx - xxxxxxx - lavfi 2.22.0 - avfilter.h
+  Add avfilter_pad_get_type() and avfilter_pad_get_name(). Those
+  should now be used instead of accessing AVFilterPad members
+  directly.
+
+2012-xx-xx - xxxxxxx - lavu 51.32.0 - audioconvert.h
+  Add av_get_channel_layout_channel_index(), av_get_channel_name()
+  and av_channel_layout_extract_channel().
+
+2012-05-25 - e0e0793 - lavu 51.31.0 - opt.h
+  Add av_opt_set_bin()
+
+2012-05-15 - lavfi 2.17.0
+  Add support for audio filters
+  ac71230/a2cd9be - add video/audio buffer sink in a new installed
+                    header buffersink.h
+  720c6b7 - add av_buffersrc_write_frame(), deprecate
+            av_vsrc_buffer_add_frame()
+  ab16504 - add avfilter_copy_buf_props()
+  9453c9e - add extended_data to AVFilterBuffer
+  1b8c927 - add avfilter_get_audio_buffer_ref_from_arrays()
+
+2012-05-09 - lavu 51.30.0 - samplefmt.h
+  142e740 - add av_samples_copy()
+  6d7f617 - add av_samples_set_silence()
+
+2012-05-09 - a5117a2 - lavc 54.13.1
+  For audio formats with fixed frame size, the last frame
+  no longer needs to be padded with silence, libavcodec
+  will handle this internally (effectively all encoders
+  behave as if they had CODEC_CAP_SMALL_LAST_FRAME set).
+
+2012-05-07 - 828bd08 - lavc 54.13.0 - avcodec.h
+  Add sample_rate and channel_layout fields to AVFrame.
+
+2012-05-01 - 4010d72 - lavr 0.0.1
   Change AV_MIX_COEFF_TYPE_Q6 to AV_MIX_COEFF_TYPE_Q8.
 
 2012-04-25 - 3527a73 - lavu 51.29.0 - cpu.h

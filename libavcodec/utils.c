@@ -40,6 +40,7 @@
 #include "libavutil/opt.h"
 #include "imgconvert.h"
 #include "thread.h"
+#include "frame_thread_encoder.h"
 #include "audioconvert.h"
 #include "internal.h"
 #include "bytestream.h"
@@ -265,9 +266,11 @@ void ff_init_buffer_info(AVCodecContext *s, AVFrame *pic)
     if (s->pkt) {
         pic->pkt_pts = s->pkt->pts;
         pic->pkt_pos = s->pkt->pos;
+        pic->pkt_duration = s->pkt->duration;
     } else {
         pic->pkt_pts = AV_NOPTS_VALUE;
         pic->pkt_pos = -1;
+        pic->pkt_duration = 0;
     }
     pic->reordered_opaque= s->reordered_opaque;
     pic->sample_aspect_ratio = s->sample_aspect_ratio;
@@ -384,9 +387,11 @@ static int audio_get_buffer(AVCodecContext *avctx, AVFrame *frame)
     if (avctx->pkt) {
         frame->pkt_pts = avctx->pkt->pts;
         frame->pkt_pos = avctx->pkt->pos;
+        frame->pkt_duration = avctx->pkt->duration;
     } else {
         frame->pkt_pts = AV_NOPTS_VALUE;
         frame->pkt_pos = -1;
+        frame->pkt_duration = 0;
     }
 
     frame->reordered_opaque = avctx->reordered_opaque;
@@ -521,9 +526,11 @@ static int video_get_buffer(AVCodecContext *s, AVFrame *pic)
     if (s->pkt) {
         pic->pkt_pts = s->pkt->pts;
         pic->pkt_pos = s->pkt->pos;
+        pic->pkt_duration = s->pkt->duration;
     } else {
         pic->pkt_pts = AV_NOPTS_VALUE;
         pic->pkt_pos = -1;
+        pic->pkt_duration = 0;
     }
     pic->reordered_opaque= s->reordered_opaque;
     pic->sample_aspect_ratio = s->sample_aspect_ratio;
@@ -661,6 +668,7 @@ void avcodec_get_frame_defaults(AVFrame *pic){
     memset(pic, 0, sizeof(AVFrame));
 
     pic->pts = pic->pkt_dts = pic->pkt_pts = pic->best_effort_timestamp = AV_NOPTS_VALUE;
+    pic->pkt_duration = 0;
     pic->pkt_pos = -1;
     pic->key_frame= 1;
     pic->sample_aspect_ratio = (AVRational){0, 1};
@@ -682,6 +690,7 @@ AVFrame *avcodec_alloc_frame(void){
     void av_##name##_set_##field(str *s, type v) { s->field = v; }
 
 MAKE_ACCESSORS(AVFrame, frame, int64_t, best_effort_timestamp)
+MAKE_ACCESSORS(AVFrame, frame, int64_t, pkt_duration)
 MAKE_ACCESSORS(AVFrame, frame, int64_t, pkt_pos)
 MAKE_ACCESSORS(AVFrame, frame, int64_t, channel_layout)
 MAKE_ACCESSORS(AVFrame, frame, int,     sample_rate)
@@ -789,7 +798,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
 
     if (codec->capabilities & CODEC_CAP_EXPERIMENTAL)
         if (avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
-            av_log(avctx, AV_LOG_ERROR, "Codec is experimental but experimental codecs are not enabled, see -strict -2\n");
+            av_log(avctx, AV_LOG_ERROR, "Codec is experimental but experimental codecs are not enabled, try -strict -2\n");
             ret = -1;
             goto free_and_end;
         }
@@ -843,7 +852,14 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
     if (!HAVE_THREADS)
         av_log(avctx, AV_LOG_WARNING, "Warning: not compiled with thread support, using thread emulation\n");
 
-    if (HAVE_THREADS && !avctx->thread_opaque) {
+    entangled_thread_counter--; //we will instanciate a few encoders thus kick the counter to prevent false detection of a problem
+    ret = ff_frame_thread_encoder_init(avctx);
+    entangled_thread_counter++;
+    if (ret < 0)
+        goto free_and_end;
+
+    if (HAVE_THREADS && !avctx->thread_opaque
+        && !(avctx->internal->frame_thread_encoder && (avctx->active_thread_type&FF_THREAD_FRAME))) {
         ret = ff_thread_init(avctx);
         if (ret < 0) {
             goto free_and_end;
@@ -875,7 +891,9 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
             for (i = 0; avctx->codec->pix_fmts[i] != PIX_FMT_NONE; i++)
                 if (avctx->pix_fmt == avctx->codec->pix_fmts[i])
                     break;
-            if (avctx->codec->pix_fmts[i] == PIX_FMT_NONE) {
+            if (avctx->codec->pix_fmts[i] == PIX_FMT_NONE
+                && !((avctx->codec_id == CODEC_ID_MJPEG || avctx->codec_id == CODEC_ID_LJPEG)
+                     && avctx->strict_std_compliance <= FF_COMPLIANCE_UNOFFICIAL)) {
                 av_log(avctx, AV_LOG_ERROR, "Specified pix_fmt is not supported\n");
                 ret = AVERROR(EINVAL);
                 goto free_and_end;
@@ -921,7 +939,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, AVCodec *codec, AVD
     avctx->pts_correction_last_pts =
     avctx->pts_correction_last_dts = INT64_MIN;
 
-    if(avctx->codec->init && !(avctx->active_thread_type&FF_THREAD_FRAME)){
+    if(avctx->codec->init && (!(avctx->active_thread_type&FF_THREAD_FRAME) || avctx->internal->frame_thread_encoder)){
         ret = avctx->codec->init(avctx);
         if (ret < 0) {
             goto free_and_end;
@@ -1001,14 +1019,61 @@ int ff_alloc_packet(AVPacket *avpkt, int size)
     return ff_alloc_packet2(NULL, avpkt, size);
 }
 
+/**
+ * Pad last frame with silence.
+ */
+static int pad_last_frame(AVCodecContext *s, AVFrame **dst, const AVFrame *src)
+{
+    AVFrame *frame = NULL;
+    uint8_t *buf   = NULL;
+    int ret;
+
+    if (!(frame = avcodec_alloc_frame()))
+        return AVERROR(ENOMEM);
+    *frame = *src;
+
+    if ((ret = av_samples_get_buffer_size(&frame->linesize[0], s->channels,
+                                          s->frame_size, s->sample_fmt, 0)) < 0)
+        goto fail;
+
+    if (!(buf = av_malloc(ret))) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
+
+    frame->nb_samples = s->frame_size;
+    if ((ret = avcodec_fill_audio_frame(frame, s->channels, s->sample_fmt,
+                                        buf, ret, 0)) < 0)
+        goto fail;
+    if ((ret = av_samples_copy(frame->extended_data, src->extended_data, 0, 0,
+                               src->nb_samples, s->channels, s->sample_fmt)) < 0)
+        goto fail;
+    if ((ret = av_samples_set_silence(frame->extended_data, src->nb_samples,
+                                      frame->nb_samples - src->nb_samples,
+                                      s->channels, s->sample_fmt)) < 0)
+        goto fail;
+
+    *dst = frame;
+
+    return 0;
+
+fail:
+    if (frame->extended_data != frame->data)
+        av_freep(&frame->extended_data);
+    av_freep(&buf);
+    av_freep(&frame);
+    return ret;
+}
+
 int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
                                               AVPacket *avpkt,
                                               const AVFrame *frame,
                                               int *got_packet_ptr)
 {
+    AVFrame tmp;
+    AVFrame *padded_frame = NULL;
     int ret;
     AVPacket user_pkt = *avpkt;
-    int nb_samples;
     int needs_realloc = !user_pkt.data;
 
     *got_packet_ptr = 0;
@@ -1016,27 +1081,49 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
     if (!(avctx->codec->capabilities & CODEC_CAP_DELAY) && !frame) {
         av_free_packet(avpkt);
         av_init_packet(avpkt);
-        avpkt->size = 0;
         return 0;
+    }
+
+    /* ensure that extended_data is properly set */
+    if (frame && !frame->extended_data) {
+        if (av_sample_fmt_is_planar(avctx->sample_fmt) &&
+            avctx->channels > AV_NUM_DATA_POINTERS) {
+            av_log(avctx, AV_LOG_ERROR, "Encoding to a planar sample format, "
+                   "with more than %d channels, but extended_data is not set.\n",
+                   AV_NUM_DATA_POINTERS);
+            return AVERROR(EINVAL);
+        }
+        av_log(avctx, AV_LOG_WARNING, "extended_data is not set.\n");
+
+        tmp = *frame;
+        tmp.extended_data = tmp.data;
+        frame = &tmp;
     }
 
     /* check for valid frame size */
     if (frame) {
-        nb_samples = frame->nb_samples;
         if (avctx->codec->capabilities & CODEC_CAP_SMALL_LAST_FRAME) {
-            if (nb_samples > avctx->frame_size)
+            if (frame->nb_samples > avctx->frame_size)
                 return AVERROR(EINVAL);
         } else if (!(avctx->codec->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE)) {
-            if (nb_samples != avctx->frame_size)
+            if (frame->nb_samples < avctx->frame_size &&
+                !avctx->internal->last_audio_frame) {
+                ret = pad_last_frame(avctx, &padded_frame, frame);
+                if (ret < 0)
+                    return ret;
+
+                frame = padded_frame;
+                avctx->internal->last_audio_frame = 1;
+            }
+
+            if (frame->nb_samples != avctx->frame_size)
                 return AVERROR(EINVAL);
         }
-    } else {
-        nb_samples = avctx->frame_size;
     }
 
-    if (avctx->codec->encode2) {
-        ret = avctx->codec->encode2(avctx, avpkt, frame, got_packet_ptr);
-        if (!ret && *got_packet_ptr) {
+    ret = avctx->codec->encode2(avctx, avpkt, frame, got_packet_ptr);
+    if (!ret) {
+        if (*got_packet_ptr) {
             if (!(avctx->codec->capabilities & CODEC_CAP_DELAY)) {
                 if (avpkt->pts == AV_NOPTS_VALUE)
                     avpkt->pts = frame->pts;
@@ -1048,69 +1135,6 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
         } else {
             avpkt->size = 0;
         }
-    } else {
-        /* for compatibility with encoders not supporting encode2(), we need to
-           allocate a packet buffer if the user has not provided one or check
-           the size otherwise */
-        int fs_tmp   = 0;
-        int buf_size = avpkt->size;
-        if (!user_pkt.data) {
-            if (avctx->codec->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE) {
-                av_assert0(av_get_bits_per_sample(avctx->codec_id) != 0);
-                if (!frame)
-                    return AVERROR(EINVAL);
-                buf_size = nb_samples * avctx->channels *
-                           av_get_bits_per_sample(avctx->codec_id) / 8;
-            } else {
-                /* this is a guess as to the required size.
-                   if an encoder needs more than this, it should probably
-                   implement encode2() */
-                buf_size = 2 * avctx->frame_size * avctx->channels *
-                           av_get_bytes_per_sample(avctx->sample_fmt);
-                buf_size += 2*FF_MIN_BUFFER_SIZE;
-            }
-        }
-        if ((ret = ff_alloc_packet2(avctx, avpkt, buf_size)))
-            return ret;
-
-        /* Encoders using AVCodec.encode() that support
-           CODEC_CAP_SMALL_LAST_FRAME require avctx->frame_size to be set to
-           the smaller size when encoding the last frame.
-           This code can be removed once all encoders supporting
-           CODEC_CAP_SMALL_LAST_FRAME use encode2() */
-        if ((avctx->codec->capabilities & CODEC_CAP_SMALL_LAST_FRAME) &&
-            nb_samples < avctx->frame_size) {
-            fs_tmp = avctx->frame_size;
-            avctx->frame_size = nb_samples;
-        }
-
-        /* encode the frame */
-        ret = avctx->codec->encode(avctx, avpkt->data, avpkt->size,
-                                   frame ? frame->data[0] : NULL);
-        if (ret >= 0) {
-            if (!ret) {
-                /* no output. if the packet data was allocated by libavcodec,
-                   free it */
-                if (!user_pkt.data && avpkt->data != avctx->internal->byte_buffer)
-                    av_freep(&avpkt->data);
-            } else {
-                if (avctx->coded_frame)
-                    avpkt->pts = avpkt->dts = avctx->coded_frame->pts;
-                /* Set duration for final small packet. This can be removed
-                   once all encoders supporting CODEC_CAP_SMALL_LAST_FRAME use
-                   encode2() */
-                if (fs_tmp) {
-                    avpkt->duration = ff_samples_to_time_base(avctx,
-                                                              avctx->frame_size);
-                }
-            }
-            avpkt->size = ret;
-            *got_packet_ptr = (ret > 0);
-            ret = 0;
-        }
-
-        if (fs_tmp)
-            avctx->frame_size = fs_tmp;
     }
     if (avpkt->data && avpkt->data == avctx->internal->byte_buffer) {
         needs_realloc = 0;
@@ -1141,13 +1165,23 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
         avctx->frame_number++;
     }
 
-    if (ret < 0 || !*got_packet_ptr)
+    if (ret < 0 || !*got_packet_ptr) {
         av_free_packet(avpkt);
+        av_init_packet(avpkt);
+        return ret;
+    }
 
     /* NOTE: if we add any audio encoders which output non-keyframe packets,
              this needs to be moved to the encoders, but for now we can do it
              here to simplify things */
     avpkt->flags |= AV_PKT_FLAG_KEY;
+
+    if (padded_frame) {
+        av_freep(&padded_frame->data[0]);
+        if (padded_frame->extended_data != padded_frame->data)
+            av_freep(&padded_frame->extended_data);
+        av_freep(&padded_frame);
+    }
 
     return ret;
 }
@@ -1196,7 +1230,8 @@ int attribute_align_arg avcodec_encode_audio(AVCodecContext *avctx,
                                                   avctx->sample_fmt, 1);
         if ((ret = avcodec_fill_audio_frame(frame, avctx->channels,
                                             avctx->sample_fmt,
-                                            (const uint8_t *)samples, samples_size, 1)))
+                                            (const uint8_t *) samples,
+                                            samples_size, 1)))
             return ret;
 
         /* fabricate frame pts from sample count.
@@ -1273,6 +1308,9 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
     int needs_realloc = !user_pkt.data;
 
     *got_packet_ptr = 0;
+
+    if(avctx->internal->frame_thread_encoder && (avctx->active_thread_type&FF_THREAD_FRAME))
+        return ff_thread_video_encode_frame(avctx, avpkt, frame, got_packet_ptr);
 
     if (!(avctx->codec->capabilities & CODEC_CAP_DELAY) && !frame) {
         av_free_packet(avpkt);
@@ -1434,7 +1472,7 @@ int attribute_align_arg avcodec_decode_video2(AVCodecContext *avctx, AVFrame *pi
 
     *got_picture_ptr= 0;
     if((avctx->coded_width||avctx->coded_height) && av_image_check_size(avctx->coded_width, avctx->coded_height, 0, avctx))
-        return -1;
+        return AVERROR(EINVAL);
 
     if((avctx->codec->capabilities & CODEC_CAP_DELAY) || avpkt->size || (avctx->active_thread_type&FF_THREAD_FRAME)){
         int did_split = av_packet_split_side_data(&tmp);
@@ -1465,8 +1503,11 @@ int attribute_align_arg avcodec_decode_video2(AVCodecContext *avctx, AVFrame *pi
         emms_c(); //needed to avoid an emms_c() call before every return;
 
         avctx->pkt = NULL;
-        if (did_split)
+        if (did_split) {
             ff_packet_free_side_data(&tmp);
+            if(ret == tmp.size)
+                ret = avpkt->size;
+        }
 
         if (*got_picture_ptr){
             avctx->frame_number++;
@@ -1566,8 +1607,11 @@ int attribute_align_arg avcodec_decode_audio4(AVCodecContext *avctx,
         }
 
         avctx->pkt = NULL;
-        if (did_split)
+        if (did_split) {
             ff_packet_free_side_data(&tmp);
+            if(ret == tmp.size)
+                ret = avpkt->size;
+        }
     }
     return ret;
 }
@@ -1628,6 +1672,11 @@ av_cold int avcodec_close(AVCodecContext *avctx)
     }
 
     if (avcodec_is_open(avctx)) {
+        if (avctx->internal->frame_thread_encoder && avctx->thread_count > 1) {
+            entangled_thread_counter --;
+            ff_frame_thread_encoder_free(avctx);
+            entangled_thread_counter ++;
+        }
         if (HAVE_THREADS && avctx->thread_opaque)
             ff_thread_free(avctx);
         if (avctx->codec && avctx->codec->close)
@@ -1751,9 +1800,14 @@ size_t av_get_codec_tag_string(char *buf, size_t buf_size, unsigned int codec_ta
 {
     int i, len, ret = 0;
 
+#define IS_PRINT(x)                                               \
+    (((x) >= '0' && (x) <= '9') ||                                \
+     ((x) >= 'a' && (x) <= 'z') || ((x) >= 'A' && (x) <= 'Z') ||  \
+     ((x) == '.' || (x) == ' '))
+
     for (i = 0; i < 4; i++) {
         len = snprintf(buf, buf_size,
-                       isprint(codec_tag&0xFF) ? "%c" : "[%d]", codec_tag&0xFF);
+                       IS_PRINT(codec_tag&0xFF) ? "%c" : "[%d]", codec_tag&0xFF);
         buf      += len;
         buf_size  = buf_size > len ? buf_size - len : 0;
         ret      += len;
@@ -2054,8 +2108,8 @@ int av_get_audio_frame_duration(AVCodecContext *avctx, int frame_bytes)
     bps = av_get_exact_bits_per_sample(avctx->codec_id);
 
     /* codecs with an exact constant bits per sample */
-    if (bps > 0 && ch > 0 && frame_bytes > 0)
-        return (frame_bytes * 8) / (bps * ch);
+    if (bps > 0 && ch > 0 && frame_bytes > 0 && ch < 32768 && bps < 32768)
+        return (frame_bytes * 8LL) / (bps * ch);
     bps = avctx->bits_per_coded_sample;
 
     /* codecs with a fixed packet duration */
@@ -2099,6 +2153,11 @@ int av_get_audio_frame_duration(AVCodecContext *avctx, int frame_bytes)
             case 19: return 144;
             case 29: return 288;
             case 37: return 480;
+            }
+        } else if (id == CODEC_ID_ILBC) {
+            switch (ba) {
+            case 38: return 160;
+            case 50: return 240;
             }
         }
     }
@@ -2171,8 +2230,12 @@ int av_get_audio_frame_duration(AVCodecContext *avctx, int frame_bytes)
                 /* calc from frame_bytes, channels, and bits_per_coded_sample */
                 switch (avctx->codec_id) {
                 case CODEC_ID_PCM_DVD:
+                    if(bps<4)
+                        return 0;
                     return 2 * (frame_bytes / ((bps * 2 / 8) * ch));
                 case CODEC_ID_PCM_BLURAY:
+                    if(bps<4)
+                        return 0;
                     return frame_bytes / ((FFALIGN(ch, 2) * bps) / 8);
                 case CODEC_ID_S302M:
                     return 2 * (frame_bytes / ((bps + 4) / 4)) / ch;

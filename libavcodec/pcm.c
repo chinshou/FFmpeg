@@ -48,6 +48,7 @@ static av_cold int pcm_encode_init(AVCodecContext *avctx)
 
     avctx->bits_per_coded_sample = av_get_bits_per_sample(avctx->codec->id);
     avctx->block_align           = avctx->channels * avctx->bits_per_coded_sample / 8;
+    avctx->bit_rate              = avctx->block_align * avctx->sample_rate * 8;
     avctx->coded_frame           = avcodec_alloc_frame();
     if (!avctx->coded_frame)
         return AVERROR(ENOMEM);
@@ -292,8 +293,10 @@ static int pcm_decode_frame(AVCodecContext *avctx, void *data,
 
     if (n && buf_size % n) {
         if (buf_size < n) {
-            av_log(avctx, AV_LOG_ERROR, "invalid PCM packet\n");
-            return -1;
+            av_log(avctx, AV_LOG_ERROR,
+                   "Invalid PCM packet, data has size %d but at least a size of %d was expected\n",
+                   buf_size, n);
+            return AVERROR_INVALIDDATA;
         } else
             buf_size -= buf_size % n;
     }

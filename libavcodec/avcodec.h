@@ -257,6 +257,7 @@ enum CodecID {
     CODEC_ID_CDXL,
     CODEC_ID_XBM,
     CODEC_ID_ZEROCODEC,
+    CODEC_ID_MSS1,
     CODEC_ID_Y41P       = MKBETAG('Y','4','1','P'),
     CODEC_ID_ESCAPE130  = MKBETAG('E','1','3','0'),
     CODEC_ID_EXR        = MKBETAG('0','E','X','R'),
@@ -268,6 +269,7 @@ enum CodecID {
     CODEC_ID_V308       = MKBETAG('V','3','0','8'),
     CODEC_ID_V408       = MKBETAG('V','4','0','8'),
     CODEC_ID_YUV4       = MKBETAG('Y','U','V','4'),
+    CODEC_ID_SANM       = MKBETAG('S','A','N','M'),
 
     /* various PCM "codecs" */
     CODEC_ID_FIRST_AUDIO = 0x10000,     ///< A dummy id pointing at the start of audio codecs
@@ -331,6 +333,7 @@ enum CodecID {
     CODEC_ID_ADPCM_IMA_ISS,
     CODEC_ID_ADPCM_G722,
     CODEC_ID_ADPCM_IMA_APC,
+    CODEC_ID_VIMA       = MKBETAG('V','I','M','A'),
 
     /* AMR */
     CODEC_ID_AMR_NB = 0x12000,
@@ -406,6 +409,8 @@ enum CodecID {
     CODEC_ID_8SVX_FIB,
     CODEC_ID_BMV_AUDIO,
     CODEC_ID_RALF,
+    CODEC_ID_IAC,
+    CODEC_ID_ILBC,
     CODEC_ID_FFWAVESYNTH = MKBETAG('F','F','W','S'),
     CODEC_ID_8SVX_RAW    = MKBETAG('8','S','V','X'),
     CODEC_ID_SONIC       = MKBETAG('S','O','N','C'),
@@ -720,6 +725,10 @@ typedef struct RcOverride{
  * Audio encoder supports receiving a different number of samples in each call.
  */
 #define CODEC_CAP_VARIABLE_FRAME_SIZE 0x10000
+/**
+ * Codec is intra only.
+ */
+#define CODEC_CAP_INTRA_ONLY       0x40000000
 /**
  * Codec is lossless.
  */
@@ -1277,6 +1286,15 @@ typedef struct AVFrame {
      */
     int64_t pkt_pos;
 
+    /**
+     * duration of the corresponding packet, expressed in
+     * AVStream->time_base units, 0 if unknown.
+     * Code outside libavcodec should access this field using:
+     * av_frame_get_pkt_duration(frame)
+     * - encoding: unused
+     * - decoding: Read by user.
+     */
+    int64_t pkt_duration;
 } AVFrame;
 
 /**
@@ -1285,10 +1303,12 @@ typedef struct AVFrame {
  * they should not be accessed directly outside libavcodec.
  */
 int64_t av_frame_get_best_effort_timestamp(const AVFrame *frame);
+int64_t av_frame_get_pkt_duration         (const AVFrame *frame);
 int64_t av_frame_get_pkt_pos              (const AVFrame *frame);
 int64_t av_frame_get_channel_layout       (const AVFrame *frame);
 int     av_frame_get_sample_rate          (const AVFrame *frame);
 void    av_frame_set_best_effort_timestamp(AVFrame *frame, int64_t val);
+void    av_frame_set_pkt_duration         (AVFrame *frame, int64_t val);
 void    av_frame_set_pkt_pos              (AVFrame *frame, int64_t val);
 void    av_frame_set_channel_layout       (AVFrame *frame, int64_t val);
 void    av_frame_set_sample_rate          (AVFrame *frame, int     val);
@@ -3130,9 +3150,6 @@ typedef struct AVPicture {
  * @}
  */
 
-#define AVPALETTE_SIZE 1024
-#define AVPALETTE_COUNT 256
-
 enum AVSubtitleType {
     SUBTITLE_NONE,
 
@@ -3460,6 +3477,9 @@ void av_destruct_packet(AVPacket *pkt);
 
 /**
  * Initialize optional fields of a packet with default values.
+ *
+ * Note, this does not touch the data and size members, which have to be
+ * initialized separately.
  *
  * @param pkt packet
  */
@@ -3807,6 +3827,7 @@ typedef struct AVCodecParserContext {
 #define PARSER_FLAG_ONCE                      0x0002
 /// Set if the parser has a valid file offset
 #define PARSER_FLAG_FETCHED_OFFSET            0x0004
+#define PARSER_FLAG_USE_CODEC_TS              0x1000
 
     int64_t offset;      ///< byte offset from starting packet start
     int64_t cur_frame_end[AV_PARSER_PTS_NB];
@@ -4032,11 +4053,12 @@ int attribute_deprecated avcodec_encode_audio(AVCodecContext *avctx,
  *                  The user can supply an output buffer by setting
  *                  avpkt->data and avpkt->size prior to calling the
  *                  function, but if the size of the user-provided data is not
- *                  large enough, encoding will fail. All other AVPacket fields
- *                  will be reset by the encoder using av_init_packet(). If
- *                  avpkt->data is NULL, the encoder will allocate it.
- *                  The encoder will set avpkt->size to the size of the
- *                  output packet.
+ *                  large enough, encoding will fail. If avpkt->data and
+ *                  avpkt->size are set, avpkt->destruct must also be set. All
+ *                  other AVPacket fields will be reset by the encoder using
+ *                  av_init_packet(). If avpkt->data is NULL, the encoder will
+ *                  allocate it. The encoder will set avpkt->size to the size
+ *                  of the output packet.
  *
  *                  If this function fails or produces no output, avpkt will be
  *                  freed using av_free_packet() (i.e. avpkt->destruct will be
@@ -4044,15 +4066,11 @@ int attribute_deprecated avcodec_encode_audio(AVCodecContext *avctx,
  * @param[in] frame AVFrame containing the raw audio data to be encoded.
  *                  May be NULL when flushing an encoder that has the
  *                  CODEC_CAP_DELAY capability set.
- *                  There are 2 codec capabilities that affect the allowed
- *                  values of frame->nb_samples.
- *                  If CODEC_CAP_SMALL_LAST_FRAME is set, then only the final
- *                  frame may be smaller than avctx->frame_size, and all other
- *                  frames must be equal to avctx->frame_size.
  *                  If CODEC_CAP_VARIABLE_FRAME_SIZE is set, then each frame
  *                  can have any number of samples.
- *                  If neither is set, frame->nb_samples must be equal to
- *                  avctx->frame_size for all frames.
+ *                  If it is not set, frame->nb_samples must be equal to
+ *                  avctx->frame_size for all frames except the last.
+ *                  The final frame may be smaller than avctx->frame_size.
  * @param[out] got_packet_ptr This field is set to 1 by libavcodec if the
  *                            output packet is non-empty, and to 0 if it is
  *                            empty. If the function returns an error, the
@@ -4244,42 +4262,19 @@ int avpicture_alloc(AVPicture *picture, enum PixelFormat pix_fmt, int width, int
 void avpicture_free(AVPicture *picture);
 
 /**
- * Fill in the AVPicture fields.
- * The fields of the given AVPicture are filled in by using the 'ptr' address
- * which points to the image data buffer. Depending on the specified picture
- * format, one or multiple image data pointers and line sizes will be set.
- * If a planar format is specified, several pointers will be set pointing to
- * the different picture planes and the line sizes of the different planes
- * will be stored in the lines_sizes array.
- * Call with ptr == NULL to get the required size for the ptr buffer.
+ * Fill in the AVPicture fields, always assume a linesize alignment of
+ * 1.
  *
- * To allocate the buffer and fill in the AVPicture fields in one call,
- * use avpicture_alloc().
- *
- * @param picture AVPicture whose fields are to be filled in
- * @param ptr Buffer which will contain or contains the actual image data
- * @param pix_fmt The format in which the picture data is stored.
- * @param width the width of the image in pixels
- * @param height the height of the image in pixels
- * @return size of the image data in bytes
+ * @see av_image_fill_arrays()
  */
 int avpicture_fill(AVPicture *picture, uint8_t *ptr,
                    enum PixelFormat pix_fmt, int width, int height);
 
 /**
- * Copy pixel data from an AVPicture into a buffer.
- * The data is stored compactly, without any gaps for alignment or padding
- * which may be applied by avpicture_fill().
+ * Copy pixel data from an AVPicture into a buffer, always assume a
+ * linesize alignment of 1.
  *
- * @see avpicture_get_size()
- *
- * @param[in] src AVPicture containing image data
- * @param[in] pix_fmt The format in which the picture data is stored.
- * @param[in] width the width of the image in pixels.
- * @param[in] height the height of the image in pixels.
- * @param[out] dest A buffer into which picture data will be copied.
- * @param[in] dest_size The size of 'dest'.
- * @return The number of bytes written to dest, or a negative value (error code) on error.
+ * @see av_image_copy_to_buffer()
  */
 int avpicture_layout(const AVPicture* src, enum PixelFormat pix_fmt, int width, int height,
                      unsigned char *dest, int dest_size);
@@ -4287,14 +4282,9 @@ int avpicture_layout(const AVPicture* src, enum PixelFormat pix_fmt, int width, 
 /**
  * Calculate the size in bytes that a picture of the given width and height
  * would occupy if stored in the given picture format.
- * Note that this returns the size of a compact representation as generated
- * by avpicture_layout(), which can be smaller than the size required for e.g.
- * avpicture_fill().
+ * Always assume a linesize alignment of 1.
  *
- * @param pix_fmt the given picture format
- * @param width the width of the image
- * @param height the height of the image
- * @return Image data size in bytes or -1 on error (e.g. too large dimensions).
+ * @see av_image_get_buffer_size().
  */
 int avpicture_get_size(enum PixelFormat pix_fmt, int width, int height);
 
@@ -4304,7 +4294,7 @@ int avpicture_get_size(enum PixelFormat pix_fmt, int width, int height);
 int avpicture_deinterlace(AVPicture *dst, const AVPicture *src,
                           enum PixelFormat pix_fmt, int width, int height);
 /**
- * Copy image src to dst. Wraps av_picture_data_copy() above.
+ * Copy image src to dst. Wraps av_image_copy().
  */
 void av_picture_copy(AVPicture *dst, const AVPicture *src,
                      enum PixelFormat pix_fmt, int width, int height);

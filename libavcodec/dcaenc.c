@@ -503,13 +503,13 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     samples = (const int16_t *)frame->data[0];
     for (i = 0; i < PCM_SAMPLES; i ++) { /* i is the decimated sample number */
         for (channel = 0; channel < c->prim_channels + 1; channel++) {
-            /* Get 32 PCM samples */
-            for (k = 0; k < 32; k++) { /* k is the sample number in a 32-sample block */
-                c->pcm[k] = samples[avctx->channels * (32 * i + k) + channel] << 16;
-            }
-            /* Put subband samples into the proper place */
             real_channel = c->channel_order_tab[channel];
             if (real_channel >= 0) {
+                /* Get 32 PCM samples */
+                for (k = 0; k < 32; k++) { /* k is the sample number in a 32-sample block */
+                    c->pcm[k] = samples[avctx->channels * (32 * i + k) + channel] << 16;
+                }
+                /* Put subband samples into the proper place */
                 qmf_decompose(c, c->pcm, &c->subband[i][real_channel][0], real_channel);
             }
         }
@@ -596,6 +596,7 @@ AVCodec ff_dca_encoder = {
     .init           = encode_init,
     .encode2        = encode_frame,
     .capabilities   = CODEC_CAP_EXPERIMENTAL,
-    .sample_fmts    = (const enum AVSampleFormat[]){AV_SAMPLE_FMT_S16,AV_SAMPLE_FMT_NONE},
+    .sample_fmts    = (const enum AVSampleFormat[]){ AV_SAMPLE_FMT_S16,
+                                                     AV_SAMPLE_FMT_NONE },
     .long_name      = NULL_IF_CONFIG_SMALL("DCA (DTS Coherent Acoustics)"),
 };

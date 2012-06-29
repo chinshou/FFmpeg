@@ -39,6 +39,8 @@
       <xsd:attribute name="dts_time"      type="xsd:float" />
       <xsd:attribute name="duration"      type="xsd:long"  />
       <xsd:attribute name="duration_time" type="xsd:float" />
+      <xsd:attribute name="convergence_duration"      type="xsd:long"  />
+      <xsd:attribute name="convergence_duration_time" type="xsd:float" />
       <xsd:attribute name="size"          type="xsd:long" use="required" />
       <xsd:attribute name="pos"           type="xsd:long"  />
       <xsd:attribute name="flags"         type="xsd:string" use="required" />
@@ -53,6 +55,8 @@
       <xsd:attribute name="pkt_pts_time"  type="xsd:float"/>
       <xsd:attribute name="pkt_dts"       type="xsd:long" />
       <xsd:attribute name="pkt_dts_time"  type="xsd:float"/>
+      <xsd:attribute name="pkt_duration"  type="xsd:long" />
+      <xsd:attribute name="pkt_duration_time" type="xsd:float"/>
       <xsd:attribute name="pkt_pos"       type="xsd:long" />
 
       <!-- audio attributes -->
@@ -83,6 +87,7 @@
       <xsd:attribute name="index"            type="xsd:int" use="required"/>
       <xsd:attribute name="codec_name"       type="xsd:string" />
       <xsd:attribute name="codec_long_name"  type="xsd:string" />
+      <xsd:attribute name="profile"          type="xsd:string" />
       <xsd:attribute name="codec_type"       type="xsd:string" />
       <xsd:attribute name="codec_time_base"  type="xsd:string" use="required"/>
       <xsd:attribute name="codec_tag"        type="xsd:string" use="required"/>

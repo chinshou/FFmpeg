@@ -45,7 +45,12 @@ static const AVOption options[]={
 {"top", "top field first", offsetof(RawVideoContext, tff), AV_OPT_TYPE_INT, {.dbl = -1}, -1, 1, AV_OPT_FLAG_DECODING_PARAM|AV_OPT_FLAG_VIDEO_PARAM},
 {NULL}
 };
-static const AVClass class = { "rawdec", NULL, options, LIBAVUTIL_VERSION_INT };
+
+static const AVClass class = {
+    .class_name = "rawdec",
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
 
 static const PixelFormatTag pix_fmt_bps_avi[] = {
     { PIX_FMT_MONOWHITE, 1 },
@@ -109,7 +114,7 @@ static av_cold int raw_init_decoder(AVCodecContext *avctx)
         context->length = avpicture_get_size(avctx->pix_fmt, FFALIGN(avctx->width, 16), avctx->height);
         context->buffer = av_malloc(context->length);
         if (!context->buffer)
-            return -1;
+            return AVERROR(ENOMEM);
     } else {
         context->length = avpicture_get_size(avctx->pix_fmt, avctx->width, avctx->height);
     }
@@ -139,7 +144,7 @@ static int raw_decode(AVCodecContext *avctx,
     int buf_size = avpkt->size;
     int linesize_align = 4;
     RawVideoContext *context = avctx->priv_data;
-    int res;
+    int res, len;
 
     AVFrame   *frame   = data;
     AVPicture *picture = data;
@@ -150,6 +155,7 @@ static int raw_decode(AVCodecContext *avctx,
     frame->reordered_opaque = avctx->reordered_opaque;
     frame->pkt_pts          = avctx->pkt->pts;
     frame->pkt_pos          = avctx->pkt->pos;
+    frame->pkt_duration     = avctx->pkt->duration;
 
     if(context->tff>=0){
         frame->interlaced_frame = 1;
@@ -188,8 +194,11 @@ static int raw_decode(AVCodecContext *avctx,
        avctx->codec_tag == MKTAG('A', 'V', 'u', 'p'))
         buf += buf_size - context->length;
 
-    if(buf_size < context->length - (avctx->pix_fmt==PIX_FMT_PAL8 ? 256*4 : 0))
-        return -1;
+    len = context->length - (avctx->pix_fmt==PIX_FMT_PAL8 ? 256*4 : 0);
+    if (buf_size < len) {
+        av_log(avctx, AV_LOG_ERROR, "Invalid buffer size, packet size %d < expected length %d\n", buf_size, len);
+        return AVERROR(EINVAL);
+    }
 
     if ((res = avpicture_fill(picture, buf, avctx->pix_fmt,
                               avctx->width, avctx->height)) < 0)
@@ -232,6 +241,16 @@ static int raw_decode(AVCodecContext *avctx,
         for(y = 0; y < avctx->height; y++) {
             for(x = 0; x < avctx->width; x++)
                 line[2*x + 1] ^= 0x80;
+            line += picture->linesize[0];
+        }
+    }
+    if(avctx->codec_tag == AV_RL32("YVYU") &&
+       avctx->pix_fmt   == PIX_FMT_YUYV422) {
+        int x, y;
+        uint8_t *line = picture->data[0];
+        for(y = 0; y < avctx->height; y++) {
+            for(x = 0; x < avctx->width - 1; x += 2)
+                FFSWAP(uint8_t, line[2*x + 1], line[2*x + 3]);
             line += picture->linesize[0];
         }
     }

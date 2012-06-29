@@ -26,6 +26,9 @@
 /* #define DEBUG */
 
 #include "avfilter.h"
+#include "formats.h"
+#include "internal.h"
+#include "video.h"
 #include "libavutil/eval.h"
 #include "libavutil/avstring.h"
 #include "libavutil/libm.h"
@@ -112,12 +115,12 @@ static int query_formats(AVFilterContext *ctx)
         PIX_FMT_NONE
     };
 
-    avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
 
     return 0;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     CropContext *crop = ctx->priv;
 
@@ -221,7 +224,7 @@ static int config_input(AVFilterLink *link)
     } else
         crop->out_sar = link->sample_aspect_ratio;
 
-    av_log(ctx, AV_LOG_INFO, "w:%d h:%d sar:%d/%d -> w:%d h:%d sar:%d/%d\n",
+    av_log(ctx, AV_LOG_VERBOSE, "w:%d h:%d sar:%d/%d -> w:%d h:%d sar:%d/%d\n",
            link->w, link->h, link->sample_aspect_ratio.num, link->sample_aspect_ratio.den,
            crop->w, crop->h, crop->out_sar.num, crop->out_sar.den);
 
@@ -307,7 +310,7 @@ static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
         ref2->data[3] += crop->x * crop->max_step[3];
     }
 
-    avfilter_start_frame(link->dst->outputs[0], ref2);
+    ff_start_frame(link->dst->outputs[0], ref2);
 }
 
 static void draw_slice(AVFilterLink *link, int y, int h, int slice_dir)
@@ -325,7 +328,7 @@ static void draw_slice(AVFilterLink *link, int y, int h, int slice_dir)
     if (y + h > crop->y + crop->h)
         h = crop->y + crop->h - y;
 
-    avfilter_draw_slice(ctx->outputs[0], y - crop->y, h, slice_dir);
+    ff_draw_slice(ctx->outputs[0], y - crop->y, h, slice_dir);
 }
 
 static void end_frame(AVFilterLink *link)
@@ -334,7 +337,7 @@ static void end_frame(AVFilterLink *link)
 
     crop->var_values[VAR_N] += 1.0;
     avfilter_unref_buffer(link->cur_buf);
-    avfilter_end_frame(link->dst->outputs[0]);
+    ff_end_frame(link->dst->outputs[0]);
 }
 
 AVFilter avfilter_vf_crop = {
@@ -352,7 +355,7 @@ AVFilter avfilter_vf_crop = {
                                     .start_frame      = start_frame,
                                     .draw_slice       = draw_slice,
                                     .end_frame        = end_frame,
-                                    .get_video_buffer = avfilter_null_get_video_buffer,
+                                    .get_video_buffer = ff_null_get_video_buffer,
                                     .config_props     = config_input, },
                                   { .name = NULL}},
     .outputs   = (const AVFilterPad[]) {{ .name       = "default",

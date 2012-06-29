@@ -175,8 +175,8 @@ static int mov_read_udta_string(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 #endif
     char str[1024], key2[16], language[4] = {0};
     const char *key = NULL;
-    uint16_t str_size, langcode = 0;
-    uint32_t data_type = 0;
+    uint16_t langcode = 0;
+    uint32_t data_type = 0, str_size;
     int (*parse)(MOVContext*, AVIOContext*, unsigned, const char*) = NULL;
 
     switch (atom.type) {
@@ -655,9 +655,9 @@ static int mov_read_chan(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     label_mask = 0;
     for (i = 0; i < num_descr; i++) {
-        uint32_t av_unused label, cflags;
+        uint32_t label;
         label     = avio_rb32(pb);          // mChannelLabel
-        cflags    = avio_rb32(pb);          // mChannelFlags
+        avio_rb32(pb);                      // mChannelFlags
         avio_rl32(pb);                      // mCoordinates[0]
         avio_rl32(pb);                      // mCoordinates[1]
         avio_rl32(pb);                      // mCoordinates[2]
@@ -1006,6 +1006,11 @@ static int mov_read_jp2h(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     return mov_read_extradata(c, pb, atom, CODEC_ID_JPEG2000);
 }
 
+static int mov_read_aprg(MOVContext *c, AVIOContext *pb, MOVAtom atom)
+{
+    return mov_read_extradata(c, pb, atom, CODEC_ID_AVUI);
+}
+
 static int mov_read_wave(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     AVStream *st;
@@ -1051,7 +1056,7 @@ static int mov_read_glbl(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         return AVERROR_INVALIDDATA;
 
     if (atom.size >= 10) {
-        // Broken files created by legacy versions of Libav and FFmpeg will
+        // Broken files created by legacy versions of libavformat will
         // wrap a whole fiel atom inside of a glbl atom.
         unsigned size = avio_rb32(pb);
         unsigned type = avio_rl32(pb);
@@ -1082,7 +1087,7 @@ static int mov_read_dvc1(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         return AVERROR_INVALIDDATA;
 
     profile_level = avio_r8(pb);
-    if (profile_level & 0xf0 != 0xc0)
+    if ((profile_level & 0xf0) != 0xc0)
         return 0;
 
     av_free(st->codec->extradata);
@@ -1535,6 +1540,7 @@ int ff_mov_read_stsd_entries(MOVContext *c, AVIOContext *pb, int entries)
     case CODEC_ID_GSM:
     case CODEC_ID_ADPCM_MS:
     case CODEC_ID_ADPCM_IMA_WAV:
+    case CODEC_ID_ILBC:
         st->codec->block_align = sc->bytes_per_frame;
         break;
     case CODEC_ID_ALAC:
@@ -1547,6 +1553,9 @@ int ff_mov_read_stsd_entries(MOVContext *c, AVIOContext *pb, int entries)
         st->need_parsing = AVSTREAM_PARSE_FULL;
         break;
     case CODEC_ID_MPEG1VIDEO:
+        st->need_parsing = AVSTREAM_PARSE_FULL;
+        break;
+    case CODEC_ID_VC1:
         st->need_parsing = AVSTREAM_PARSE_FULL;
         break;
     default:
@@ -1866,7 +1875,7 @@ static void mov_build_index(MOVContext *mov, AVStream *st)
             sc->empty_duration = av_rescale(sc->empty_duration, sc->time_scale, mov->time_scale);
         sc->time_offset = sc->start_time - sc->empty_duration;
         current_dts = -sc->time_offset;
-        if (sc->ctts_data && sc->stts_data &&
+        if (sc->ctts_count>0 && sc->stts_count>0 &&
             sc->ctts_data[0].duration / FFMAX(sc->stts_data[0].duration, 1) > 16) {
             /* more than 16 frames delay, dts are likely wrong
                this happens with files created by iMovie */
@@ -2154,9 +2163,6 @@ static int mov_read_trak(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 #endif
 #if CONFIG_H263_DECODER
     case CODEC_ID_H263:
-#endif
-#if CONFIG_H264_DECODER
-    case CODEC_ID_H264:
 #endif
 #if CONFIG_MPEG4_DECODER
     case CODEC_ID_MPEG4:
@@ -2584,7 +2590,32 @@ static int mov_read_chan2(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     return 0;
 }
 
+static int mov_read_tref(MOVContext *c, AVIOContext *pb, MOVAtom atom)
+{
+    uint32_t i, size;
+    MOVStreamContext *sc;
+
+    if (c->fc->nb_streams < 1)
+        return AVERROR_INVALIDDATA;
+    sc = c->fc->streams[c->fc->nb_streams - 1]->priv_data;
+
+    size = avio_rb32(pb);
+    if (size < 12)
+        return 0;
+
+    sc->trefs_count = (size - 4) / 8;
+    sc->trefs = av_malloc(sc->trefs_count * sizeof(*sc->trefs));
+    if (!sc->trefs)
+        return AVERROR(ENOMEM);
+
+    sc->tref_type = avio_rl32(pb);
+    for (i = 0; i < sc->trefs_count; i++)
+        sc->trefs[i] = avio_rb32(pb);
+    return 0;
+}
+
 static const MOVParseTableEntry mov_default_parse_table[] = {
+{ MKTAG('A','P','R','G'), mov_read_aprg },
 { MKTAG('a','v','s','s'), mov_read_avss },
 { MKTAG('c','h','p','l'), mov_read_chpl },
 { MKTAG('c','o','6','4'), mov_read_stco },
@@ -2627,7 +2658,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('t','f','h','d'), mov_read_tfhd }, /* track fragment header */
 { MKTAG('t','r','a','k'), mov_read_trak },
 { MKTAG('t','r','a','f'), mov_read_default },
-{ MKTAG('t','r','e','f'), mov_read_default },
+{ MKTAG('t','r','e','f'), mov_read_tref },
 { MKTAG('c','h','a','p'), mov_read_chap },
 { MKTAG('t','r','e','x'), mov_read_trex },
 { MKTAG('t','r','u','n'), mov_read_trun },
@@ -2816,6 +2847,7 @@ static int mov_read_close(AVFormatContext *s)
             av_freep(&sc->drefs[j].dir);
         }
         av_freep(&sc->drefs);
+        av_freep(&sc->trefs);
         if (sc->pb && sc->pb != s->pb)
             avio_close(sc->pb);
         sc->pb = NULL;
@@ -2841,11 +2873,47 @@ static int mov_read_close(AVFormatContext *s)
     return 0;
 }
 
+static int tmcd_is_referenced(AVFormatContext *s, int tmcd_id)
+{
+    int i, j;
+
+    for (i = 0; i < s->nb_streams; i++) {
+        AVStream *st = s->streams[i];
+        MOVStreamContext *sc = st->priv_data;
+
+        if (s->streams[i]->codec->codec_type != AVMEDIA_TYPE_VIDEO)
+            continue;
+        for (j = 0; j < sc->trefs_count; j++)
+            if (tmcd_id == sc->trefs[j])
+                return 1;
+    }
+    return 0;
+}
+
+/* look for a tmcd track not referenced by any video track, and export it globally */
+static void export_orphan_timecode(AVFormatContext *s)
+{
+    int i;
+
+    for (i = 0; i < s->nb_streams; i++) {
+        AVStream *st = s->streams[i];
+
+        if (st->codec->codec_tag  == MKTAG('t','m','c','d') &&
+            !tmcd_is_referenced(s, i + 1)) {
+            AVDictionaryEntry *tcr = av_dict_get(st->metadata, "timecode", NULL, 0);
+            if (tcr) {
+                av_dict_set(&s->metadata, "timecode", tcr->value, 0);
+                break;
+            }
+        }
+    }
+}
+
 static int mov_read_header(AVFormatContext *s)
 {
     MOVContext *mov = s->priv_data;
     AVIOContext *pb = s->pb;
-    int err;
+    int i, err;
     MOVAtom atom = { AV_RL32("root") };
 
     mov->fc = s;
@@ -2869,7 +2937,6 @@ static int mov_read_header(AVFormatContext *s)
     av_dlog(mov->fc, "on_parse_exit_offset=%"PRId64"\n", avio_tell(pb));
 
     if (pb->seekable) {
-        int i;
         if (mov->chapter_track > 0)
             mov_read_chapters(s);
         for (i = 0; i < s->nb_streams; i++)
@@ -2877,8 +2944,24 @@ static int mov_read_header(AVFormatContext *s)
                 mov_read_timecode_track(s, s->streams[i]);
     }
 
+    /* copy timecode metadata from tmcd tracks to the related video streams */
+    for (i = 0; i < s->nb_streams; i++) {
+        AVStream *st = s->streams[i];
+        MOVStreamContext *sc = st->priv_data;
+        if (sc->tref_type == AV_RL32("tmcd") && sc->trefs_count) {
+            AVDictionaryEntry *tcr;
+            int tmcd_st_id = sc->trefs[0] - 1;
+
+            if (tmcd_st_id < 0 || tmcd_st_id >= s->nb_streams)
+                continue;
+            tcr = av_dict_get(s->streams[tmcd_st_id]->metadata, "timecode", NULL, 0);
+            if (tcr)
+                av_dict_set(&st->metadata, "timecode", tcr->value, 0);
+        }
+    }
+    export_orphan_timecode(s);
+
     if (mov->trex_data) {
-        int i;
         for (i = 0; i < s->nb_streams; i++) {
             AVStream *st = s->streams[i];
             MOVStreamContext *sc = st->priv_data;
@@ -3070,8 +3153,13 @@ static const AVOption options[] = {
         0, 1, AV_OPT_FLAG_VIDEO_PARAM|AV_OPT_FLAG_DECODING_PARAM},
     {NULL}
 };
-static const AVClass class = {"mov,mp4,m4a,3gp,3g2,mj2", av_default_item_name, options, LIBAVUTIL_VERSION_INT};
 
+static const AVClass class = {
+    .class_name = "mov,mp4,m4a,3gp,3g2,mj2",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
 
 AVInputFormat ff_mov_demuxer = {
     .name           = "mov,mp4,m4a,3gp,3g2,mj2",

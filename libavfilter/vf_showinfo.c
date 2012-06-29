@@ -28,12 +28,13 @@
 #include "libavutil/timestamp.h"
 #include "avfilter.h"
 #include "internal.h"
+#include "video.h"
 
 typedef struct {
     unsigned int frame;
 } ShowInfoContext;
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     ShowInfoContext *showinfo = ctx->priv;
     showinfo->frame = 0;
@@ -81,7 +82,7 @@ static void end_frame(AVFilterLink *inlink)
 
     showinfo->frame++;
     avfilter_unref_buffer(picref);
-    avfilter_end_frame(inlink->dst->outputs[0]);
+    ff_end_frame(inlink->dst->outputs[0]);
 }
 
 AVFilter avfilter_vf_showinfo = {
@@ -93,7 +94,7 @@ AVFilter avfilter_vf_showinfo = {
 
     .inputs    = (const AVFilterPad[]) {{ .name       = "default",
                                     .type             = AVMEDIA_TYPE_VIDEO,
-                                    .get_video_buffer = avfilter_null_get_video_buffer,
+                                    .get_video_buffer = ff_null_get_video_buffer,
                                     .start_frame      = ff_null_start_frame_keep_ref,
                                     .end_frame        = end_frame,
                                     .min_perms        = AV_PERM_READ, },

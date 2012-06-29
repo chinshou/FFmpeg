@@ -22,6 +22,7 @@
 #include "libavutil/common.h"
 #include "libavutil/pixdesc.h"
 #include "avfilter.h"
+#include "internal.h"
 
 #undef NDEBUG
 #include <assert.h>
@@ -49,7 +50,7 @@ typedef struct {
     AVFilterBufferRef *next;
     AVFilterBufferRef *prev;
     AVFilterBufferRef *out;
-    int (*filter_line)(uint8_t *prev, uint8_t *cur, uint8_t *next, int w);
+    int (*filter_line)(const uint8_t *prev, const uint8_t *cur, const uint8_t *next, int w);
 
     const AVPixFmtDescriptor *csp;
 } IDETContext;
@@ -102,7 +103,6 @@ static void filter(AVFilterContext *ctx)
         int w = idet->cur->video->w;
         int h = idet->cur->video->h;
         int refs = idet->cur->linesize[i];
-        int df = (idet->csp->comp[i].depth_minus1 + 8) / 8;
 
         if (i && i<3) {
             w >>= idet->csp->log2_chroma_w;
@@ -186,7 +186,7 @@ static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
     if (!idet->prev)
         idet->prev = avfilter_ref_buffer(idet->cur, AV_PERM_READ);
 
-    avfilter_start_frame(ctx->outputs[0], avfilter_ref_buffer(idet->cur, AV_PERM_READ));
+    ff_start_frame(ctx->outputs[0], avfilter_ref_buffer(idet->cur, AV_PERM_READ));
 }
 
 static void end_frame(AVFilterLink *link)
@@ -204,8 +204,8 @@ static void end_frame(AVFilterLink *link)
 
     filter(ctx);
 
-    avfilter_draw_slice(ctx->outputs[0], 0, link->h, 1);
-    avfilter_end_frame(ctx->outputs[0]);
+    ff_draw_slice(ctx->outputs[0], 0, link->h, 1);
+    ff_end_frame(ctx->outputs[0]);
 }
 
 static int request_frame(AVFilterLink *link)
@@ -216,7 +216,7 @@ static int request_frame(AVFilterLink *link)
     do {
         int ret;
 
-        if ((ret = avfilter_request_frame(link->src->inputs[0])))
+        if ((ret = ff_request_frame(link->src->inputs[0])))
             return ret;
     } while (!idet->cur);
 
@@ -228,12 +228,12 @@ static int poll_frame(AVFilterLink *link)
     IDETContext *idet = link->src->priv;
     int ret, val;
 
-    val = avfilter_poll_frame(link->src->inputs[0]);
+    val = ff_poll_frame(link->src->inputs[0]);
 
     if (val >= 1 && !idet->next) { //FIXME change API to not requre this red tape
-        if ((ret = avfilter_request_frame(link->src->inputs[0])) < 0)
+        if ((ret = ff_request_frame(link->src->inputs[0])) < 0)
             return ret;
-        val = avfilter_poll_frame(link->src->inputs[0]);
+        val = ff_poll_frame(link->src->inputs[0]);
     }
     assert(idet->next || !val);
 
@@ -287,15 +287,14 @@ static int query_formats(AVFilterContext *ctx)
         PIX_FMT_NONE
     };
 
-    avfilter_set_common_pixel_formats(ctx, avfilter_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
 
     return 0;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     IDETContext *idet = ctx->priv;
-    int cpu_flags = av_get_cpu_flags();
 
     idet->csp = NULL;
 

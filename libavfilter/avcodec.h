@@ -35,8 +35,18 @@
 /**
  * Copy the frame properties of src to dst, without copying the actual
  * image data.
+ *
+ * @return 0 on success, a negative number on error.
  */
 int avfilter_copy_frame_props(AVFilterBufferRef *dst, const AVFrame *src);
+
+/**
+ * Copy the frame properties and data pointers of src to dst, without copying
+ * the actual data.
+ *
+ * @return 0 on success, a negative number on error.
+ */
+int avfilter_copy_buf_props(AVFrame *dst, const AVFilterBufferRef *src);
 
 /**
  * Create and return a picref reference from the data and properties
@@ -56,6 +66,7 @@ AVFilterBufferRef *avfilter_get_video_buffer_ref_from_frame(const AVFrame *frame
 AVFilterBufferRef *avfilter_get_audio_buffer_ref_from_frame(const AVFrame *frame,
                                                             int perms);
 
+#ifdef FF_API_FILL_FRAME
 /**
  * Fill an AVFrame with the information stored in samplesref.
  *
@@ -63,7 +74,9 @@ AVFilterBufferRef *avfilter_get_audio_buffer_ref_from_frame(const AVFrame *frame
  * @param samplesref an audio buffer reference
  * @return 0 in case of success, a negative AVERROR code in case of
  * failure
+ * @deprecated Use avfilter_copy_buf_props() instead.
  */
+attribute_deprecated
 int avfilter_fill_frame_from_audio_buffer_ref(AVFrame *frame,
                                               const AVFilterBufferRef *samplesref);
 
@@ -74,7 +87,9 @@ int avfilter_fill_frame_from_audio_buffer_ref(AVFrame *frame,
  * @param picref a video buffer reference
  * @return 0 in case of success, a negative AVERROR code in case of
  * failure
+ * @deprecated Use avfilter_copy_buf_props() instead.
  */
+attribute_deprecated
 int avfilter_fill_frame_from_video_buffer_ref(AVFrame *frame,
                                               const AVFilterBufferRef *picref);
 
@@ -85,9 +100,12 @@ int avfilter_fill_frame_from_video_buffer_ref(AVFrame *frame,
  * @param ref a video or audio buffer reference
  * @return 0 in case of success, a negative AVERROR code in case of
  * failure
+ * @deprecated Use avfilter_copy_buf_props() instead.
  */
+attribute_deprecated
 int avfilter_fill_frame_from_buffer_ref(AVFrame *frame,
                                         const AVFilterBufferRef *ref);
+#endif
 
 /**
  * Add frame data to buffer_src.

@@ -25,6 +25,7 @@
 #include "avio_internal.h"
 #include "riff.h"
 #include "libavcodec/bytestream.h"
+#include "libavutil/avassert.h"
 
 /* Note: when encoding, the first matching tag is used, so order is
    important if multiple tags possible for a given codec. */
@@ -118,6 +119,8 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { CODEC_ID_DVVIDEO,      MKTAG('d', 'v', 'c', ' ') },
     { CODEC_ID_DVVIDEO,      MKTAG('d', 'v', 'c', 's') },
     { CODEC_ID_DVVIDEO,      MKTAG('d', 'v', 'h', '1') },
+    { CODEC_ID_DVVIDEO,      MKTAG('S', 'L', '2', '5') },
+    { CODEC_ID_DVVIDEO,      MKTAG('S', 'L', 'D', 'V') },
     { CODEC_ID_MPEG1VIDEO,   MKTAG('m', 'p', 'g', '1') },
     { CODEC_ID_MPEG1VIDEO,   MKTAG('m', 'p', 'g', '2') },
     { CODEC_ID_MPEG2VIDEO,   MKTAG('m', 'p', 'g', '2') },
@@ -197,6 +200,7 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { CODEC_ID_RAWVIDEO,     MKTAG('Y', 'U', 'V', '9') },
     { CODEC_ID_RAWVIDEO,     MKTAG('Y', 'V', 'U', '9') },
     { CODEC_ID_RAWVIDEO,     MKTAG('a', 'u', 'v', '2') },
+    { CODEC_ID_RAWVIDEO,     MKTAG('Y', 'V', 'Y', 'U') },
     { CODEC_ID_FRWU,         MKTAG('F', 'R', 'W', 'U') },
     { CODEC_ID_R10K,         MKTAG('R', '1', '0', 'k') },
     { CODEC_ID_R210,         MKTAG('r', '2', '1', '0') },
@@ -258,6 +262,7 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { CODEC_ID_VC1IMAGE,     MKTAG('W', 'V', 'P', '2') },
     { CODEC_ID_LOCO,         MKTAG('L', 'O', 'C', 'O') },
     { CODEC_ID_WNV1,         MKTAG('W', 'N', 'V', '1') },
+    { CODEC_ID_AASC,         MKTAG('A', 'A', 'S', '4') },
     { CODEC_ID_AASC,         MKTAG('A', 'A', 'S', 'C') },
     { CODEC_ID_INDEO2,       MKTAG('R', 'T', '2', '1') },
     { CODEC_ID_FRAPS,        MKTAG('F', 'P', 'S', '1') },
@@ -302,6 +307,7 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { CODEC_ID_Y41P,         MKTAG('Y', '4', '1', 'P') },
     { CODEC_ID_FLIC,         MKTAG('A', 'F', 'L', 'C') },
     { CODEC_ID_EXR,          MKTAG('e', 'x', 'r', ' ') },
+    { CODEC_ID_MSS1,         MKTAG('M', 'S', 'S', '1') },
     { CODEC_ID_NONE,         0 }
 };
 
@@ -341,6 +347,7 @@ const AVCodecTag ff_codec_wav_tags[] = {
     { CODEC_ID_ATRAC3,          0x0270 },
     { CODEC_ID_ADPCM_G722,      0x028F },
     { CODEC_ID_IMC,             0x0401 },
+    { CODEC_ID_IAC,             0x0402 },
     { CODEC_ID_GSM_MS,          0x1500 },
     { CODEC_ID_TRUESPEECH,      0x1501 },
     { CODEC_ID_AAC,             0x1600 }, /* ADTS AAC */
@@ -384,6 +391,7 @@ const AVMetadataConv ff_riff_info_conv[] = {
     { "IPRD", "album"     },
     { "IPRT", "track"     },
     { "ISFT", "encoder"   },
+    { "ISMP", "timecode"  },
     { "ITCH", "encoded_by"},
     { 0 },
 };
@@ -391,7 +399,7 @@ const AVMetadataConv ff_riff_info_conv[] = {
 const char ff_riff_tags[][5] = {
     "IARL", "IART", "ICMS", "ICMT", "ICOP", "ICRD", "ICRP", "IDIM", "IDPI",
     "IENG", "IGNR", "IKEY", "ILGT", "ILNG", "IMED", "INAM", "IPLT", "IPRD",
-    "IPRT", "ISBJ", "ISFT", "ISHP", "ISRC", "ISRF", "ITCH",
+    "IPRT", "ISBJ", "ISFT", "ISHP", "ISMP", "ISRC", "ISRF", "ITCH",
     {0}
 };
 
@@ -588,7 +596,9 @@ int ff_get_wav_header(AVIOContext *pb, AVCodecContext *codec, int size)
         cbSize = FFMIN(size, cbSize);
         if (cbSize >= 22 && id == 0xfffe) { /* WAVEFORMATEXTENSIBLE */
             ff_asf_guid subformat;
-            codec->bits_per_coded_sample = avio_rl16(pb);
+            int bps = avio_rl16(pb);
+            if (bps)
+                codec->bits_per_coded_sample = bps;
             codec->channel_layout = avio_rl32(pb); /* dwChannelMask */
             ff_get_guid(pb, &subformat);
             if (!memcmp(subformat + 4, (const uint8_t[]){FF_MEDIASUBTYPE_BASE_GUID}, 12)) {
@@ -649,10 +659,11 @@ enum CodecID ff_wav_codec_get_id(unsigned int tag, int bps)
     return id;
 }
 
-int ff_get_bmp_header(AVIOContext *pb, AVStream *st)
+int ff_get_bmp_header(AVIOContext *pb, AVStream *st, unsigned *esize)
 {
     int tag1;
-    avio_rl32(pb); /* size */
+    if(esize) *esize = avio_rl32(pb);
+    else               avio_rl32(pb);
     st->codec->width = avio_rl32(pb);
     st->codec->height = (int32_t)avio_rl32(pb);
     avio_rl16(pb); /* planes */
@@ -699,7 +710,7 @@ void ff_parse_specific_params(AVCodecContext *stream, int *au_rate, int *au_ssiz
 
 void ff_get_guid(AVIOContext *s, ff_asf_guid *g)
 {
-    assert(sizeof(*g) == 16);
+    av_assert0(sizeof(*g) == 16); //compiler will optimize this out
     if (avio_read(s, *g, sizeof(*g)) < (int)sizeof(*g))
         memset(*g, 0, sizeof(*g));
 }

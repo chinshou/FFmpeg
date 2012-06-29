@@ -192,6 +192,11 @@ static av_cold int flashsv2_encode_init(AVCodecContext * avctx)
                "Input dimensions too large, input must be max 4096x4096 !\n");
         return -1;
     }
+    if ((avctx->width < 16) || (avctx->height < 16)) {
+        av_log(avctx, AV_LOG_ERROR,
+               "Input dimensions too small, input must be at least 16x16 !\n");
+        return -1;
+    }
 
     if (av_image_check_size(avctx->width, avctx->height, 0, avctx) < 0)
         return -1;
@@ -204,6 +209,11 @@ static av_cold int flashsv2_encode_init(AVCodecContext * avctx)
 
     s->block_width  = (s->image_width /  12) & ~15;
     s->block_height = (s->image_height / 12) & ~15;
+
+    if(!s->block_width)
+        s->block_width = 1;
+    if(!s->block_height)
+        s->block_height = 1;
 
     s->rows = (s->image_height + s->block_height - 1) / s->block_height;
     s->cols = (s->image_width +  s->block_width -  1) / s->block_width;
@@ -902,7 +912,7 @@ AVCodec ff_flashsv2_encoder = {
     .init           = flashsv2_encode_init,
     .encode2        = flashsv2_encode_frame,
     .close          = flashsv2_encode_end,
-    .pix_fmts = (enum PixelFormat[]) {PIX_FMT_BGR24, PIX_FMT_NONE},
-    .long_name = NULL_IF_CONFIG_SMALL("Flash Screen Video Version 2"),
-    .capabilities   =  CODEC_CAP_EXPERIMENTAL,
+    .pix_fmts       = (const enum PixelFormat[]){ PIX_FMT_BGR24, PIX_FMT_NONE },
+    .long_name      = NULL_IF_CONFIG_SMALL("Flash Screen Video Version 2"),
+    .capabilities   = CODEC_CAP_EXPERIMENTAL,
 };

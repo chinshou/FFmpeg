@@ -331,7 +331,7 @@ static av_always_inline void put_qscale(MpegEncContext *s)
 }
 
 void ff_mpeg1_encode_slice_header(MpegEncContext *s){
-    if (s->height > 2800) {
+    if (s->codec_id == CODEC_ID_MPEG2VIDEO && s->height > 2800) {
         put_header(s, SLICE_MIN_START_CODE + (s->mb_y & 127));
         put_bits(&s->pb, 3, s->mb_y >> 7);  /* slice_vertical_position_extension */
     } else {
@@ -931,8 +931,7 @@ static void mpeg1_encode_block(MpegEncContext *s,
 #define OFFSET(x) offsetof(MpegEncContext, x)
 #define VE AV_OPT_FLAG_ENCODING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
 #define COMMON_OPTS\
-        {AV_TIMECODE_OPTION(MpegEncContext, tc_opt_str, \
-         AV_OPT_FLAG_ENCODING_PARAM | AV_OPT_FLAG_VIDEO_PARAM)},\
+    { "gop_timecode",        "MPEG GOP Timecode in hh:mm:ss[:;.]ff format", OFFSET(tc_opt_str), AV_OPT_TYPE_STRING, {.str=NULL}, CHAR_MIN, CHAR_MAX, VE },\
     { "intra_vlc",           "Use MPEG-2 intra VLC table.",       OFFSET(intra_vlc_format),    AV_OPT_TYPE_INT, { 0 }, 0, 1, VE },\
     { "drop_frame_timecode", "Timecode is in drop frame format.", OFFSET(drop_frame_timecode), AV_OPT_TYPE_INT, { 0 }, 0, 1, VE}, \
     { "scan_offset",         "Reserve space for SVCD scan offset user data.", OFFSET(scan_offset), AV_OPT_TYPE_INT, { 0 }, 0, 1, VE },
