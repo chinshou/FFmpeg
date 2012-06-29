@@ -35,6 +35,8 @@
 #include <ass_library.h>
 
 #include "avfilter.h"
+#include "formats.h"
+#include "video.h"
 #include "subreader.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/avstring.h"
@@ -268,8 +270,8 @@ static int query_formats(AVFilterContext *ctx)
 	  PIX_FMT_NONE
   };
   
-  avfilter_set_common_pixel_formats
-    (ctx, avfilter_make_format_list(pix_fmts));
+  ff_set_common_formats
+    (ctx, ff_make_format_list(pix_fmts));
   return 0;
 }
 
@@ -336,12 +338,13 @@ static int config_input(AVFilterLink *link)
   context->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
   context->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
 
+
   return 0;
 }
 
 static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
 {
-  avfilter_start_frame(link->dst->outputs[0], picref);
+  ff_start_frame(link->dst->outputs[0], picref);
 }
 
 #define _r(c)  ((c)>>24)
@@ -424,8 +427,8 @@ static void end_frame(AVFilterLink *link)
     img = img->next;
   }
 
-  avfilter_draw_slice(output, 0, pic->video->h, 1);
-  avfilter_end_frame(output);
+  ff_draw_slice(output, 0, pic->video->h, 1);
+  ff_end_frame(output);
 }
 
 static int parse_args(AVFilterContext *ctx, AssContext *context, const char* args)
@@ -509,7 +512,7 @@ AVFilter avfilter_vf_ass=
     .query_formats   = query_formats,
     .inputs    = (AVFilterPad[]) {{ .name            = "default",
                                     .type            = AVMEDIA_TYPE_VIDEO,
-                                    .get_video_buffer = avfilter_null_get_video_buffer,
+                                    .get_video_buffer = ff_null_get_video_buffer,
                                     .start_frame     = start_frame,
                                     .end_frame       = end_frame,
                                     .config_props    = config_input,
@@ -522,4 +525,3 @@ AVFilter avfilter_vf_ass=
                                     .type            = AVMEDIA_TYPE_VIDEO, },
                                   { .name = NULL}},
   };
-
