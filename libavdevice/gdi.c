@@ -58,11 +58,7 @@ static int gdi_read_header(AVFormatContext *s)
 
     width  = width  - ctx->x_off;
     height = height - ctx->y_off;
-<<<<<<< HEAD
 
-=======
-
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 
     ctx->hDesktopWnd = GetDesktopWindow( );
     ctx->hDesktopDC = GetDC( ctx->hDesktopWnd );

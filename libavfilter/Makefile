@@ -201,10 +201,6 @@ OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/pullup.o
 OBJS-$(CONFIG_SHOWWAVES_FILTER)              += avf_showwaves.o
 
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 CFLAGS += -I/usr/i686-mingw32/include/ass
 EXTRALIBS += -lass -lfreetype -liconv
 TESTPROGS = drawutils formats

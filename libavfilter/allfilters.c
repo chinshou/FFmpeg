@@ -54,10 +54,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER (PAN,         pan,         af);
     REGISTER_FILTER (SILENCEDETECT, silencedetect, af);
     REGISTER_FILTER (VOLUME,      volume,      af);
-<<<<<<< HEAD
-=======
     REGISTER_FILTER (RESAMPLE,    resample,    af);
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
     REGISTER_FILTER (SOX,         sox,         af);
 
     REGISTER_FILTER (AEVALSRC,    aevalsrc,    asrc);

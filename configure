@@ -1673,11 +1673,7 @@ bktr_indev_deps_any="dev_bktr_ioctl_bt848_h machine_ioctl_bt848_h dev_video_bktr
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
-<<<<<<< HEAD
 gdi_indev_deps="GetDeviceCaps"
-=======
-#gdi_indev_deps="GetDeviceCaps"
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 jack_indev_deps="jack_jack_h sem_timedwait"
@@ -1696,11 +1692,7 @@ v4l_indev_deps="linux_videodev_h"
 v4l2_indev_deps_any="linux_videodev2_h sys_videoio_h"
 vfwcap_indev_deps="capCreateCaptureWindow vfwcap_defines"
 vfwcap_indev_extralibs="-lavicap32"
-<<<<<<< HEAD
 waveform_indev_deps="waveInOpen"
-=======
-#waveform_indev_deps="waveInOpen"
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 waveform_indev_extralibs="-lwinmm"
 x11_grab_device_indev_deps="x11grab XShmCreateImage"
 
@@ -1760,10 +1752,7 @@ ocv_filter_deps="libopencv"
 pan_filter_deps="swresample"
 removelogo_filter_deps="avcodec avformat swscale"
 scale_filter_deps="swscale"
-<<<<<<< HEAD
-=======
 select_filter_deps="avcodec"
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 sox_filter_deps="libsox"
 super2xsai_filter_deps="gpl"
 tinterlace_filter_deps="gpl"

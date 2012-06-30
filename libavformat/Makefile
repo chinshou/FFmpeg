@@ -22,11 +22,7 @@ OBJS = allformats.o         \
        seek.o               \
        utils.o              \
        lang.o              \
-<<<<<<< HEAD
        #dvdnav.o             \
-=======
-       dvdnav.o             \
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 
 OBJS-$(CONFIG_NETWORK)                   += network.o
 
@@ -393,13 +389,8 @@ OBJS-$(CONFIG_TLS_PROTOCOL)              += tls.o
 OBJS-$(CONFIG_UDP_PROTOCOL)              += udp.o
 
 SKIPHEADERS-$(CONFIG_NETWORK)            += network.h rtsp.h
-<<<<<<< HEAD
 #CFLAGS += -I/usr/i686-mingw32/include/dvdread
 #EXTRALIBS += -ldvdnav -ldvdread -ldvdcss
-=======
-CFLAGS += -I/usr/i686-mingw32/include/dvdread
-EXTRALIBS += -ldvdnav -ldvdread -ldvdcss
->>>>>>> 8913b0ae18a1f60f52666bb345f4f72aa542f1be
 TESTPROGS = seek
 
 TOOLS     = aviocat                                                     \
