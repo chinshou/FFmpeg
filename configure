@@ -178,6 +178,7 @@ External library support:
   --enable-libdc1394       enable IIDC-1394 grabbing using libdc1394
                            and libraw1394 [no]
   --enable-libfaac         enable FAAC support via libfaac [no]
+  --enable-libflite        enable flite (voice synthesis) support via libflite [no]
   --enable-libfreetype     enable libfreetype [no]
   --enable-libgsm          enable GSM support via libgsm [no]
   --enable-libilbc         enable iLBC de/encoding via libilbc [no]
@@ -1051,6 +1052,7 @@ CONFIG_LIST="
     libcelt
     libdc1394
     libfaac
+    libflite
     libfreetype
     libgsm
     libilbc
@@ -1738,6 +1740,7 @@ cropdetect_filter_deps="gpl"
 delogo_filter_deps="gpl"
 deshake_filter_deps="avcodec"
 drawtext_filter_deps="libfreetype"
+flite_filter_deps="libflite"
 frei0r_filter_deps="frei0r dlopen"
 frei0r_filter_extralibs='$ldl'
 frei0r_src_filter_deps="frei0r dlopen"
@@ -3292,6 +3295,7 @@ enabled libcelt    && require libcelt celt/celt.h celt_decode -lcelt0 &&
                       { check_lib celt/celt.h celt_decoder_create_custom -lcelt0 ||
                         die "ERROR: libcelt version must be >= 0.11.0."; }
 enabled libfaac    && require2 libfaac "stdint.h faac.h" faacEncGetVersion -lfaac
+enabled libflite   && require2 libflite "flite/flite.h" flite_init -lflite_cmu_us_kal -lflite_usenglish -lflite_cmulex -lflite
 enabled libfreetype && require_pkg_config freetype2 "ft2build.h freetype/freetype.h" FT_Init_FreeType
 enabled libgsm     && require  libgsm gsm/gsm.h gsm_create -lgsm
 enabled libilbc    && require  libilbc ilbc.h WebRtcIlbcfix_InitDecode -lilbc

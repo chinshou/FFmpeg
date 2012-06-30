@@ -71,6 +71,7 @@ OBJS-$(CONFIG_SOX_FILTER)                    += af_sox.o
 OBJS-$(CONFIG_AEVALSRC_FILTER)               += asrc_aevalsrc.o
 OBJS-$(CONFIG_AMOVIE_FILTER)                 += src_movie.o
 OBJS-$(CONFIG_ANULLSRC_FILTER)               += asrc_anullsrc.o
+OBJS-$(CONFIG_FLITE_FILTER)                  += asrc_flite.o
 
 OBJS-$(CONFIG_ABUFFERSINK_FILTER)            += sink_buffer.o
 OBJS-$(CONFIG_ANULLSINK_FILTER)              += asink_anullsink.o
