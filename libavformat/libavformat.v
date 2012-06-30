@@ -31,6 +31,7 @@ LIBAVFORMAT_$MAJOR {
                 ff_timefilter_new;
                 ff_timefilter_update;
                 ff_timefilter_reset;
+		hb*;
                 get_*;
                 put_*;
                 udp_set_remote_url;
