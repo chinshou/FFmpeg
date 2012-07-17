@@ -865,7 +865,7 @@ check_pkg_config(){
     shift 3
     $pkg_config --exists $pkg 2>/dev/null || return
     pkg_cflags=$($pkg_config --cflags $pkg)
-    pkg_libs=$($pkg_config --libs $pkg)
+    pkg_libs=$($pkg_config --static --libs $pkg)
     check_func_headers "$headers" "$funcs" $pkg_cflags $pkg_libs "$@" &&
         set_safe ${pkg}_cflags $pkg_cflags   &&
         set_safe ${pkg}_libs   $pkg_libs
@@ -3299,7 +3299,7 @@ enabled libflite   && require2 libflite "flite/flite.h" flite_init -lflite_cmu_u
 enabled libfreetype && require_pkg_config freetype2 "ft2build.h freetype/freetype.h" FT_Init_FreeType
 enabled libgsm     && require  libgsm gsm/gsm.h gsm_create -lgsm
 enabled libilbc    && require  libilbc ilbc.h WebRtcIlbcfix_InitDecode -lilbc
-enabled libmodplug && require  libmodplug libmodplug/modplug.h ModPlug_Load -lmodplug -lstdc++
+enabled libmodplug && require_pkg_config  libmodplug libmodplug/modplug.h ModPlug_Load
 enabled libmp3lame && require  "libmp3lame >= 3.98.3" lame/lame.h lame_set_VBR_quality -lmp3lame
 enabled libnut     && require  libnut libnut.h nut_demuxer_init -lnut
 enabled libopencore_amrnb  && require libopencore_amrnb opencore-amrnb/interf_dec.h Decoder_Interface_init -lopencore-amrnb
