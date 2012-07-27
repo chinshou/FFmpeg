@@ -204,7 +204,7 @@ static av_cold int movie_common_init(AVFilterContext *ctx, const char *args, con
         return AVERROR(EINVAL);
     }
 
-    if (*args++ == ':' && (ret = av_set_options_string(movie, args, "=", ":")) < 0)
+    if (*args++ == '|' && (ret = av_set_options_string(movie, args, "=", "|")) < 0) 
         return ret;
 
     movie->seek_point = movie->seek_point_d * 1000000 + 0.5;
