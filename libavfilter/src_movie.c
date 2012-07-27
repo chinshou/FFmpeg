@@ -176,13 +176,13 @@ static av_cold int movie_init(AVFilterContext *ctx, const char *args)
     av_opt_set_defaults(movie);
 
     if (args)
-        movie->file_name = av_get_token(&args, ":");
+        movie->file_name = av_get_token(&args, "|");
     if (!movie->file_name || !*movie->file_name) {
         av_log(ctx, AV_LOG_ERROR, "No filename provided!\n");
         return AVERROR(EINVAL);
     }
 
-    if (*args++ == ':' && (ret = av_set_options_string(movie, args, "=", ":")) < 0) {
+    if (*args++ == '|' && (ret = av_set_options_string(movie, args, "=", "|")) < 0) {
         av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
         return ret;
     }
