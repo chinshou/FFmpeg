@@ -20,6 +20,8 @@
  */
 
 #include "libavformat/avformat.h"
+#include "libavutil/parseutils.h"
+
 //#include <vfw.h>
 #include <windows.h>
 
@@ -104,7 +106,7 @@ static int gdi_read_header(AVFormatContext *s)
         codec->codec_tag = ctx->bih->biCompression;
     codec->width = ctx->bih->biWidth;
     codec->height = ctx->bih->biHeight;
-    codec->time_base = (AVRational){1, 15};;
+    av_parse_video_rate(&codec->time_base, "ntsc");
 
     av_set_pts_info( st, 32, 1, 1000 );
 
