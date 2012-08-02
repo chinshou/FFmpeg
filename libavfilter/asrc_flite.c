@@ -89,11 +89,11 @@ struct voice_entry {
     .unregister_fn = unregister_cmu_us_ ## voice_name, \
 }
 static struct voice_entry voice_entries[] = {
-    MAKE_VOICE_STRUCTURE(awb),
+    //MAKE_VOICE_STRUCTURE(awb),
     MAKE_VOICE_STRUCTURE(kal),
-    MAKE_VOICE_STRUCTURE(kal16),
-    MAKE_VOICE_STRUCTURE(rms),
-    MAKE_VOICE_STRUCTURE(slt),
+    //MAKE_VOICE_STRUCTURE(kal16),
+    //MAKE_VOICE_STRUCTURE(rms),
+    //MAKE_VOICE_STRUCTURE(slt),
 };
 
 static void list_voices(void *log_ctx, const char *sep)
