@@ -43,21 +43,27 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     char buf[256];
     int ret;
     socklen_t optlen;
-    int timeout = 50;
+    int timeout = 50, listen_timeout = -1;
     char hostname[1024],proto[1024],path[1024];
     char portstr[10];
 
     av_url_split(proto, sizeof(proto), NULL, 0, hostname, sizeof(hostname),
         &port, path, sizeof(path), uri);
-    if (strcmp(proto,"tcp") || port <= 0 || port >= 65536)
+    if (strcmp(proto, "tcp"))
         return AVERROR(EINVAL);
-
+    if (port <= 0 || port >= 65536) {
+        av_log(h, AV_LOG_ERROR, "Port missing in uri\n");
+        return AVERROR(EINVAL);
+    }
     p = strchr(uri, '?');
     if (p) {
         if (av_find_info_tag(buf, sizeof(buf), "listen", p))
             listen_socket = 1;
         if (av_find_info_tag(buf, sizeof(buf), "timeout", p)) {
             timeout = strtol(buf, NULL, 10);
+        }
+        if (av_find_info_tag(buf, sizeof(buf), "listen_timeout", p)) {
+            listen_timeout = strtol(buf, NULL, 10);
         }
     }
     hints.ai_family = AF_UNSPEC;
@@ -87,6 +93,7 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
     if (listen_socket) {
         int fd1;
         int reuse = 1;
+        struct pollfd lp = { fd, POLLIN, 0 };
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
         ret = bind(fd, cur_ai->ai_addr, cur_ai->ai_addrlen);
         if (ret) {
@@ -96,6 +103,11 @@ static int tcp_open(URLContext *h, const char *uri, int flags)
         ret = listen(fd, 1);
         if (ret) {
             ret = ff_neterrno();
+            goto fail1;
+        }
+        ret = poll(&lp, 1, listen_timeout >= 0 ? listen_timeout : -1);
+        if (ret <= 0) {
+            ret = AVERROR(ETIMEDOUT);
             goto fail1;
         }
         fd1 = accept(fd, NULL, NULL);

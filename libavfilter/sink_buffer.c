@@ -20,7 +20,7 @@
 
 /**
  * @file
- * buffer video sink
+ * buffer sink
  */
 
 #include "libavutil/avassert.h"
@@ -96,7 +96,7 @@ static av_cold void common_uninit(AVFilterContext *ctx)
     }
 }
 
-static void end_frame(AVFilterLink *inlink)
+static int end_frame(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
     BufferSinkContext *buf = inlink->dst->priv;
@@ -108,13 +108,14 @@ static void end_frame(AVFilterLink *inlink)
             av_log(ctx, AV_LOG_ERROR,
                    "Cannot buffer more frames. Consume some available frames "
                    "before adding new ones.\n");
-            return;
+            return AVERROR(ENOMEM);
         }
     }
 
     /* cache frame */
     av_fifo_generic_write(buf->fifo,
                           &inlink->cur_buf, sizeof(AVFilterBufferRef *), NULL);
+    inlink->cur_buf = NULL;
     if (buf->warning_limit &&
         av_fifo_size(buf->fifo) / sizeof(AVFilterBufferRef *) >= buf->warning_limit) {
         av_log(ctx, AV_LOG_WARNING,
@@ -123,6 +124,15 @@ static void end_frame(AVFilterLink *inlink)
                (char *)av_x_if_null(ctx->name, ctx->filter->name));
         buf->warning_limit *= 10;
     }
+    return 0;
+}
+
+void av_buffersink_set_frame_size(AVFilterContext *ctx, unsigned frame_size)
+{
+    AVFilterLink *inlink = ctx->inputs[0];
+
+    inlink->min_samples = inlink->max_samples =
+    inlink->partial_buf_size = frame_size;
 }
 
 int av_buffersink_get_buffer_ref(AVFilterContext *ctx,
@@ -173,19 +183,12 @@ int av_buffersink_poll_frame(AVFilterContext *ctx)
 
 #if CONFIG_BUFFERSINK_FILTER
 
-static av_cold int vsink_init(AVFilterContext *ctx, const char *args)
+static av_cold int vsink_init(AVFilterContext *ctx, const char *args, void *opaque)
 {
     BufferSinkContext *buf = ctx->priv;
-    AVBufferSinkParams *params = NULL;
+    AVBufferSinkParams *params = opaque;
 
-//     if(args && !strcmp(args, "opaque"))
-//         params = (AVBufferSinkParams *)(args+7);
-
-    if (!params) {
-        av_log(ctx, AV_LOG_WARNING,
-               "No opaque field provided\n");
-        buf->pixel_fmts = NULL;
-    } else {
+    if (params && buf->pixel_fmts) {
         const int *pixel_fmts = params->pixel_fmts;
 
         buf->pixel_fmts = ff_copy_int_list(pixel_fmts);
@@ -219,7 +222,7 @@ AVFilter avfilter_vsink_buffersink = {
     .name      = "buffersink",
     .description = NULL_IF_CONFIG_SMALL("Buffer video frames, and make them available to the end of the filter graph."),
     .priv_size = sizeof(BufferSinkContext),
-    .init      = vsink_init,
+    .init_opaque = vsink_init,
     .uninit    = vsink_uninit,
 
     .query_formats = vsink_query_formats,
@@ -236,18 +239,16 @@ AVFilter avfilter_vsink_buffersink = {
 
 #if CONFIG_ABUFFERSINK_FILTER
 
-static void filter_samples(AVFilterLink *link, AVFilterBufferRef *samplesref)
+static int filter_samples(AVFilterLink *link, AVFilterBufferRef *samplesref)
 {
     end_frame(link);
+    return 0;
 }
 
-static av_cold int asink_init(AVFilterContext *ctx, const char *args)
+static av_cold int asink_init(AVFilterContext *ctx, const char *args, void *opaque)
 {
     BufferSinkContext *buf = ctx->priv;
-    AVABufferSinkParams *params = NULL;
-
-//     if(args && !strcmp(args, "opaque"))
-//         params = (AVABufferSinkParams *)(args+7);
+    AVABufferSinkParams *params = opaque;
 
     if (params && params->sample_fmts) {
         buf->sample_fmts     = ff_copy_int_list  (params->sample_fmts);
@@ -301,7 +302,7 @@ static int asink_query_formats(AVFilterContext *ctx)
 AVFilter avfilter_asink_abuffersink = {
     .name      = "abuffersink",
     .description = NULL_IF_CONFIG_SMALL("Buffer audio frames, and make them available to the end of the filter graph."),
-    .init      = asink_init,
+    .init_opaque = asink_init,
     .uninit    = asink_uninit,
     .priv_size = sizeof(BufferSinkContext),
     .query_formats = asink_query_formats,

@@ -66,7 +66,7 @@ typedef struct MOVParseTableEntry {
     int (*parse)(MOVContext *ctx, AVIOContext *pb, MOVAtom atom);
 } MOVParseTableEntry;
 
-static const MOVParseTableEntry mov_default_parse_table[];
+static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom);
 
 static int mov_metadata_track_or_disc_number(MOVContext *c, AVIOContext *pb,
                                              unsigned len, const char *key)
@@ -168,6 +168,48 @@ static int mov_read_mac_string(MOVContext *c, AVIOContext *pb, int len,
     return p - dst;
 }
 
+static int mov_read_covr(MOVContext *c, AVIOContext *pb, int type, int len)
+{
+    AVPacket pkt;
+    AVStream *st;
+    MOVStreamContext *sc;
+    enum CodecID id;
+    int ret;
+
+    switch (type) {
+    case 0xd:  id = CODEC_ID_MJPEG; break;
+    case 0xe:  id = CODEC_ID_PNG;   break;
+    case 0x1b: id = CODEC_ID_BMP;   break;
+    default:
+        av_log(c->fc, AV_LOG_WARNING, "Unknown cover type: 0x%x.\n", type);
+        avio_skip(pb, len);
+        return 0;
+    }
+
+    st = avformat_new_stream(c->fc, NULL);
+    if (!st)
+        return AVERROR(ENOMEM);
+    sc = av_mallocz(sizeof(*sc));
+    if (!sc)
+        return AVERROR(ENOMEM);
+    st->priv_data = sc;
+
+    ret = av_get_packet(pb, &pkt, len);
+    if (ret < 0)
+        return ret;
+
+    st->disposition              |= AV_DISPOSITION_ATTACHED_PIC;
+
+    st->attached_pic              = pkt;
+    st->attached_pic.stream_index = st->index;
+    st->attached_pic.flags       |= AV_PKT_FLAG_KEY;
+
+    st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
+    st->codec->codec_id   = id;
+
+    return 0;
+}
+
 static int mov_read_udta_string(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
 #ifdef MOV_EXPORT_ALL_METADATA
@@ -228,6 +270,14 @@ static int mov_read_udta_string(MOVContext *c, AVIOContext *pb, MOVAtom atom)
             avio_rb32(pb); // unknown
             str_size = data_size - 16;
             atom.size -= 16;
+
+            if (atom.type == MKTAG('c', 'o', 'v', 'r')) {
+                int ret = mov_read_covr(c, pb, data_type, str_size);
+                if (ret < 0) {
+                    av_log(c->fc, AV_LOG_ERROR, "Error parsing cover art.\n");
+                    return ret;
+                }
+            }
         } else return 0;
     } else if (atom.size > 4 && key && !c->itunes_metadata) {
         str_size = avio_rb16(pb); // string length
@@ -302,87 +352,6 @@ static int mov_read_chpl(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         str[str_len] = 0;
         avpriv_new_chapter(c->fc, i, (AVRational){1,10000000}, start, AV_NOPTS_VALUE, str);
     }
-    return 0;
-}
-
-static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
-{
-    int64_t total_size = 0;
-    MOVAtom a;
-    int i;
-
-    if (atom.size < 0)
-        atom.size = INT64_MAX;
-    while (total_size + 8 <= atom.size && !url_feof(pb)) {
-        int (*parse)(MOVContext*, AVIOContext*, MOVAtom) = NULL;
-        a.size = atom.size;
-        a.type=0;
-        if (atom.size >= 8) {
-            a.size = avio_rb32(pb);
-            a.type = avio_rl32(pb);
-            if (atom.type != MKTAG('r','o','o','t') &&
-                atom.type != MKTAG('m','o','o','v'))
-            {
-                if (a.type == MKTAG('t','r','a','k') || a.type == MKTAG('m','d','a','t'))
-                {
-                    av_log(c->fc, AV_LOG_ERROR, "Broken file, trak/mdat not at top-level\n");
-                    avio_skip(pb, -8);
-                    return 0;
-                }
-            }
-            total_size += 8;
-            if (a.size == 1) { /* 64 bit extended size */
-                a.size = avio_rb64(pb) - 8;
-                total_size += 8;
-            }
-        }
-        av_dlog(c->fc, "type: %08x '%.4s' parent:'%.4s' sz: %"PRId64" %"PRId64" %"PRId64"\n",
-                a.type, (char*)&a.type, (char*)&atom.type, a.size, total_size, atom.size);
-        if (a.size == 0) {
-            a.size = atom.size - total_size + 8;
-        }
-        a.size -= 8;
-        if (a.size < 0)
-            break;
-        a.size = FFMIN(a.size, atom.size - total_size);
-
-        for (i = 0; mov_default_parse_table[i].type; i++)
-            if (mov_default_parse_table[i].type == a.type) {
-                parse = mov_default_parse_table[i].parse;
-                break;
-            }
-
-        // container is user data
-        if (!parse && (atom.type == MKTAG('u','d','t','a') ||
-                       atom.type == MKTAG('i','l','s','t')))
-            parse = mov_read_udta_string;
-
-        if (!parse) { /* skip leaf atoms data */
-            avio_skip(pb, a.size);
-        } else {
-            int64_t start_pos = avio_tell(pb);
-            int64_t left;
-            int err = parse(c, pb, a);
-            if (err < 0)
-                return err;
-            if (c->found_moov && c->found_mdat &&
-                ((!pb->seekable || c->fc->flags & AVFMT_FLAG_IGNIDX) ||
-                 start_pos + a.size == avio_size(pb))) {
-                if (!pb->seekable || c->fc->flags & AVFMT_FLAG_IGNIDX)
-                    c->next_root_atom = start_pos + a.size;
-                return 0;
-            }
-            left = a.size - avio_tell(pb) + start_pos;
-            if (left > 0) /* skip garbage at atom end */
-                avio_skip(pb, left);
-        }
-
-        total_size += a.size;
-    }
-
-    if (total_size < atom.size && atom.size < 0x7ffff)
-        avio_skip(pb, atom.size - total_size);
-
     return 0;
 }
 
@@ -628,10 +597,6 @@ static int mov_read_dec3(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 static int mov_read_chan(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     AVStream *st;
-    uint8_t av_unused version;
-    uint32_t av_unused flags;
-    uint32_t layout_tag, bitmap, num_descr, label_mask;
-    int i;
 
     if (c->fc->nb_streams < 1)
         return 0;
@@ -640,40 +605,7 @@ static int mov_read_chan(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     if (atom.size < 16)
         return 0;
 
-    version = avio_r8(pb);
-    flags   = avio_rb24(pb);
-
-    layout_tag = avio_rb32(pb);
-    bitmap     = avio_rb32(pb);
-    num_descr  = avio_rb32(pb);
-
-    if (atom.size < 16ULL + num_descr * 20ULL)
-        return 0;
-
-    av_dlog(c->fc, "chan: size=%" PRId64 " version=%u flags=%u layout=%u bitmap=%u num_descr=%u\n",
-            atom.size, version, flags, layout_tag, bitmap, num_descr);
-
-    label_mask = 0;
-    for (i = 0; i < num_descr; i++) {
-        uint32_t label;
-        label     = avio_rb32(pb);          // mChannelLabel
-        avio_rb32(pb);                      // mChannelFlags
-        avio_rl32(pb);                      // mCoordinates[0]
-        avio_rl32(pb);                      // mCoordinates[1]
-        avio_rl32(pb);                      // mCoordinates[2]
-        if (layout_tag == 0) {
-            uint32_t mask_incr = ff_mov_get_channel_label(label);
-            if (mask_incr == 0) {
-                label_mask = 0;
-                break;
-            }
-            label_mask |= mask_incr;
-        }
-    }
-    if (layout_tag == 0)
-        st->codec->channel_layout = label_mask;
-    else
-        st->codec->channel_layout = ff_mov_get_channel_layout(layout_tag, bitmap);
+    ff_mov_read_chan(c->fc, st, atom.size - 4);
 
     return 0;
 }
@@ -780,7 +712,8 @@ static void mov_metadata_creation_time(AVDictionary **metadata, time_t time)
     char buffer[32];
     if (time) {
         struct tm *ptm;
-        time -= 2082844800;  /* seconds between 1904-01-01 and Epoch */
+        if(time >= 2082844800)
+            time -= 2082844800;  /* seconds between 1904-01-01 and Epoch */
         ptm = gmtime(&time);
         if (!ptm) return;
         strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", ptm);
@@ -1006,7 +939,7 @@ static int mov_read_jp2h(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     return mov_read_extradata(c, pb, atom, CODEC_ID_JPEG2000);
 }
 
-static int mov_read_aprg(MOVContext *c, AVIOContext *pb, MOVAtom atom)
+static int mov_read_avid(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 {
     return mov_read_extradata(c, pb, atom, CODEC_ID_AVUI);
 }
@@ -2152,9 +2085,11 @@ static int mov_read_trak(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         av_reduce(&st->avg_frame_rate.num, &st->avg_frame_rate.den,
                   sc->time_scale*st->nb_frames, st->duration, INT_MAX);
 
+#if FF_API_R_FRAME_RATE
         if (sc->stts_count == 1 || (sc->stts_count == 2 && sc->stts_data[1].count == 1))
             av_reduce(&st->r_frame_rate.num, &st->r_frame_rate.den,
                       sc->time_scale, sc->stts_data[0].duration, INT_MAX);
+#endif
     }
 
     switch (st->codec->codec_id) {
@@ -2586,7 +2521,7 @@ static int mov_read_chan2(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     if (atom.size < 16)
         return 0;
     avio_skip(pb, 4);
-    ff_mov_read_chan(c->fc, atom.size - 4, c->fc->streams[0]->codec);
+    ff_mov_read_chan(c->fc,c->fc->streams[0],  atom.size - 4);
     return 0;
 }
 
@@ -2615,7 +2550,9 @@ static int mov_read_tref(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 }
 
 static const MOVParseTableEntry mov_default_parse_table[] = {
-{ MKTAG('A','P','R','G'), mov_read_aprg },
+{ MKTAG('A','C','L','R'), mov_read_avid },
+{ MKTAG('A','P','R','G'), mov_read_avid },
+{ MKTAG('A','R','E','S'), mov_read_avid },
 { MKTAG('a','v','s','s'), mov_read_avss },
 { MKTAG('c','h','p','l'), mov_read_chpl },
 { MKTAG('c','o','6','4'), mov_read_stco },
@@ -2674,6 +2611,87 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('d','v','c','1'), mov_read_dvc1 },
 { 0, NULL }
 };
+
+static int mov_read_default(MOVContext *c, AVIOContext *pb, MOVAtom atom)
+{
+    int64_t total_size = 0;
+    MOVAtom a;
+    int i;
+
+    if (atom.size < 0)
+        atom.size = INT64_MAX;
+    while (total_size + 8 <= atom.size && !url_feof(pb)) {
+        int (*parse)(MOVContext*, AVIOContext*, MOVAtom) = NULL;
+        a.size = atom.size;
+        a.type=0;
+        if (atom.size >= 8) {
+            a.size = avio_rb32(pb);
+            a.type = avio_rl32(pb);
+            if (atom.type != MKTAG('r','o','o','t') &&
+                atom.type != MKTAG('m','o','o','v'))
+            {
+                if (a.type == MKTAG('t','r','a','k') || a.type == MKTAG('m','d','a','t'))
+                {
+                    av_log(c->fc, AV_LOG_ERROR, "Broken file, trak/mdat not at top-level\n");
+                    avio_skip(pb, -8);
+                    return 0;
+                }
+            }
+            total_size += 8;
+            if (a.size == 1) { /* 64 bit extended size */
+                a.size = avio_rb64(pb) - 8;
+                total_size += 8;
+            }
+        }
+        av_dlog(c->fc, "type: %08x '%.4s' parent:'%.4s' sz: %"PRId64" %"PRId64" %"PRId64"\n",
+                a.type, (char*)&a.type, (char*)&atom.type, a.size, total_size, atom.size);
+        if (a.size == 0) {
+            a.size = atom.size - total_size + 8;
+        }
+        a.size -= 8;
+        if (a.size < 0)
+            break;
+        a.size = FFMIN(a.size, atom.size - total_size);
+
+        for (i = 0; mov_default_parse_table[i].type; i++)
+            if (mov_default_parse_table[i].type == a.type) {
+                parse = mov_default_parse_table[i].parse;
+                break;
+            }
+
+        // container is user data
+        if (!parse && (atom.type == MKTAG('u','d','t','a') ||
+                       atom.type == MKTAG('i','l','s','t')))
+            parse = mov_read_udta_string;
+
+        if (!parse) { /* skip leaf atoms data */
+            avio_skip(pb, a.size);
+        } else {
+            int64_t start_pos = avio_tell(pb);
+            int64_t left;
+            int err = parse(c, pb, a);
+            if (err < 0)
+                return err;
+            if (c->found_moov && c->found_mdat &&
+                ((!pb->seekable || c->fc->flags & AVFMT_FLAG_IGNIDX) ||
+                 start_pos + a.size == avio_size(pb))) {
+                if (!pb->seekable || c->fc->flags & AVFMT_FLAG_IGNIDX)
+                    c->next_root_atom = start_pos + a.size;
+                return 0;
+            }
+            left = a.size - avio_tell(pb) + start_pos;
+            if (left > 0) /* skip garbage at atom end */
+                avio_skip(pb, left);
+        }
+
+        total_size += a.size;
+    }
+
+    if (total_size < atom.size && atom.size < 0x7ffff)
+        avio_skip(pb, atom.size - total_size);
+
+    return 0;
+}
 
 static int mov_probe(AVProbeData *p)
 {
@@ -2961,6 +2979,15 @@ static int mov_read_header(AVFormatContext *s)
     }
     export_orphan_timecode(s);
 
+    for (i = 0; i < s->nb_streams; i++) {
+        AVStream *st = s->streams[i];
+        MOVStreamContext *sc = st->priv_data;
+        if(st->codec->codec_type == AVMEDIA_TYPE_AUDIO && st->codec->codec_id == CODEC_ID_AAC) {
+            sc->start_pad = 2112;
+            st->skip_samples = sc->start_pad;
+        }
+    }
+
     if (mov->trex_data) {
         for (i = 0; i < s->nb_streams; i++) {
             AVStream *st = s->streams[i];
@@ -3136,7 +3163,10 @@ static int mov_read_seek(AVFormatContext *s, int stream_index, int64_t sample_ti
     seek_timestamp = st->index_entries[sample].timestamp;
 
     for (i = 0; i < s->nb_streams; i++) {
+        MOVStreamContext *sc = s->streams[i]->priv_data;
         st = s->streams[i];
+        st->skip_samples = (sample_time <= 0) ? sc->start_pad : 0;
+
         if (stream_index == i)
             continue;
 

@@ -281,6 +281,7 @@ static int exit_on_keydown;
 static int exit_on_mousedown;
 static int loop = 1;
 static int framedrop = -1;
+static int infinite_buffer = 0;
 static enum ShowMode show_mode = SHOW_MODE_NONE;
 static const char *audio_codec_name;
 static const char *subtitle_codec_name;
@@ -1625,13 +1626,6 @@ static int configure_video_filters(AVFilterGraph *graph, VideoState *is, const c
     is->in_video_filter  = filt_src;
     is->out_video_filter = filt_out;
 
-    if (codec->codec->capabilities & CODEC_CAP_DR1) {
-        is->use_dr1 = 1;
-        codec->get_buffer     = codec_get_buffer;
-        codec->release_buffer = codec_release_buffer;
-        codec->opaque         = &is->buffer_pool;
-    }
-
     return ret;
 }
 
@@ -1639,6 +1633,7 @@ static int configure_video_filters(AVFilterGraph *graph, VideoState *is, const c
 
 static int video_thread(void *arg)
 {
+    AVPacket pkt = { 0 };
     VideoState *is = arg;
     AVFrame *frame = avcodec_alloc_frame();
     int64_t pts_int = AV_NOPTS_VALUE, pos = -1;
@@ -1646,41 +1641,38 @@ static int video_thread(void *arg)
     int ret;
 
 #if CONFIG_AVFILTER
+    AVCodecContext *codec = is->video_st->codec;
     AVFilterGraph *graph = avfilter_graph_alloc();
     AVFilterContext *filt_out = NULL, *filt_in = NULL;
-    int last_w = is->video_st->codec->width;
-    int last_h = is->video_st->codec->height;
-    enum PixelFormat last_format = is->video_st->codec->pix_fmt;
+    int last_w = 0;
+    int last_h = 0;
+    enum PixelFormat last_format = -2;
 
-    if ((ret = configure_video_filters(graph, is, vfilters)) < 0) {
-        SDL_Event event;
-        event.type = FF_QUIT_EVENT;
-        event.user.data1 = is;
-        SDL_PushEvent(&event);
-        goto the_end;
+    if (codec->codec->capabilities & CODEC_CAP_DR1) {
+        is->use_dr1 = 1;
+        codec->get_buffer     = codec_get_buffer;
+        codec->release_buffer = codec_release_buffer;
+        codec->opaque         = &is->buffer_pool;
     }
-    filt_in  = is->in_video_filter;
-    filt_out = is->out_video_filter;
 #endif
 
     for (;;) {
-        AVPacket pkt;
 #if CONFIG_AVFILTER
         AVFilterBufferRef *picref;
-        AVRational tb = filt_out->inputs[0]->time_base;
+        AVRational tb;
 #endif
         while (is->paused && !is->videoq.abort_request)
             SDL_Delay(10);
 
         avcodec_get_frame_defaults(frame);
+        av_free_packet(&pkt);
+
         ret = get_video_frame(is, frame, &pts_int, &pkt);
         if (ret < 0)
             goto the_end;
 
-        if (!ret) {
-            av_free_packet(&pkt);
+        if (!ret)
             continue;
-        }
 
 #if CONFIG_AVFILTER
         if (   last_w != is->video_st->codec->width
@@ -1691,6 +1683,10 @@ static int video_thread(void *arg)
             avfilter_graph_free(&graph);
             graph = avfilter_graph_alloc();
             if ((ret = configure_video_filters(graph, is, vfilters)) < 0) {
+                SDL_Event event;
+                event.type = FF_QUIT_EVENT;
+                event.user.data1 = is;
+                SDL_PushEvent(&event);
                 av_free_packet(&pkt);
                 goto the_end;
             }
@@ -1771,6 +1767,7 @@ static int video_thread(void *arg)
     av_freep(&vfilters);
     avfilter_graph_free(&graph);
 #endif
+    av_free_packet(&pkt);
     av_free(frame);
     return 0;
 }
@@ -1956,27 +1953,24 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
                                                    is->frame->nb_samples,
                                                    dec->sample_fmt, 1);
 
-            dec_channel_layout = (dec->channel_layout && dec->channels == av_get_channel_layout_nb_channels(dec->channel_layout)) ? dec->channel_layout : av_get_default_channel_layout(dec->channels);
+            dec_channel_layout =
+                (dec->channel_layout && dec->channels == av_get_channel_layout_nb_channels(dec->channel_layout)) ?
+                dec->channel_layout : av_get_default_channel_layout(dec->channels);
             wanted_nb_samples = synchronize_audio(is, is->frame->nb_samples);
 
-            if (dec->sample_fmt != is->audio_src.fmt ||
+            if (dec->sample_fmt    != is->audio_src.fmt            ||
                 dec_channel_layout != is->audio_src.channel_layout ||
-                dec->sample_rate != is->audio_src.freq ||
+                dec->sample_rate   != is->audio_src.freq           ||
                 (wanted_nb_samples != is->frame->nb_samples && !is->swr_ctx)) {
-                if (is->swr_ctx)
-                    swr_free(&is->swr_ctx);
+                swr_free(&is->swr_ctx);
                 is->swr_ctx = swr_alloc_set_opts(NULL,
                                                  is->audio_tgt.channel_layout, is->audio_tgt.fmt, is->audio_tgt.freq,
                                                  dec_channel_layout,           dec->sample_fmt,   dec->sample_rate,
                                                  0, NULL);
                 if (!is->swr_ctx || swr_init(is->swr_ctx) < 0) {
                     fprintf(stderr, "Cannot create sample rate converter for conversion of %d Hz %s %d channels to %d Hz %s %d channels!\n",
-                        dec->sample_rate,
-                        av_get_sample_fmt_name(dec->sample_fmt),
-                        dec->channels,
-                        is->audio_tgt.freq,
-                        av_get_sample_fmt_name(is->audio_tgt.fmt),
-                        is->audio_tgt.channels);
+                        dec->sample_rate,   av_get_sample_fmt_name(dec->sample_fmt),   dec->channels,
+                        is->audio_tgt.freq, av_get_sample_fmt_name(is->audio_tgt.fmt), is->audio_tgt.channels);
                     break;
                 }
                 is->audio_src.channel_layout = dec_channel_layout;
@@ -1985,10 +1979,10 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
                 is->audio_src.fmt = dec->sample_fmt;
             }
 
-            resampled_data_size = data_size;
             if (is->swr_ctx) {
-                const uint8_t *in[] = { is->frame->data[0] };
+                const uint8_t **in = (const uint8_t **)is->frame->extended_data;
                 uint8_t *out[] = {is->audio_buf2};
+                int out_count = sizeof(is->audio_buf2) / is->audio_tgt.channels / av_get_bytes_per_sample(is->audio_tgt.fmt);
                 if (wanted_nb_samples != is->frame->nb_samples) {
                     if (swr_set_compensation(is->swr_ctx, (wanted_nb_samples - is->frame->nb_samples) * is->audio_tgt.freq / dec->sample_rate,
                                                 wanted_nb_samples * is->audio_tgt.freq / dec->sample_rate) < 0) {
@@ -1996,13 +1990,12 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
                         break;
                     }
                 }
-                len2 = swr_convert(is->swr_ctx, out, sizeof(is->audio_buf2) / is->audio_tgt.channels / av_get_bytes_per_sample(is->audio_tgt.fmt),
-                                                in, is->frame->nb_samples);
+                len2 = swr_convert(is->swr_ctx, out, out_count, in, is->frame->nb_samples);
                 if (len2 < 0) {
-                    fprintf(stderr, "audio_resample() failed\n");
+                    fprintf(stderr, "swr_convert() failed\n");
                     break;
                 }
-                if (len2 == sizeof(is->audio_buf2) / is->audio_tgt.channels / av_get_bytes_per_sample(is->audio_tgt.fmt)) {
+                if (len2 == out_count) {
                     fprintf(stderr, "warning: audio buffer is probably too small\n");
                     swr_init(is->swr_ctx);
                 }
@@ -2010,6 +2003,7 @@ static int audio_decode_frame(VideoState *is, double *pts_ptr)
                 resampled_data_size = len2 * is->audio_tgt.channels * av_get_bytes_per_sample(is->audio_tgt.fmt);
             } else {
                 is->audio_buf = is->frame->data[0];
+                resampled_data_size = data_size;
             }
 
             /* if no pts, then compute it */
@@ -2164,7 +2158,7 @@ static int stream_component_open(VideoState *is, int stream_index)
     avctx = ic->streams[stream_index]->codec;
 
     codec = avcodec_find_decoder(avctx->codec_id);
-    opts = filter_codec_opts(codec_opts, codec, ic, ic->streams[stream_index]);
+    opts = filter_codec_opts(codec_opts, avctx->codec_id, ic, ic->streams[stream_index], codec);
 
     switch(avctx->codec_type){
         case AVMEDIA_TYPE_AUDIO   : is->last_audio_stream    = stream_index; if(audio_codec_name   ) codec= avcodec_find_decoder_by_name(   audio_codec_name); break;
@@ -2268,8 +2262,7 @@ static void stream_component_close(VideoState *is, int stream_index)
 
         packet_queue_flush(&is->audioq);
         av_free_packet(&is->audio_pkt);
-        if (is->swr_ctx)
-            swr_free(&is->swr_ctx);
+        swr_free(&is->swr_ctx);
         av_freep(&is->audio_buf1);
         is->audio_buf = NULL;
         av_freep(&is->frame);
@@ -2512,10 +2505,11 @@ static int read_thread(void *arg)
         }
 
         /* if the queue are full, no need to read more */
-        if (   is->audioq.size + is->videoq.size + is->subtitleq.size > MAX_QUEUE_SIZE
+        if (!infinite_buffer &&
+              (is->audioq.size + is->videoq.size + is->subtitleq.size > MAX_QUEUE_SIZE
             || (   (is->audioq   .nb_packets > MIN_FRAMES || is->audio_stream < 0 || is->audioq.abort_request)
                 && (is->videoq   .nb_packets > MIN_FRAMES || is->video_stream < 0 || is->videoq.abort_request)
-                && (is->subtitleq.nb_packets > MIN_FRAMES || is->subtitle_stream < 0 || is->subtitleq.abort_request))) {
+                && (is->subtitleq.nb_packets > MIN_FRAMES || is->subtitle_stream < 0 || is->subtitleq.abort_request)))) {
             /* wait 10 ms */
             SDL_Delay(10);
             continue;
@@ -3002,6 +2996,7 @@ static const OptionDef options[] = {
     { "exitonmousedown", OPT_BOOL | OPT_EXPERT, { (void*)&exit_on_mousedown }, "exit on mouse down", "" },
     { "loop", OPT_INT | HAS_ARG | OPT_EXPERT, { (void*)&loop }, "set number of times the playback shall be looped", "loop count" },
     { "framedrop", OPT_BOOL | OPT_EXPERT, { (void*)&framedrop }, "drop frames when cpu is too slow", "" },
+    { "infbuf", OPT_BOOL | OPT_EXPERT, { (void*)&infinite_buffer }, "don't limit the input buffer size (useful with realtime streams)", "" },
     { "window_title", OPT_STRING | HAS_ARG, { (void*)&window_title }, "set window title", "window title" },
 #if CONFIG_AVFILTER
     { "vf", OPT_STRING | HAS_ARG, { (void*)&vfilters }, "video filters", "filter list" },

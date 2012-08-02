@@ -256,7 +256,7 @@ static void ring2_test(uint8_t *dst, int dst_linesize, int off)
     }
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     MPTestContext *test = ctx->priv;
     AVRational frame_rate_q;
@@ -288,7 +288,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
     test->frame_nb = 0;
     test->pts = 0;
 
-    av_log(ctx, AV_LOG_INFO, "rate:%d/%d duration:%f\n",
+    av_log(ctx, AV_LOG_VERBOSE, "rate:%d/%d duration:%f\n",
            frame_rate_q.num, frame_rate_q.den,
            duration < 0 ? -1 : test->max_pts * av_q2d(test->time_base));
     init_idct();

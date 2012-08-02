@@ -90,6 +90,78 @@ static const PixFmtInfo pix_fmt_info[PIX_FMT_NB] = {
     [PIX_FMT_YUV440P] = {
         .color_type = FF_COLOR_YUV,
     },
+    [PIX_FMT_YUV420P9LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P9LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P9LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P9BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P9BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P9BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P10LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P10LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P10LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P10BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P10BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P10BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P12LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P12LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P12LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P12BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P12BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P12BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P14LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P14LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P14LE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV420P14BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV422P14BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
+    [PIX_FMT_YUV444P14BE] = {
+        .color_type = FF_COLOR_YUV,
+    },
     [PIX_FMT_YUV420P16LE] = {
         .color_type = FF_COLOR_YUV,
     },
@@ -280,6 +352,40 @@ static const PixFmtInfo pix_fmt_info[PIX_FMT_NB] = {
     [PIX_FMT_RGBA] = {
         .color_type = FF_COLOR_RGB,
     },
+
+    [PIX_FMT_GBRP] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP9BE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP9LE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP10BE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP10LE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP12BE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP12LE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP14BE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP14LE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP16BE] = {
+        .color_type = FF_COLOR_RGB,
+    },
+    [PIX_FMT_GBRP16LE] = {
+        .color_type = FF_COLOR_RGB,
+    },
 };
 
 void avcodec_get_chroma_sub_sample(enum PixelFormat pix_fmt, int *h_shift, int *v_shift)
@@ -409,6 +515,7 @@ static int avg_bits_per_pixel(enum PixelFormat pix_fmt)
         info->padded_size : av_get_bits_per_pixel(desc);
 }
 
+#if FF_API_FIND_BEST_PIX_FMT
 enum PixelFormat avcodec_find_best_pix_fmt(int64_t pix_fmt_mask, enum PixelFormat src_pix_fmt,
                                             int has_alpha, int *loss_ptr)
 {
@@ -425,6 +532,7 @@ enum PixelFormat avcodec_find_best_pix_fmt(int64_t pix_fmt_mask, enum PixelForma
     }
     return dst_pix_fmt;
 }
+#endif /* FF_API_FIND_BEST_PIX_FMT */
 
 enum PixelFormat avcodec_find_best_pix_fmt2(enum PixelFormat dst_pix_fmt1, enum PixelFormat dst_pix_fmt2,
                                             enum PixelFormat src_pix_fmt, int has_alpha, int *loss_ptr)
@@ -435,6 +543,7 @@ enum PixelFormat avcodec_find_best_pix_fmt2(enum PixelFormat dst_pix_fmt1, enum 
         ~0, /* no loss first */
         ~FF_LOSS_ALPHA,
         ~FF_LOSS_RESOLUTION,
+        ~FF_LOSS_COLORSPACE,
         ~(FF_LOSS_COLORSPACE | FF_LOSS_RESOLUTION),
         ~FF_LOSS_COLORQUANT,
         ~FF_LOSS_DEPTH,
@@ -465,6 +574,19 @@ enum PixelFormat avcodec_find_best_pix_fmt2(enum PixelFormat dst_pix_fmt1, enum 
     if (loss_ptr)
         *loss_ptr = avcodec_get_pix_fmt_loss(dst_pix_fmt, src_pix_fmt, has_alpha);
     return dst_pix_fmt;
+}
+
+enum PixelFormat avcodec_find_best_pix_fmt_of_list(enum PixelFormat *pix_fmt_list,
+                                            enum PixelFormat src_pix_fmt,
+                                            int has_alpha, int *loss_ptr){
+    int i;
+
+    enum PixelFormat best = PIX_FMT_NONE;
+
+    for(i=0; pix_fmt_list[i] != PIX_FMT_NONE; i++)
+        best = avcodec_find_best_pix_fmt2(best, pix_fmt_list[i], src_pix_fmt, has_alpha, loss_ptr);
+
+    return best;
 }
 
 void av_picture_copy(AVPicture *dst, const AVPicture *src,

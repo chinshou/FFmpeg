@@ -88,6 +88,11 @@ static const AVOption options[]={
                                               , OFFSET(soft_compensation_duration),AV_OPT_TYPE_FLOAT ,{.dbl=1                     }, 0      , INT_MAX   , PARAM },
 {"max_soft_comp"        , "Maximum factor by which data is stretched/squeezed to make it match the timestamps."
                                                    , OFFSET(max_soft_compensation),AV_OPT_TYPE_FLOAT ,{.dbl=0                     }, INT_MIN, INT_MAX   , PARAM },
+{ "filter_type"         , "Filter Type"                 , OFFSET(filter_type)    , AV_OPT_TYPE_INT  , { SWR_FILTER_TYPE_KAISER }, SWR_FILTER_TYPE_CUBIC, SWR_FILTER_TYPE_KAISER, PARAM, "filter_type" },
+    { "cubic"           , "Cubic"                       , 0                      , AV_OPT_TYPE_CONST, { SWR_FILTER_TYPE_CUBIC            }, INT_MIN, INT_MAX, PARAM, "filter_type" },
+    { "blackman_nuttall", "Blackman Nuttall Windowed Sinc", 0                    , AV_OPT_TYPE_CONST, { SWR_FILTER_TYPE_BLACKMAN_NUTTALL }, INT_MIN, INT_MAX, PARAM, "filter_type" },
+    { "kaiser"          , "Kaiser Windowed Sinc"        , 0                      , AV_OPT_TYPE_CONST, { SWR_FILTER_TYPE_KAISER           }, INT_MIN, INT_MAX, PARAM, "filter_type" },
+{ "kaiser_beta"         , "Kaiser Window Beta"          ,OFFSET(kaiser_beta)     , AV_OPT_TYPE_INT  , {.dbl=9                     }, 2      , 16        , PARAM },
 
 {0}
 };
@@ -103,6 +108,7 @@ static const AVClass av_class = {
     .version                   = LIBAVUTIL_VERSION_INT,
     .log_level_offset_offset   = OFFSET(log_level_offset),
     .parent_log_context_offset = OFFSET(log_ctx),
+    .category                  = AV_CLASS_CATEGORY_SWRESAMPLER,
 };
 
 unsigned swresample_version(void)
@@ -243,7 +249,7 @@ int swr_init(struct SwrContext *s){
     set_audiodata_fmt(&s->out, s->out_sample_fmt);
 
     if (s->out_sample_rate!=s->in_sample_rate || (s->flags & SWR_FLAG_RESAMPLE)){
-        s->resample = swri_resample_init(s->resample, s->out_sample_rate, s->in_sample_rate, s->filter_size, s->phase_shift, s->linear_interp, s->cutoff, s->int_sample_fmt);
+        s->resample = swri_resample_init(s->resample, s->out_sample_rate, s->in_sample_rate, s->filter_size, s->phase_shift, s->linear_interp, s->cutoff, s->int_sample_fmt, s->filter_type, s->kaiser_beta);
     }else
         swri_resample_free(&s->resample);
     if(    s->int_sample_fmt != AV_SAMPLE_FMT_S16P
@@ -541,7 +547,7 @@ static int swr_convert_internal(struct SwrContext *s, AudioData *out, int out_co
     preout_tmp= s->preout;
     preout= &preout_tmp;
 
-    if(s->int_sample_fmt == s-> in_sample_fmt && s->in.planar)
+    if(s->int_sample_fmt == s-> in_sample_fmt && s->in.planar && !s->channel_map)
         postin= in;
 
     if(s->resample_first ? !s->resample : !s->rematrix)

@@ -353,6 +353,22 @@ Specify the preset for matching stream(s).
 @item -stats (@emph{global})
 Print encoding progress/statistics. On by default.
 
+@item -progress @var{url} (@emph{global})
+Send program-friendly progress information to @var{url}.
+
+Progress information is written approximately every second and at the end of
+the encoding process. It is made of "@var{key}=@var{value}" lines. @var{key}
+consists of only alphanumeric characters. The last key of a sequence of
+progress information is always "progress".
+
+@item -stdin
+Enable interaction on standard input. On by default unless standard input is
+used as an input.
+
+Useful, for example, if ffmpeg is in the background process group. Roughly
+the same result can be achieved with @code{ffmpeg ... < /dev/null} but it
+requires a shell.
+
 @item -debug_ts (@emph{global})
 Print timestamp information. It is off by default. This option is
 mostly useful for testing and debugging purposes, and the output
@@ -722,10 +738,7 @@ filter. For example, if you need to merge a media (here @file{input.mkv}) with 2
 mono audio streams into one single stereo channel audio stream (and keep the
 video stream), you can use the following command:
 @example
-ffmpeg -i input.mkv -f lavfi -i "
-amovie=input.mkv:si=1 [a1];
-amovie=input.mkv:si=2 [a2];
-[a1][a2] amerge" -c:a pcm_s16le -c:v copy output.mkv
+ffmpeg -i input.mkv -filter_complex "[0:1] [0:2] amerge" -c:a pcm_s16le -c:v copy output.mkv
 @end example
 
 @item -map_metadata[:@var{metadata_spec_out}] @var{infile}[:@var{metadata_spec_in}] (@emph{output,per-metadata})
@@ -823,6 +836,13 @@ Dump each input packet to stderr.
 When dumping packets, also dump the payload.
 @item -re (@emph{input})
 Read input at native frame rate. Mainly used to simulate a grab device.
+By default @command{ffmpeg} attempts to read the input(s) as fast as possible.
+This option will slow down the reading of the input(s) to the native frame rate
+of the input(s). It is useful for real-time output (e.g. live streaming). If
+your input(s) is coming from some other live streaming source (through HTTP or
+UDP for example) the server might already be in real-time, thus the option will
+likely not be required. On the other hand, this is meaningful if your input(s)
+is a file you are trying to push in real-time.
 @item -loop_input
 Loop over the input stream. Currently it works only for image
 streams. This option is used for automatic FFserver testing.

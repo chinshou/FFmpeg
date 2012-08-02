@@ -92,7 +92,7 @@ static const AVClass join_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-static void filter_samples(AVFilterLink *link, AVFilterBufferRef *buf)
+static int filter_samples(AVFilterLink *link, AVFilterBufferRef *buf)
 {
     AVFilterContext *ctx = link->dst;
     JoinContext       *s = ctx->priv;
@@ -104,6 +104,8 @@ static void filter_samples(AVFilterLink *link, AVFilterBufferRef *buf)
     av_assert0(i < ctx->nb_inputs);
     av_assert0(!s->input_frames[i]);
     s->input_frames[i] = buf;
+
+    return 0;
 }
 
 static int parse_maps(AVFilterContext *ctx)
@@ -246,7 +248,7 @@ static void join_uninit(AVFilterContext *ctx)
 
     for (i = 0; i < ctx->nb_inputs; i++) {
         av_freep(&ctx->input_pads[i].name);
-        avfilter_unref_buffer(s->input_frames[i]);
+        avfilter_unref_bufferp(&s->input_frames[i]);
     }
 
     av_freep(&s->channels);
@@ -400,7 +402,7 @@ static void join_free_buffer(AVFilterBuffer *buf)
         int i;
 
         for (i = 0; i < priv->nb_in_buffers; i++)
-            avfilter_unref_buffer(priv->in_buffers[i]);
+            avfilter_unref_bufferp(&priv->in_buffers[i]);
 
         av_freep(&priv->in_buffers);
         av_freep(&buf->priv);
@@ -468,11 +470,11 @@ static int join_request_frame(AVFilterLink *outlink)
     priv->nb_in_buffers = ctx->nb_inputs;
     buf->buf->priv      = priv;
 
-    ff_filter_samples(outlink, buf);
+    ret = ff_filter_samples(outlink, buf);
 
     memset(s->input_frames, 0, sizeof(*s->input_frames) * ctx->nb_inputs);
 
-    return 0;
+    return ret;
 
 fail:
     avfilter_unref_buffer(buf);

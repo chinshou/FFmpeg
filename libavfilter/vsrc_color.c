@@ -45,6 +45,7 @@ typedef struct {
     uint64_t pts;
     FFDrawContext draw;
     FFDrawColor color;
+    AVFilterBufferRef *picref;  ///< cached reference containing the painted picture
 } ColorContext;
 
 #define OFFSET(x) offsetof(ColorContext, x)
@@ -64,56 +65,38 @@ AVFILTER_DEFINE_CLASS(color);
 static av_cold int color_init(AVFilterContext *ctx, const char *args)
 {
     ColorContext *color = ctx->priv;
-    char color_string[128] = "black";
-    char frame_size  [128] = "320x240";
-    char frame_rate  [128] = "25";
     AVRational frame_rate_q;
-    char *colon = 0, *equal = 0;
     int ret = 0;
 
     color->class = &color_class;
 
-    if (args) {
-        colon = strchr(args, ':');
-        equal = strchr(args, '=');
+    av_opt_set_defaults(color);
+    if ((ret = av_set_options_string(color, args, "=", ":")) < 0) {
+        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+        goto end;
     }
-
-    if (!args || (equal && (!colon || equal < colon))) {
-        av_opt_set_defaults(color);
-        if ((ret = av_set_options_string(color, args, "=", ":")) < 0) {
-            av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
-            goto end;
-        }
-        if (av_parse_video_rate(&frame_rate_q, color->rate_str) < 0) {
-            av_log(ctx, AV_LOG_ERROR, "Invalid frame rate: %s\n", color->rate_str);
-            ret = AVERROR(EINVAL);
-            goto end;
-        }
-        if (av_parse_color(color->color_rgba, color->color_str, -1, ctx) < 0) {
-            ret = AVERROR(EINVAL);
-            goto end;
-        }
-    } else {
-        av_log(ctx, AV_LOG_WARNING, "Flat options syntax is deprecated, use key=value pairs.\n");
-        sscanf(args, "%127[^:]:%127[^:]:%127s", color_string, frame_size, frame_rate);
-        if (av_parse_video_size(&color->w, &color->h, frame_size) < 0) {
-            av_log(ctx, AV_LOG_ERROR, "Invalid frame size: %s\n", frame_size);
-            return AVERROR(EINVAL);
-        }
-        if (av_parse_video_rate(&frame_rate_q, frame_rate) < 0) {
-            av_log(ctx, AV_LOG_ERROR, "Invalid frame rate: %s\n", frame_rate);
-            return AVERROR(EINVAL);
-        }
-        if (av_parse_color(color->color_rgba, color_string, -1, ctx) < 0)
-            return AVERROR(EINVAL);
+    if (av_parse_video_rate(&frame_rate_q, color->rate_str) < 0) {
+        av_log(ctx, AV_LOG_ERROR, "Invalid frame rate: %s\n", color->rate_str);
+        ret = AVERROR(EINVAL);
+        goto end;
+    }
+    if (av_parse_color(color->color_rgba, color->color_str, -1, ctx) < 0) {
+        ret = AVERROR(EINVAL);
+        goto end;
     }
 
     color->time_base.num = frame_rate_q.den;
     color->time_base.den = frame_rate_q.num;
 
 end:
-    av_opt_free(color);
     return ret;
+}
+
+static av_cold void color_uninit(AVFilterContext *ctx)
+{
+    ColorContext *color = ctx->priv;
+    av_opt_free(color);
+    avfilter_unref_bufferp(&color->picref);
 }
 
 static int query_formats(AVFilterContext *ctx)
@@ -148,19 +131,41 @@ static int color_config_props(AVFilterLink *inlink)
 static int color_request_frame(AVFilterLink *link)
 {
     ColorContext *color = link->src->priv;
-    AVFilterBufferRef *picref = ff_get_video_buffer(link, AV_PERM_WRITE, color->w, color->h);
-    picref->video->sample_aspect_ratio = (AVRational) {1, 1};
-    picref->pts = color->pts++;
-    picref->pos = -1;
+    AVFilterBufferRef *buf_out;
+    int ret;
 
-    ff_start_frame(link, avfilter_ref_buffer(picref, ~0));
-    ff_fill_rectangle(&color->draw, &color->color, picref->data, picref->linesize,
-                      0, 0, color->w, color->h);
-    ff_draw_slice(link, 0, color->h, 1);
-    ff_end_frame(link);
-    avfilter_unref_buffer(picref);
+    if (!color->picref) {
+        color->picref =
+            ff_get_video_buffer(link, AV_PERM_WRITE|AV_PERM_PRESERVE|AV_PERM_REUSE,
+                                color->w, color->h);
+        if (!color->picref)
+            return AVERROR(ENOMEM);
+        ff_fill_rectangle(&color->draw, &color->color,
+                          color->picref->data, color->picref->linesize,
+                          0, 0, color->w, color->h);
+        color->picref->video->sample_aspect_ratio = (AVRational) {1, 1};
+        color->picref->pos = -1;
+    }
 
-    return 0;
+    color->picref->pts = color->pts++;
+    buf_out = avfilter_ref_buffer(color->picref, ~AV_PERM_WRITE);
+    if (!buf_out) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
+
+    ret = ff_start_frame(link, buf_out);
+    if (ret < 0)
+        goto fail;
+
+    ret = ff_draw_slice(link, 0, color->h, 1);
+    if (ret < 0)
+        goto fail;
+
+    ret = ff_end_frame(link);
+
+fail:
+    return ret;
 }
 
 AVFilter avfilter_vsrc_color = {
@@ -169,14 +174,15 @@ AVFilter avfilter_vsrc_color = {
 
     .priv_size = sizeof(ColorContext),
     .init      = color_init,
+    .uninit    = color_uninit,
 
     .query_formats = query_formats,
 
     .inputs    = (const AVFilterPad[]) {{ .name = NULL}},
 
-    .outputs   = (const AVFilterPad[]) {{ .name      = "default",
-                                    .type            = AVMEDIA_TYPE_VIDEO,
-                                    .request_frame   = color_request_frame,
-                                    .config_props    = color_config_props },
-                                  { .name = NULL}},
+    .outputs   = (const AVFilterPad[]) {{ .name            = "default",
+                                          .type            = AVMEDIA_TYPE_VIDEO,
+                                          .request_frame   = color_request_frame,
+                                          .config_props    = color_config_props },
+                                        { .name = NULL}},
 };

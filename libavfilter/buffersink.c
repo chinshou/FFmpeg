@@ -47,13 +47,15 @@ static av_cold void uninit(AVFilterContext *ctx)
         av_audio_fifo_free(sink->audio_fifo);
 }
 
-static void start_frame(AVFilterLink *link, AVFilterBufferRef *buf)
+static int start_frame(AVFilterLink *link, AVFilterBufferRef *buf)
 {
     BufferSinkContext *s = link->dst->priv;
 
 //     av_assert0(!s->cur_buf);
     s->cur_buf    = buf;
     link->cur_buf = NULL;
+
+    return 0;
 };
 
 int av_buffersink_read(AVFilterContext *ctx, AVFilterBufferRef **buf)
@@ -143,13 +145,13 @@ AVFilter avfilter_vsink_buffer = {
     .priv_size = sizeof(BufferSinkContext),
     .uninit    = uninit,
 
-    .inputs    = (AVFilterPad[]) {{ .name          = "default",
-                                    .type          = AVMEDIA_TYPE_VIDEO,
-                                    .start_frame   = start_frame,
-                                    .min_perms     = AV_PERM_READ,
-                                    .needs_fifo    = 1 },
-                                  { .name = NULL }},
-    .outputs   = (AVFilterPad[]) {{ .name = NULL }},
+    .inputs    = (const AVFilterPad[]) {{ .name          = "default",
+                                          .type          = AVMEDIA_TYPE_VIDEO,
+                                          .start_frame   = start_frame,
+                                          .min_perms     = AV_PERM_READ,
+                                          .needs_fifo    = 1 },
+                                        { .name = NULL }},
+    .outputs   = (const AVFilterPad[]) {{ .name = NULL }},
 };
 
 AVFilter avfilter_asink_abuffer = {
@@ -158,11 +160,11 @@ AVFilter avfilter_asink_abuffer = {
     .priv_size = sizeof(BufferSinkContext),
     .uninit    = uninit,
 
-    .inputs    = (AVFilterPad[]) {{ .name           = "default",
-                                    .type           = AVMEDIA_TYPE_AUDIO,
-                                    .filter_samples = start_frame,
-                                    .min_perms      = AV_PERM_READ,
-                                    .needs_fifo     = 1 },
-                                  { .name = NULL }},
-    .outputs   = (AVFilterPad[]) {{ .name = NULL }},
+    .inputs    = (const AVFilterPad[]) {{ .name           = "default",
+                                          .type           = AVMEDIA_TYPE_AUDIO,
+                                          .filter_samples = start_frame,
+                                          .min_perms      = AV_PERM_READ,
+                                          .needs_fifo     = 1 },
+                                        { .name = NULL }},
+    .outputs   = (const AVFilterPad[]) {{ .name = NULL }},
 };

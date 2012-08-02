@@ -28,6 +28,7 @@
 #include "avfilter.h"
 #include "formats.h"
 #include "internal.h"
+#include "audio.h"
 
 char *ff_get_ref_perms_string(char *buf, size_t buf_size, int perms)
 {
@@ -320,13 +321,20 @@ void ff_tlog_link(void *ctx, AVFilterLink *link, int end)
 
 int ff_request_frame(AVFilterLink *link)
 {
+    int ret = -1;
     FF_TPRINTF_START(NULL, request_frame); ff_tlog_link(NULL, link, 1);
 
     if (link->srcpad->request_frame)
-        return link->srcpad->request_frame(link);
+        ret = link->srcpad->request_frame(link);
     else if (link->src->inputs[0])
-        return ff_request_frame(link->src->inputs[0]);
-    else return -1;
+        ret = ff_request_frame(link->src->inputs[0]);
+    if (ret == AVERROR_EOF && link->partial_buf) {
+        AVFilterBufferRef *pbuf = link->partial_buf;
+        link->partial_buf = NULL;
+        ff_filter_samples_framed(link, pbuf);
+        return 0;
+    }
+    return ret;
 }
 
 int ff_poll_frame(AVFilterLink *link)
@@ -351,7 +359,8 @@ void ff_update_link_current_pts(AVFilterLink *link, int64_t pts)
 {
     if (pts == AV_NOPTS_VALUE)
         return;
-    link->current_pts =  pts; /* TODO use duration */
+    link->current_pts = av_rescale_q(pts, link->time_base, AV_TIME_BASE_Q);
+    /* TODO use duration */
     if (link->graph && link->age_index >= 0)
         ff_avfilter_graph_update_heap(link->graph, link);
 }
@@ -546,7 +555,9 @@ int avfilter_init_filter(AVFilterContext *filter, const char *args, void *opaque
 {
     int ret=0;
 
-    if (filter->filter->init)
+    if (filter->filter->init_opaque)
+        ret = filter->filter->init_opaque(filter, args, opaque);
+    else if (filter->filter->init)
         ret = filter->filter->init(filter, args);
     return ret;
 }

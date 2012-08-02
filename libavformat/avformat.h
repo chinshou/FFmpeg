@@ -578,7 +578,9 @@ enum AVStreamParseType {
     AVSTREAM_PARSE_HEADERS,    /**< Only parse headers, do not repack. */
     AVSTREAM_PARSE_TIMESTAMPS, /**< full parsing and interpolation of timestamps for frames not starting on a packet boundary */
     AVSTREAM_PARSE_FULL_ONCE,  /**< full parsing and repack of the first frame only, only implemented for H.264 currently */
-    AVSTREAM_PARSE_FULL_RAW=MKTAG(0,'R','A','W'),       /**< full parsing and repack with timestamp generation for raw */
+    AVSTREAM_PARSE_FULL_RAW=MKTAG(0,'R','A','W'),       /**< full parsing and repack with timestamp and position generation by parser for raw
+                                                             this assumes that each packet in the file contains no demuxer level headers and
+                                                             just codec level data, otherwise position generaion would fail */
 };
 
 typedef struct AVIndexEntry {
@@ -646,6 +648,7 @@ typedef struct AVStream {
      *             not actually used for encoding.
      */
     AVCodecContext *codec;
+#if FF_API_R_FRAME_RATE
     /**
      * Real base framerate of the stream.
      * This is the lowest framerate with which all timestamps can be
@@ -655,6 +658,7 @@ typedef struct AVStream {
      * approximately 3600 or 1800 timer ticks, then r_frame_rate will be 50/1.
      */
     AVRational r_frame_rate;
+#endif
     void *priv_data;
 
     /**
@@ -739,6 +743,15 @@ typedef struct AVStream {
         int64_t codec_info_duration;
         int nb_decoded_frames;
         int found_decoder;
+
+        /**
+         * Those are used for average framerate estimation.
+         */
+        int64_t fps_first_dts;
+        int     fps_first_dts_idx;
+        int64_t fps_last_dts;
+        int     fps_last_dts_idx;
+
     } *info;
 
     int pts_wrap_bits; /**< number of bits in pts (used for wrapping control) */
@@ -805,6 +818,11 @@ typedef struct AVStream {
      * should be discarded.
      */
     int skip_to_keyframe;
+
+    /**
+     * Number of samples to skip at the start of the frame decoded from the next packet.
+     */
+    int skip_samples;
 } AVStream;
 
 #define AV_PROGRAM_RUNNING 1
@@ -941,12 +959,13 @@ typedef struct AVFormatContext {
 #define AVFMT_FLAG_IGNDTS       0x0008 ///< Ignore DTS on frames that contain both DTS & PTS
 #define AVFMT_FLAG_NOFILLIN     0x0010 ///< Do not infer any values from other values, just return what is stored in the container
 #define AVFMT_FLAG_NOPARSE      0x0020 ///< Do not use AVParsers, you also must set AVFMT_FLAG_NOFILLIN as the fillin code works on frames and no parsing -> no frames. Also seeking to frames can not work if parsing to find frame boundaries has been disabled
+#define AVFMT_FLAG_NOBUFFER     0x0040 ///< Do not buffer frames when possible
 #define AVFMT_FLAG_CUSTOM_IO    0x0080 ///< The caller has supplied a custom AVIOContext, don't avio_close() it.
 #define AVFMT_FLAG_DISCARD_CORRUPT  0x0100 ///< Discard frames marked corrupted
 #define AVFMT_FLAG_MP4A_LATM    0x8000 ///< Enable RTP MP4A-LATM payload
 #define AVFMT_FLAG_SORT_DTS    0x10000 ///< try to interleave outputted packets by dts (using this flag can slow demuxing down)
 #define AVFMT_FLAG_PRIV_OPT    0x20000 ///< Enable use of private options by delaying codec open (this could be made default once all code is converted)
-#define AVFMT_FLAG_KEEP_SIDE_DATA 0x40000 ///< Dont merge side data but keep it separate.
+#define AVFMT_FLAG_KEEP_SIDE_DATA 0x40000 ///< Don't merge side data but keep it separate.
 
     /**
      * decoding: size of data to probe; encoding: unused.
@@ -1739,7 +1758,7 @@ int av_get_output_timestamp(struct AVFormatContext *s, int stream,
  * @ingroup libavf
  * @{
  *
- * Miscelaneous utility functions related to both muxing and demuxing
+ * Miscellaneous utility functions related to both muxing and demuxing
  * (or neither).
  */
 
@@ -1944,7 +1963,11 @@ const struct AVCodecTag *avformat_get_riff_video_tags(void);
 const struct AVCodecTag *avformat_get_riff_audio_tags(void);
 
 /**
- * Guesses the sample aspect ratio of a frame, based on both the stream and the
+ * @}
+ */
+
+/**
+ * Guess the sample aspect ratio of a frame, based on both the stream and the
  * frame aspect ratio.
  *
  * Since the frame aspect ratio is set by the codec but the stream aspect ratio
@@ -1963,8 +1986,20 @@ const struct AVCodecTag *avformat_get_riff_audio_tags(void);
 AVRational av_guess_sample_aspect_ratio(AVFormatContext *format, AVStream *stream, AVFrame *frame);
 
 /**
- * @}
+ * Check if the stream st contained in s is matched by the stream specifier
+ * spec.
+ *
+ * See the "stream specifiers" chapter in the documentation for the syntax
+ * of spec.
+ *
+ * @return  >0 if st is matched by spec;
+ *          0  if st is not matched by spec;
+ *          AVERROR code if spec is invalid
+ *
+ * @note  A stream specifier can match several streams in the format.
  */
+int avformat_match_stream_specifier(AVFormatContext *s, AVStream *st,
+                                    const char *spec);
 
 /**
  * @}

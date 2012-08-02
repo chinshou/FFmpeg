@@ -150,18 +150,19 @@ fail:
     return NULL;
 }
 
-static void default_filter_samples(AVFilterLink *link,
-                                   AVFilterBufferRef *samplesref)
+static int default_filter_samples(AVFilterLink *link,
+                                  AVFilterBufferRef *samplesref)
 {
-    ff_filter_samples(link->dst->outputs[0], samplesref);
+    return ff_filter_samples(link->dst->outputs[0], samplesref);
 }
 
-void ff_filter_samples(AVFilterLink *link, AVFilterBufferRef *samplesref)
+int ff_filter_samples_framed(AVFilterLink *link, AVFilterBufferRef *samplesref)
 {
-    void (*filter_samples)(AVFilterLink *, AVFilterBufferRef *);
+    int (*filter_samples)(AVFilterLink *, AVFilterBufferRef *);
     AVFilterPad *dst = link->dstpad;
     int64_t pts;
     AVFilterBufferRef *buf_out;
+    int ret;
 
     FF_TPRINTF_START(NULL, filter_samples); ff_tlog_link(NULL, link, 1);
 
@@ -192,6 +193,53 @@ void ff_filter_samples(AVFilterLink *link, AVFilterBufferRef *samplesref)
 
     link->cur_buf = buf_out;
     pts = buf_out->pts;
-    filter_samples(link, buf_out);
+    ret = filter_samples(link, buf_out);
     ff_update_link_current_pts(link, pts);
+    return ret;
+}
+
+int ff_filter_samples(AVFilterLink *link, AVFilterBufferRef *samplesref)
+{
+    int insamples = samplesref->audio->nb_samples, inpos = 0, nb_samples;
+    AVFilterBufferRef *pbuf = link->partial_buf;
+    int nb_channels = av_get_channel_layout_nb_channels(link->channel_layout);
+    int ret = 0;
+
+    if (!link->min_samples ||
+        (!pbuf &&
+         insamples >= link->min_samples && insamples <= link->max_samples)) {
+        return ff_filter_samples_framed(link, samplesref);
+    }
+    /* Handle framing (min_samples, max_samples) */
+    while (insamples) {
+        if (!pbuf) {
+            AVRational samples_tb = { 1, link->sample_rate };
+            int perms = link->dstpad->min_perms | AV_PERM_WRITE;
+            pbuf = ff_get_audio_buffer(link, perms, link->partial_buf_size);
+            if (!pbuf) {
+                av_log(link->dst, AV_LOG_WARNING,
+                       "Samples dropped due to memory allocation failure.\n");
+                return 0;
+            }
+            avfilter_copy_buffer_ref_props(pbuf, samplesref);
+            pbuf->pts = samplesref->pts +
+                        av_rescale_q(inpos, samples_tb, link->time_base);
+            pbuf->audio->nb_samples = 0;
+        }
+        nb_samples = FFMIN(insamples,
+                           link->partial_buf_size - pbuf->audio->nb_samples);
+        av_samples_copy(pbuf->extended_data, samplesref->extended_data,
+                        pbuf->audio->nb_samples, inpos,
+                        nb_samples, nb_channels, link->format);
+        inpos                   += nb_samples;
+        insamples               -= nb_samples;
+        pbuf->audio->nb_samples += nb_samples;
+        if (pbuf->audio->nb_samples >= link->min_samples) {
+            ret = ff_filter_samples_framed(link, pbuf);
+            pbuf = NULL;
+        }
+    }
+    avfilter_unref_buffer(samplesref);
+    link->partial_buf = pbuf;
+    return ret;
 }

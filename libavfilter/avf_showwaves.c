@@ -20,7 +20,7 @@
 
 /**
  * @file
- * audio to video transmedia filter
+ * audio to video multimedia filter
  */
 
 #include "libavutil/audioconvert.h"
@@ -57,7 +57,7 @@ static const AVOption showwaves_options[] = {
 
 AVFILTER_DEFINE_CLASS(showwaves);
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     ShowWavesContext *showwaves = ctx->priv;
     int err;
@@ -145,7 +145,7 @@ static int config_output(AVFilterLink *outlink)
     outlink->frame_rate = av_div_q((AVRational){inlink->sample_rate,showwaves->n},
                                    (AVRational){showwaves->w,1});
 
-    av_log(ctx, AV_LOG_INFO, "s:%dx%d r:%f n:%d\n",
+    av_log(ctx, AV_LOG_VERBOSE, "s:%dx%d r:%f n:%d\n",
            showwaves->w, showwaves->h, av_q2d(outlink->frame_rate), showwaves->n);
     return 0;
 }
@@ -180,7 +180,7 @@ static int request_frame(AVFilterLink *outlink)
 
 #define MAX_INT16 ((1<<15) -1)
 
-static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     AVFilterContext *ctx = inlink->dst;
     AVFilterLink *outlink = ctx->outputs[0];
@@ -206,7 +206,6 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
                              av_rescale_q((p - (int16_t *)insamples->data[0]) / nb_channels,
                                           (AVRational){ 1, inlink->sample_rate },
                                           outlink->time_base);
-            outlink->out_buf = outpicref;
             linesize = outpicref->linesize[0];
             memset(outpicref->data[0], 0, showwaves->h*linesize);
         }
@@ -225,6 +224,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
     }
 
     avfilter_unref_buffer(insamples);
+    return 0;
 }
 
 AVFilter avfilter_avf_showwaves = {

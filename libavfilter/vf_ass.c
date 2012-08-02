@@ -338,6 +338,7 @@ static int config_input(AVFilterLink *link)
   context->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
   context->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
 
+
   return 0;
 }
 

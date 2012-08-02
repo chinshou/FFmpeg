@@ -157,7 +157,7 @@ static int config_output(AVFilterLink *outlink)
     }
     av_bprintf(&bp, " -> out:");
     av_bprint_channel_layout(&bp, -1, ctx->outputs[0]->channel_layout);
-    av_log(ctx, AV_LOG_INFO, "%s\n", bp.str);
+    av_log(ctx, AV_LOG_VERBOSE, "%s\n", bp.str);
 
     return 0;
 }
@@ -212,7 +212,7 @@ static inline void copy_samples(int nb_inputs, struct amerge_input in[],
     }
 }
 
-static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     AVFilterContext *ctx = inlink->dst;
     AMergeContext *am = ctx->priv;
@@ -232,7 +232,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
     for (i = 1; i < am->nb_inputs; i++)
         nb_samples = FFMIN(nb_samples, am->in[i].nb_samples);
     if (!nb_samples)
-        return;
+        return 0;
 
     outbuf = ff_get_audio_buffer(ctx->outputs[0], AV_PERM_WRITE, nb_samples);
     outs = outbuf->data[0];
@@ -241,13 +241,13 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
         ins[i] = inbuf[i]->data[0] +
                  am->in[i].pos * am->in[i].nb_ch * am->bps;
     }
+    avfilter_copy_buffer_ref_props(outbuf, inbuf[0]);
     outbuf->pts = inbuf[0]->pts == AV_NOPTS_VALUE ? AV_NOPTS_VALUE :
                   inbuf[0]->pts +
                   av_rescale_q(am->in[0].pos,
                                (AVRational){ 1, ctx->inputs[0]->sample_rate },
                                ctx->outputs[0]->time_base);
 
-    avfilter_copy_buffer_ref_props(outbuf, inbuf[0]);
     outbuf->audio->nb_samples     = nb_samples;
     outbuf->audio->channel_layout = outlink->channel_layout;
 
@@ -285,7 +285,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
             }
         }
     }
-    ff_filter_samples(ctx->outputs[0], outbuf);
+    return ff_filter_samples(ctx->outputs[0], outbuf);
 }
 
 static av_cold int init(AVFilterContext *ctx, const char *args)

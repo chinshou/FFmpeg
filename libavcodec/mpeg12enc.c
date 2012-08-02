@@ -300,7 +300,7 @@ static void mpeg1_encode_sequence_header(MpegEncContext *s)
             s->gop_picture_number = s->current_picture_ptr->f.coded_picture_number;
             av_assert0(s->drop_frame_timecode == !!(s->tc.flags & AV_TIMECODE_FLAG_DROPFRAME));
             if (s->drop_frame_timecode)
-                time_code = av_timecode_adjust_ntsc_framenum(time_code);
+                time_code = av_timecode_adjust_ntsc_framenum2(time_code, fps);
             put_bits(&s->pb, 5, (uint32_t)((time_code / (fps * 3600)) % 24));
             put_bits(&s->pb, 6, (uint32_t)((time_code / (fps * 60)) % 60));
             put_bits(&s->pb, 1, 1);
@@ -323,7 +323,7 @@ static inline void encode_mb_skip_run(MpegEncContext *s, int run){
 static av_always_inline void put_qscale(MpegEncContext *s)
 {
     if(s->q_scale_type){
-        assert(s->qscale>=1 && s->qscale <=12);
+        av_assert2(s->qscale>=1 && s->qscale <=12);
         put_bits(&s->pb, 5, inv_non_linear_qscale[s->qscale]);
     }else{
         put_bits(&s->pb, 5, s->qscale);
@@ -395,7 +395,7 @@ void ff_mpeg1_encode_picture_header(MpegEncContext *s, int picture_number)
         }
         put_bits(&s->pb, 2, s->intra_dc_precision);
 
-        assert(s->picture_structure == PICT_FRAME);
+        av_assert0(s->picture_structure == PICT_FRAME);
         put_bits(&s->pb, 2, s->picture_structure);
         if (s->progressive_sequence) {
             put_bits(&s->pb, 1, 0); /* no repeat */
@@ -474,7 +474,7 @@ static av_always_inline void mpeg1_encode_mb_internal(MpegEncContext *s,
         }
     } else {
         if(first_mb){
-            assert(s->mb_skip_run == 0);
+            av_assert0(s->mb_skip_run == 0);
             encode_mb_skip_run(s, s->mb_x);
         }else{
             encode_mb_skip_run(s, s->mb_skip_run);
@@ -537,7 +537,7 @@ static av_always_inline void mpeg1_encode_mb_internal(MpegEncContext *s,
                 s->last_mv[0][1][0]= s->last_mv[0][0][0]= motion_x;
                 s->last_mv[0][1][1]= s->last_mv[0][0][1]= motion_y;
             }else{
-                assert(!s->frame_pred_frame_dct && s->mv_type == MV_TYPE_FIELD);
+                av_assert2(!s->frame_pred_frame_dct && s->mv_type == MV_TYPE_FIELD);
 
                 if (cbp) {
                     if(s->dquant){
@@ -604,8 +604,8 @@ static av_always_inline void mpeg1_encode_mb_internal(MpegEncContext *s,
                     s->b_count++;
                 }
             }else{
-                assert(s->mv_type == MV_TYPE_FIELD);
-                assert(!s->frame_pred_frame_dct);
+                av_assert2(s->mv_type == MV_TYPE_FIELD);
+                av_assert2(!s->frame_pred_frame_dct);
                 if (cbp){    // With coded bloc pattern
                     if (s->dquant) {
                         if(s->mv_dir == MV_DIR_FORWARD)
@@ -700,7 +700,7 @@ static void mpeg1_encode_motion(MpegEncContext *s, int val, int f_or_b_code)
             sign = 1;
         }
 
-        assert(code > 0 && code <= 16);
+        av_assert2(code > 0 && code <= 16);
 
         put_bits(&s->pb,
                  ff_mpeg12_mbMotionVectorTable[code][1],

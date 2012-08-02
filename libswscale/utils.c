@@ -37,6 +37,7 @@
 #include <windows.h>
 #endif
 
+#include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avutil.h"
 #include "libavutil/bswap.h"
@@ -145,19 +146,35 @@ static const FormatEntry format_entries[PIX_FMT_NB] = {
     [PIX_FMT_YUV420P9LE]  = { 1, 1 },
     [PIX_FMT_YUV420P10BE] = { 1, 1 },
     [PIX_FMT_YUV420P10LE] = { 1, 1 },
+    [PIX_FMT_YUV420P12BE] = { 1, 1 },
+    [PIX_FMT_YUV420P12LE] = { 1, 1 },
+    [PIX_FMT_YUV420P14BE] = { 1, 1 },
+    [PIX_FMT_YUV420P14LE] = { 1, 1 },
     [PIX_FMT_YUV422P9BE]  = { 1, 1 },
     [PIX_FMT_YUV422P9LE]  = { 1, 1 },
     [PIX_FMT_YUV422P10BE] = { 1, 1 },
     [PIX_FMT_YUV422P10LE] = { 1, 1 },
+    [PIX_FMT_YUV422P12BE] = { 1, 1 },
+    [PIX_FMT_YUV422P12LE] = { 1, 1 },
+    [PIX_FMT_YUV422P14BE] = { 1, 1 },
+    [PIX_FMT_YUV422P14LE] = { 1, 1 },
     [PIX_FMT_YUV444P9BE]  = { 1, 1 },
     [PIX_FMT_YUV444P9LE]  = { 1, 1 },
     [PIX_FMT_YUV444P10BE] = { 1, 1 },
     [PIX_FMT_YUV444P10LE] = { 1, 1 },
+    [PIX_FMT_YUV444P12BE] = { 1, 1 },
+    [PIX_FMT_YUV444P12LE] = { 1, 1 },
+    [PIX_FMT_YUV444P14BE] = { 1, 1 },
+    [PIX_FMT_YUV444P14LE] = { 1, 1 },
     [PIX_FMT_GBRP]        = { 1, 0 },
     [PIX_FMT_GBRP9LE]     = { 1, 0 },
     [PIX_FMT_GBRP9BE]     = { 1, 0 },
     [PIX_FMT_GBRP10LE]    = { 1, 0 },
     [PIX_FMT_GBRP10BE]    = { 1, 0 },
+    [PIX_FMT_GBRP12LE]    = { 1, 0 },
+    [PIX_FMT_GBRP12BE]    = { 1, 0 },
+    [PIX_FMT_GBRP14LE]    = { 1, 0 },
+    [PIX_FMT_GBRP14BE]    = { 1, 0 },
     [PIX_FMT_GBRP16LE]    = { 1, 0 },
     [PIX_FMT_GBRP16BE]    = { 1, 0 },
 };
@@ -582,7 +599,7 @@ fail:
     return ret;
 }
 
-#if HAVE_MMX2
+#if HAVE_MMX2 && HAVE_INLINE_ASM
 static int initMMX2HScaler(int dstW, int xInc, uint8_t *filterCode,
                            int16_t *filter, int32_t *filterPos, int numSplits)
 {
@@ -745,7 +762,7 @@ static int initMMX2HScaler(int dstW, int xInc, uint8_t *filterCode,
 
     return fragmentPos + 1;
 }
-#endif /* HAVE_MMX2 */
+#endif /* HAVE_MMX2 && HAVE_INLINE_ASM */
 
 static void getSubSampleFactors(int *h, int *v, enum PixelFormat format)
 {
@@ -840,7 +857,8 @@ SwsContext *sws_alloc_context(void)
     return c;
 }
 
-int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
+av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
+                             SwsFilter *dstFilter)
 {
     int i, j;
     int usesVFilter, usesHFilter;
@@ -980,6 +998,8 @@ int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
     c->chrDstW = -((-dstW) >> c->chrDstHSubSample);
     c->chrDstH = -((-dstH) >> c->chrDstVSubSample);
 
+    FF_ALLOC_OR_GOTO(c, c->formatConvBuffer, FFALIGN(srcW*2+78, 16) * 2, fail);
+
     /* unscaled special cases */
     if (unscaled && !usesHFilter && !usesVFilter &&
         (c->srcRange == c->dstRange || isAnyRGB(dstFormat))) {
@@ -1004,9 +1024,8 @@ int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
         c->srcBpc = 16;
     if (c->dstBpc == 16)
         dst_stride <<= 1;
-    FF_ALLOC_OR_GOTO(c, c->formatConvBuffer, FFALIGN(srcW*2+78, 16) * 2, fail);
-    if (HAVE_MMX2 && cpu_flags & AV_CPU_FLAG_MMX2 &&
-        c->srcBpc == 8 && c->dstBpc <= 10) {
+    if (HAVE_MMX2 && HAVE_INLINE_ASM && cpu_flags & AV_CPU_FLAG_MMX2 &&
+        c->srcBpc == 8 && c->dstBpc <= 14) {
         c->canMMX2BeUsed = (dstW >= srcW && (dstW & 31) == 0 &&
                             (srcW & 15) == 0) ? 1 : 0;
         if (!c->canMMX2BeUsed && dstW >= srcW && (srcW & 15) == 0
@@ -1036,7 +1055,7 @@ int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
             c->chrXInc += 20;
         }
         // we don't use the x86 asm scaler if MMX is available
-        else if (HAVE_MMX && cpu_flags & AV_CPU_FLAG_MMX && c->dstBpc <= 10) {
+        else if (HAVE_MMX && cpu_flags & AV_CPU_FLAG_MMX && c->dstBpc <= 14) {
             c->lumXInc = ((int64_t)(srcW       - 2) << 16) / (dstW       - 2) - 20;
             c->chrXInc = ((int64_t)(c->chrSrcW - 2) << 16) / (c->chrDstW - 2) - 20;
         }
@@ -1044,7 +1063,7 @@ int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
 
     /* precalculate horizontal scaler filter coefficients */
     {
-#if HAVE_MMX2
+#if HAVE_MMX2 && HAVE_INLINE_ASM
 // can't downscale !!!
         if (c->canMMX2BeUsed && (flags & SWS_FAST_BILINEAR)) {
             c->lumMmx2FilterCodeSize = initMMX2HScaler(dstW, c->lumXInc, NULL,
@@ -1088,7 +1107,7 @@ int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
             mprotect(c->chrMmx2FilterCode, c->chrMmx2FilterCodeSize, PROT_EXEC | PROT_READ);
 #endif
         } else
-#endif /* HAVE_MMX2 */
+#endif /* HAVE_MMX2 && HAVE_INLINE_ASM */
         {
             const int filterAlign =
                 (HAVE_MMX && cpu_flags & AV_CPU_FLAG_MMX) ? 4 :
@@ -1207,7 +1226,7 @@ int sws_init_context(SwsContext *c, SwsFilter *srcFilter, SwsFilter *dstFilter)
     // try to avoid drawing green stuff between the right end and the stride end
     for (i = 0; i < c->vChrBufSize; i++)
         if(av_pix_fmt_descriptors[c->dstFormat].comp[0].depth_minus1 == 15){
-            av_assert0(c->dstBpc > 10);
+            av_assert0(c->dstBpc > 14);
             for(j=0; j<dst_stride/2+1; j++)
                 ((int32_t*)(c->chrUPixBuf[i]))[j] = 1<<18;
         } else

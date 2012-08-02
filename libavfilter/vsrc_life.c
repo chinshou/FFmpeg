@@ -219,7 +219,7 @@ static int init_pattern_from_file(AVFilterContext *ctx)
     return 0;
 }
 
-static int init(AVFilterContext *ctx, const char *args, void *opaque)
+static int init(AVFilterContext *ctx, const char *args)
 {
     LifeContext *life = ctx->priv;
     AVRational frame_rate;
@@ -291,7 +291,7 @@ static int init(AVFilterContext *ctx, const char *args, void *opaque)
             return ret;
     }
 
-    av_log(ctx, AV_LOG_INFO,
+    av_log(ctx, AV_LOG_VERBOSE,
            "s:%dx%d r:%d/%d rule:%s stay_rule:%d born_rule:%d stitch:%d seed:%u\n",
            life->w, life->h, frame_rate.num, frame_rate.den,
            life->rule_str, life->stay_rule, life->born_rule, life->stitch,

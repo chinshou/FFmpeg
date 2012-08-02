@@ -1308,7 +1308,7 @@ static inline float *VMUL4S(float *dst, const float *v, unsigned idx,
     t.i = s.i ^ (sign & 1U<<31);
     *dst++ = v[idx>>4 & 3] * t.f;
 
-    sign <<= nz & 1; nz >>= 1;
+    sign <<= nz & 1;
     t.i = s.i ^ (sign & 1U<<31);
     *dst++ = v[idx>>6 & 3] * t.f;
 
@@ -2616,7 +2616,7 @@ static av_cold int aac_decode_close(AVCodecContext *avctx)
 
 struct LATMContext {
     AACContext      aac_ctx;             ///< containing AACContext
-    int             initialized;         ///< initilized after a valid extradata was seen
+    int             initialized;         ///< initialized after a valid extradata was seen
 
     // parser data
     int             audio_mux_version_A; ///< LATM syntax version
@@ -2661,10 +2661,15 @@ static int latm_decode_audio_specific_config(struct LATMContext *latmctx,
     if (bits_consumed < 0)
         return AVERROR_INVALIDDATA;
 
-    if (ac->oc[1].m4ac.sample_rate != m4ac.sample_rate ||
+    if (!latmctx->initialized ||
+        ac->oc[1].m4ac.sample_rate != m4ac.sample_rate ||
         ac->oc[1].m4ac.chan_config != m4ac.chan_config) {
 
-        av_log(avctx, AV_LOG_INFO, "audio config changed\n");
+        if(latmctx->initialized) {
+            av_log(avctx, AV_LOG_INFO, "audio config changed\n");
+        } else {
+            av_log(avctx, AV_LOG_INFO, "initializing latmctx\n");
+        }
         latmctx->initialized = 0;
 
         esize = (bits_consumed+7) / 8;
@@ -2887,7 +2892,7 @@ AVCodec ff_aac_decoder = {
     .init            = aac_decode_init,
     .close           = aac_decode_close,
     .decode          = aac_decode_frame,
-    .long_name       = NULL_IF_CONFIG_SMALL("Advanced Audio Coding"),
+    .long_name       = NULL_IF_CONFIG_SMALL("AAC (Advanced Audio Coding)"),
     .sample_fmts     = (const enum AVSampleFormat[]) {
         AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_NONE
     },

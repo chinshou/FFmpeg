@@ -86,6 +86,7 @@ const AVCodecTag ff_codec_movvideo_tags[] = {
     { CODEC_ID_RAWVIDEO, MKTAG('b', 'x', 'b', 'g') },
     { CODEC_ID_RAWVIDEO, MKTAG('b', 'x', 'r', 'g') },
     { CODEC_ID_RAWVIDEO, MKTAG('b', 'x', 'y', 'v') },
+    { CODEC_ID_RAWVIDEO, MKTAG('N', 'O', '1', '6') },
     { CODEC_ID_RAWVIDEO, MKTAG('D', 'V', 'O', 'O') }, /* Digital Voodoo SD 8 Bit */
     { CODEC_ID_RAWVIDEO, MKTAG('R', '4', '2', '0') }, /* Radius DV YUV PAL */
     { CODEC_ID_RAWVIDEO, MKTAG('R', '4', '1', '1') }, /* Radius DV YUV NTSC */
@@ -219,6 +220,7 @@ const AVCodecTag ff_codec_movvideo_tags[] = {
     { CODEC_ID_TIFF,  MKTAG('t', 'i', 'f', 'f') }, /* TIFF embedded in MOV */
     { CODEC_ID_GIF,   MKTAG('g', 'i', 'f', ' ') }, /* embedded gif files as frames (usually one "click to play movie" frame) */
     { CODEC_ID_PNG,   MKTAG('p', 'n', 'g', ' ') },
+    { CODEC_ID_PNG,   MKTAG('M', 'N', 'G', ' ') },
 
     { CODEC_ID_VC1, MKTAG('v', 'c', '-', '1') }, /* SMPTE RP 2025 */
     { CODEC_ID_CAVS, MKTAG('a', 'v', 's', '2') },
@@ -497,25 +499,30 @@ static const MovChannelLayout mov_channel_layout[] = {
     { AV_CH_LAYOUT_4POINT0|AV_CH_LOW_FREQUENCY,  (137<<16) | 5}, // kCAFChannelLayoutTag_DVD_11
     { 0, 0},
 };
-
-void ff_mov_read_chan(AVFormatContext *s, int64_t size, AVCodecContext *codec)
+#if 0
+int ff_mov_read_chan(AVFormatContext *s, AVStream *st, int64_t size)
 {
+    AVCodecContext *codec= st->codec;
     uint32_t layout_tag;
     AVIOContext *pb = s->pb;
     const MovChannelLayout *layouts = mov_channel_layout;
+
+    if (size < 12)
+        return AVERROR_INVALIDDATA;
+
     layout_tag = avio_rb32(pb);
     size -= 4;
     if (layout_tag == 0) { // kCAFChannelLayoutTag_UseChannelDescriptions
         // Channel descriptions not implemented
         av_log_ask_for_sample(s, "Unimplemented container channel layout.\n");
         avio_skip(pb, size);
-        return;
+        return 0;
     }
     if (layout_tag == 0x10000) { // kCAFChannelLayoutTag_UseChannelBitmap
         codec->channel_layout = avio_rb32(pb);
         size -= 4;
         avio_skip(pb, size);
-        return;
+        return 0;
     }
     while (layouts->channel_layout) {
         if (layout_tag == layouts->layout_tag) {
@@ -527,7 +534,10 @@ void ff_mov_read_chan(AVFormatContext *s, int64_t size, AVCodecContext *codec)
     if (!codec->channel_layout)
         av_log(s, AV_LOG_WARNING, "Unknown container channel layout.\n");
     avio_skip(pb, size);
+
+    return 0;
 }
+#endif
 
 void ff_mov_write_chan(AVIOContext *pb, int64_t channel_layout)
 {

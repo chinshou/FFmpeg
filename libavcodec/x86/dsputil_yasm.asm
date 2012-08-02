@@ -28,7 +28,7 @@ pb_zzzzzzzz77777777: times 8 db -1
 pb_7: times 8 db 7
 pb_zzzz3333zzzzbbbb: db -1,-1,-1,-1,3,3,3,3,-1,-1,-1,-1,11,11,11,11
 pb_zz11zz55zz99zzdd: db -1,-1,1,1,-1,-1,5,5,-1,-1,9,9,-1,-1,13,13
-pb_revwords: db 14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1
+pb_revwords: SHUFFLE_MASK_W 7, 6, 5, 4, 3, 2, 1, 0
 pd_16384: times 4 dd 16384
 pb_bswap32: db 3, 2, 1, 0, 7, 6, 5, 4, 11, 10, 9, 8, 15, 14, 13, 12
 
@@ -1158,12 +1158,7 @@ ALIGN 16
     add     src1q, 2*mmsize
     sub     lenq,  2*mmsize
     jge     .loop
-%if mmsize == 32
-    vzeroupper
-    RET
-%else
     REP_RET
-%endif
 %endmacro
 
 INIT_XMM sse
@@ -1193,12 +1188,7 @@ ALIGN 16
 
     sub     lenq,   2*mmsize
     jge     .loop
-%if mmsize == 32
-    vzeroupper
-    RET
-%else
     REP_RET
-%endif
 %endmacro
 
 INIT_XMM sse
@@ -1243,10 +1233,6 @@ cglobal butterflies_float_interleave, 4,4,3, dst, src0, src1, len
 %endif
     add       lenq, mmsize
     jl .loop
-%if mmsize == 32
-    vzeroupper
-    RET
-%endif
 .end:
     REP_RET
 %endmacro

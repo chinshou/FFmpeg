@@ -20,6 +20,7 @@
 
 #include "libavutil/x86_cpu.h"
 #include "libavutil/cpu.h"
+#include "libswresample/swresample_internal.h"
 
 int swri_resample_int16_mmx2 (struct ResampleContext *c, int16_t *dst, const int16_t *src, int *consumed, int src_size, int dst_size, int update_ctx);
 int swri_resample_int16_ssse3(struct ResampleContext *c, int16_t *dst, const int16_t *src, int *consumed, int src_size, int dst_size, int update_ctx);
@@ -28,7 +29,7 @@ DECLARE_ALIGNED(16, const uint64_t, ff_resample_int16_rounder)[2]    = { 0x00000
 
 #define COMMON_CORE_INT16_MMX2 \
     x86_reg len= -2*c->filter_length;\
-__asm volatile(\
+__asm__ volatile(\
     "movq "MANGLE(ff_resample_int16_rounder)", %%mm0 \n\t"\
     "1:                         \n\t"\
     "movq    (%1, %0), %%mm1    \n\t"\
@@ -37,7 +38,7 @@ __asm volatile(\
     "add       $8, %0           \n\t"\
     " js 1b                     \n\t"\
     "pshufw $0x0E, %%mm0, %%mm1 \n\t"\
-    "paddd %%mm1, %%mm0 \n\t"\
+    "paddd %%mm1, %%mm0         \n\t"\
     "psrad    $15, %%mm0        \n\t"\
     "packssdw %%mm0, %%mm0      \n\t"\
     "movd %%mm0, (%3)           \n\t"\
@@ -49,7 +50,7 @@ __asm volatile(\
 
 #define COMMON_CORE_INT16_SSSE3 \
     x86_reg len= -2*c->filter_length;\
-__asm volatile(\
+__asm__ volatile(\
     "movdqa "MANGLE(ff_resample_int16_rounder)", %%xmm0 \n\t"\
     "1:                           \n\t"\
     "movdqu  (%1, %0), %%xmm1     \n\t"\

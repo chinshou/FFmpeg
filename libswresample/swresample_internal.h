@@ -26,7 +26,7 @@
 typedef void (mix_1_1_func_type)(void *out, const void *in, void *coeffp, int index, int len);
 typedef void (mix_2_1_func_type)(void *out, const void *in1, const void *in2, void *coeffp, int index1, int index2, int len);
 
-typedef void (mix_any_func_type)(void **out, const void **in1, void *coeffp, int len);
+typedef void (mix_any_func_type)(uint8_t **out, const uint8_t **in1, void *coeffp, int len);
 
 typedef struct AudioData{
     uint8_t *ch[SWR_CH_MAX];    ///< samples buffer per channel
@@ -63,6 +63,8 @@ struct SwrContext {
     int phase_shift;                                /**< log2 of the number of entries in the resampling polyphase filterbank */
     int linear_interp;                              /**< if 1 then the resampling FIR filter will be linearly interpolated */
     double cutoff;                                  /**< resampling cutoff frequency. 1.0 corresponds to half the output sample rate */
+    enum SwrFilterType filter_type;                 /**< resampling filter type */
+    int kaiser_beta;                                /**< beta value for Kaiser window (only applicable if filter_type == AV_FILTER_TYPE_KAISER) */
 
     float min_compensation;                         ///< minimum below which no compensation will happen
     float min_hard_compensation;                    ///< minimum below which no silence inject / sample drop will happen
@@ -109,7 +111,7 @@ struct SwrContext {
     /* TODO: callbacks for ASM optimizations */
 };
 
-struct ResampleContext *swri_resample_init(struct ResampleContext *, int out_rate, int in_rate, int filter_size, int phase_shift, int linear, double cutoff, enum AVSampleFormat);
+struct ResampleContext *swri_resample_init(struct ResampleContext *, int out_rate, int in_rate, int filter_size, int phase_shift, int linear, double cutoff, enum AVSampleFormat, enum SwrFilterType, int kaiser_beta);
 void swri_resample_free(struct ResampleContext **c);
 int swri_multiple_resample(struct ResampleContext *c, AudioData *dst, int dst_size, AudioData *src, int src_size, int *consumed);
 void swri_resample_compensate(struct ResampleContext *c, int sample_delta, int compensation_distance);

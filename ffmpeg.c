@@ -122,7 +122,7 @@ typedef struct {
     int ofile_idx, ostream_idx;               // output
 } AudioChannelMap;
 
-static const OptionDef options[];
+static const OptionDef *options;
 
 #define MAX_STREAMS 1024    /* arbitrary sanity check value */
 
@@ -158,7 +158,7 @@ static FILE *vstats_file;
 static int audio_volume = 256;
 
 static int exit_on_error = 0;
-static int using_stdin = 0;
+static int stdin_interaction = 1;
 static int run_as_daemon  = 0;
 static volatile int received_nb_signals = 0;
 static int64_t video_size = 0;
@@ -175,6 +175,9 @@ static float dts_error_threshold = 3600*30;
 static int print_stats = 1;
 static int debug_ts = 0;
 static int current_time;
+static AVIOContext *progress_avio = NULL;
+
+static uint8_t *subtitle_out;
 
 #if HAVE_PTHREADS
 /* signal to input threads that they should exit; set by the main thread */
@@ -222,13 +225,13 @@ typedef struct InputStream {
 
     int64_t       start;     /* time when read started */
     /* predicted dts of the next packet read for this stream or (when there are
-     * several frames in a packet) of the next frame in current packet */
+     * several frames in a packet) of the next frame in current packet (in AV_TIME_BASE units) */
     int64_t       next_dts;
-    /* dts of the last packet read for this stream */
-    int64_t       dts;
+    int64_t       dts;       ///< dts of the last packet read for this stream (in AV_TIME_BASE units)
 
-    int64_t       next_pts;  /* synthetic pts for the next decode frame */
-    int64_t       pts;       /* current pts of the decoded frame */
+    int64_t       next_pts;  ///< synthetic pts for the next decode frame (in AV_TIME_BASE units)
+    int64_t       pts;       ///< current pts of the decoded frame  (in AV_TIME_BASE units)
+    int           wrap_correction_done;
     double ts_scale;
     int is_start;            /* is 1 at the start and after a discontinuity */
     int saw_first_ts;
@@ -259,10 +262,12 @@ typedef struct InputStream {
 typedef struct InputFile {
     AVFormatContext *ctx;
     int eof_reached;      /* true if eof reached */
+    int unavailable;      /* true if the file is unavailable (possibly temporarily) */
     int ist_index;        /* index of first stream in input_streams */
     int64_t ts_offset;
     int nb_streams;       /* number of stream that ffmpeg is aware of; may be different
                              from ctx.nb_streams if new streams appear during av_read_frame() */
+    int nb_streams_warn;  /* number of streams that the user was warned of */
     int rate_emu;
 
 #if HAVE_PTHREADS
@@ -322,6 +327,7 @@ typedef struct OutputStream {
     double swr_dither_scale;
     AVDictionary *opts;
     int is_past_recording_time;
+    int unavailable;  /* true if the steram is unavailable (possibly temporarily) */
     int stream_copy;
     const char *attachment_filename;
     int copy_initial_nonkeyframes;
@@ -341,8 +347,8 @@ typedef struct OutputFile {
     AVFormatContext *ctx;
     AVDictionary *opts;
     int ost_index;       /* index of the first stream in output_streams */
-    int64_t recording_time; /* desired length of the resulting file in microseconds */
-    int64_t start_time;     /* start time in microseconds */
+    int64_t recording_time;  ///< desired length of the resulting file in microseconds == AV_TIME_BASE units
+    int64_t start_time;      ///< start time in microseconds == AV_TIME_BASE units
     uint64_t limit_filesize; /* filesize limit expressed in bytes */
 } OutputFile;
 
@@ -880,7 +886,7 @@ static int configure_output_audio_filter(FilterGraph *fg, OutputFilter *ofilter,
 
     snprintf(name, sizeof(name), "output stream %d:%d", ost->file_index, ost->index);
     ret = avfilter_graph_create_filter(&ofilter->filter,
-                                       avfilter_get_by_name("abuffersink_old"),
+                                       avfilter_get_by_name("abuffersink"),
                                        name, NULL, NULL, fg->graph);
     if (ret < 0)
         return ret;
@@ -1075,7 +1081,7 @@ static int configure_input_audio_filter(FilterGraph *fg, InputFilter *ifilter,
 
     snprintf(args, sizeof(args), "time_base=%d/%d:sample_rate=%d:sample_fmt=%s"
              ":channel_layout=0x%"PRIx64,
-             ist->st->time_base.num, ist->st->time_base.den,
+             1, ist->st->codec->sample_rate,
              ist->st->codec->sample_rate,
              av_get_sample_fmt_name(ist->st->codec->sample_fmt),
              ist->st->codec->channel_layout);
@@ -1374,6 +1380,8 @@ void av_noreturn exit_program(int ret)
     }
     av_freep(&filtergraphs);
 
+    av_freep(&subtitle_out);
+
     /* close files */
     for (i = 0; i < nb_output_files; i++) {
         AVFormatContext *s = output_files[i]->ctx;
@@ -1566,10 +1574,10 @@ static void do_audio_out(AVFormatContext *s, OutputStream *ost,
     av_init_packet(&pkt);
     pkt.data = NULL;
     pkt.size = 0;
-#if 0
+
     if (!check_recording_time(ost))
         return;
-#endif
+
     if (frame->pts == AV_NOPTS_VALUE || audio_sync_method < 0)
         frame->pts = ost->sync_opts;
     ost->sync_opts = frame->pts + frame->nb_samples;
@@ -1649,7 +1657,6 @@ static void do_subtitle_out(AVFormatContext *s,
                             AVSubtitle *sub,
                             int64_t pts)
 {
-    static uint8_t *subtitle_out = NULL;
     int subtitle_out_max_size = 1024 * 1024;
     int subtitle_out_size, nb, i;
     AVCodecContext *enc;
@@ -1678,6 +1685,8 @@ static void do_subtitle_out(AVFormatContext *s,
 
     for (i = 0; i < nb; i++) {
         ost->sync_opts = av_rescale_q(pts, ist->st->time_base, enc->time_base);
+        if (!check_recording_time(ost))
+            return;
 
         sub->pts = av_rescale_q(pts, ist->st->time_base, AV_TIME_BASE_Q);
         // start_display_time is required to be 0
@@ -1717,7 +1726,7 @@ static void do_video_out(AVFormatContext *s,
     int ret, format_video_sync;
     AVPacket pkt;
     AVCodecContext *enc = ost->st->codec;
-    int nb_frames;
+    int nb_frames, i;
     double sync_ipts, delta;
     double duration = 0;
     int frame_size = 0;
@@ -1767,17 +1776,25 @@ static void do_video_out(AVFormatContext *s,
         av_log(NULL, AV_LOG_VERBOSE, "*** drop!\n");
         return;
     } else if (nb_frames > 1) {
+        if (nb_frames > dts_error_threshold * 30) {
+            av_log(NULL, AV_LOG_ERROR, "%d frame duplication too large, skiping\n", nb_frames - 1);
+            nb_frames_drop++;
+            return;
+        }
         nb_frames_dup += nb_frames - 1;
         av_log(NULL, AV_LOG_VERBOSE, "*** %d dup!\n", nb_frames - 1);
     }
 
-
-duplicate_frame:
+  /* duplicates frame if needed */
+  for (i = 0; i < nb_frames; i++) {
     av_init_packet(&pkt);
     pkt.data = NULL;
     pkt.size = 0;
 
     in_picture->pts = ost->sync_opts;
+
+    if (!check_recording_time(ost))
+        return;
 
     if (s->oformat->flags & AVFMT_RAWPICTURE &&
         enc->codec->id == CODEC_ID_RAWVIDEO) {
@@ -1860,9 +1877,7 @@ duplicate_frame:
      * flush, we need to limit them here, before they go into encoder.
      */
     ost->frame_number++;
-
-    if(--nb_frames)
-        goto duplicate_frame;
+  }
 
     if (vstats_filename && frame_size)
         do_video_stats(output_files[ost->file_index]->ctx, ost, frame_size);
@@ -1916,7 +1931,7 @@ static int poll_filters(void)
     AVFilterBufferRef *picref;
     AVFrame *filtered_frame = NULL;
     int i, ret, ret_all;
-    unsigned nb_success, nb_eof;
+    unsigned nb_success = 1, av_uninit(nb_eof);
     int64_t frame_pts;
 
     while (1) {
@@ -1935,16 +1950,9 @@ static int poll_filters(void)
                 avcodec_get_frame_defaults(ost->filtered_frame);
             filtered_frame = ost->filtered_frame;
 
-            while (!ost->is_past_recording_time) {
-                if (ost->enc->type == AVMEDIA_TYPE_AUDIO &&
-                    !(ost->enc->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE))
-                    ret = av_buffersink_read_samples(ost->filter->filter, &picref,
-                                                    ost->st->codec->frame_size);
-                else if(ost->enc->type == AVMEDIA_TYPE_AUDIO)
-                    ret = av_buffersink_read(ost->filter->filter, &picref);
-                else
-                    ret = av_buffersink_get_buffer_ref(ost->filter->filter, &picref,
-                                                       AV_BUFFERSINK_FLAG_NO_REQUEST);
+            while (1) {
+                ret = av_buffersink_get_buffer_ref(ost->filter->filter, &picref,
+                                                   AV_BUFFERSINK_FLAG_NO_REQUEST);
                 if (ret < 0) {
                     if (ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
                         char buf[256];
@@ -1996,6 +2004,8 @@ static int poll_filters(void)
                 avfilter_unref_buffer(picref);
             }
         }
+        if (!nb_success) /* from last round */
+            break;
         /* Request frames through all the graphs */
         ret_all = nb_success = nb_eof = 0;
         for (i = 0; i < nb_filtergraphs; i++) {
@@ -2012,8 +2022,6 @@ static int poll_filters(void)
                 ret_all = ret;
             }
         }
-        if (!nb_success)
-            break;
         /* Try again if anything succeeded */
     }
     return nb_eof == nb_filtergraphs ? AVERROR_EOF : ret_all;
@@ -2022,6 +2030,7 @@ static int poll_filters(void)
 static void print_report(int is_last_report, int64_t timer_start, int64_t cur_time)
 {
     char buf[1024];
+    AVBPrint buf_script;
     OutputStream *ost;
     AVFormatContext *oc;
     int64_t total_size;
@@ -2033,7 +2042,7 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
     static int qp_histogram[52];
     int hours, mins, secs, us;
 
-    if (!print_stats && !is_last_report)
+    if (!print_stats && !is_last_report && !progress_avio)
         return;
 
     if (!is_last_report) {
@@ -2058,6 +2067,7 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
 
     buf[0] = '\0';
     vid = 0;
+    av_bprint_init(&buf_script, 0, 1);
     for (i = 0; i < nb_output_streams; i++) {
         float q = -1;
         ost = output_streams[i];
@@ -2066,6 +2076,8 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
             q = enc->coded_frame->quality / (float)FF_QP2LAMBDA;
         if (vid && enc->codec_type == AVMEDIA_TYPE_VIDEO) {
             snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "q=%2.1f ", q);
+            av_bprintf(&buf_script, "stream_%d_%d_q=%.1f\n",
+                       ost->file_index, ost->index, q);
         }
         if (!vid && enc->codec_type == AVMEDIA_TYPE_VIDEO) {
             float fps, t = (cur_time-timer_start) / 1000000.0;
@@ -2074,6 +2086,10 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
             fps = t > 1 ? frame_number / t : 0;
             snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "frame=%5d fps=%3.*f q=%3.1f ",
                      frame_number, fps < 9.95, fps, q);
+            av_bprintf(&buf_script, "frame=%d\n", frame_number);
+            av_bprintf(&buf_script, "fps=%.1f\n", fps);
+            av_bprintf(&buf_script, "stream_%d_%d_q=%.1f\n",
+                       ost->file_index, ost->index, q);
             if (is_last_report)
                 snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "L");
             if (qp_hist) {
@@ -2088,6 +2104,7 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
                 int j;
                 double error, error_sum = 0;
                 double scale, scale_sum = 0;
+                double p;
                 char type[3] = { 'Y','U','V' };
                 snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "PSNR=");
                 for (j = 0; j < 3; j++) {
@@ -2102,9 +2119,15 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
                         scale /= 4;
                     error_sum += error;
                     scale_sum += scale;
-                    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "%c:%2.2f ", type[j], psnr(error / scale));
+                    p = psnr(error / scale);
+                    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "%c:%2.2f ", type[j], p);
+                    av_bprintf(&buf_script, "stream_%d_%d_psnr_%c=%2.2f\n",
+                               ost->file_index, ost->index, type[i] | 32, p);
                 }
+                p = psnr(error_sum / scale_sum);
                 snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "*:%2.2f ", psnr(error_sum / scale_sum));
+                av_bprintf(&buf_script, "stream_%d_%d_psnr_all=%2.2f\n",
+                           ost->file_index, ost->index, p);
             }
             vid = 1;
         }
@@ -2129,14 +2152,35 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
              (100 * us) / AV_TIME_BASE);
     snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
              "bitrate=%6.1fkbits/s", bitrate);
+    av_bprintf(&buf_script, "total_size=%"PRId64"\n", total_size);
+    av_bprintf(&buf_script, "out_time_ms=%"PRId64"\n", pts);
+    av_bprintf(&buf_script, "out_time=%02d:%02d:%02d.%06d\n",
+               hours, mins, secs, us);
 
     if (nb_frames_dup || nb_frames_drop)
         snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " dup=%d drop=%d",
                 nb_frames_dup, nb_frames_drop);
+    av_bprintf(&buf_script, "dup_frames=%d\n", nb_frames_dup);
+    av_bprintf(&buf_script, "drop_frames=%d\n", nb_frames_drop);
 
+    if (print_stats || is_last_report) {
     av_log(NULL, AV_LOG_INFO, "%s    \r", buf);
 
     fflush(stderr);
+    }
+
+    if (progress_avio) {
+        av_bprintf(&buf_script, "progress=%s\n",
+                   is_last_report ? "end" : "continue");
+        avio_write(progress_avio, buf_script.str,
+                   FFMIN(buf_script.len, buf_script.size - 1));
+        avio_flush(progress_avio);
+        av_bprint_finalize(&buf_script, NULL);
+        if (is_last_report) {
+            avio_close(progress_avio);
+            progress_avio = NULL;
+        }
+    }
 
     if (is_last_report) {
         int64_t raw= audio_size + video_size + subtitle_size + extra_size;
@@ -2241,13 +2285,6 @@ static int check_output_constraints(InputStream *ist, OutputStream *ost)
     if (of->start_time && ist->pts < of->start_time)
         return 0;
 
-    if (of->recording_time != INT64_MAX &&
-        av_compare_ts(ist->pts, AV_TIME_BASE_Q, of->recording_time + of->start_time,
-                      (AVRational){ 1, 1000000 }) >= 0) {
-        ost->is_past_recording_time = 1;
-        return 0;
-    }
-
     return 1;
 }
 
@@ -2263,6 +2300,12 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
     if ((!ost->frame_number && !(pkt->flags & AV_PKT_FLAG_KEY)) &&
         !ost->copy_initial_nonkeyframes)
         return;
+
+    if (of->recording_time != INT64_MAX &&
+        ist->pts >= of->recording_time + of->start_time) {
+        ost->is_past_recording_time = 1;
+        return;
+    }
 
     /* force the input stream PTS */
     if (ost->st->codec->codec_type == AVMEDIA_TYPE_AUDIO)
@@ -2346,6 +2389,7 @@ static int decode_audio(InputStream *ist, AVPacket *pkt, int *got_output)
     AVFrame *decoded_frame;
     AVCodecContext *avctx = ist->st->codec;
     int i, ret, resample_changed;
+    AVRational decoded_frame_tb;
 
     if (!ist->decoded_frame && !(ist->decoded_frame = avcodec_alloc_frame()))
         return AVERROR(ENOMEM);
@@ -2372,17 +2416,6 @@ static int decode_audio(InputStream *ist, AVPacket *pkt, int *got_output)
                                      AV_BUFFERSRC_FLAG_NO_COPY);
         return ret;
     }
-
-    /* if the decoder provides a pts, use it instead of the last packet pts.
-       the decoder could be delaying output by a packet or more. */
-    if (decoded_frame->pts != AV_NOPTS_VALUE)
-        ist->dts = ist->next_dts = ist->pts = ist->next_pts = decoded_frame->pts;
-    else if (pkt->pts != AV_NOPTS_VALUE) {
-        decoded_frame->pts = pkt->pts;
-        pkt->pts           = AV_NOPTS_VALUE;
-    }else
-        decoded_frame->pts = av_rescale_q(ist->dts, AV_TIME_BASE_Q, ist->st->time_base);
-
 
 #if 1
     /* increment next_dts to use for the case where the input stream does not
@@ -2429,15 +2462,48 @@ static int decode_audio(InputStream *ist, AVPacket *pkt, int *got_output)
         ist->resample_channels       = avctx->channels;
 
         for (i = 0; i < nb_filtergraphs; i++)
-            if (ist_in_filtergraph(filtergraphs[i], ist) &&
-                configure_filtergraph(filtergraphs[i]) < 0) {
-                av_log(NULL, AV_LOG_FATAL, "Error reinitializing filters!\n");
-                exit_program(1);
+            if (ist_in_filtergraph(filtergraphs[i], ist)) {
+                FilterGraph *fg = filtergraphs[i];
+                int j;
+                if (configure_filtergraph(fg) < 0) {
+                    av_log(NULL, AV_LOG_FATAL, "Error reinitializing filters!\n");
+                    exit_program(1);
+                }
+                for (j = 0; j < fg->nb_outputs; j++) {
+                    OutputStream *ost = fg->outputs[j]->ost;
+                    if (ost->enc->type == AVMEDIA_TYPE_AUDIO &&
+                        !(ost->enc->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE))
+                        av_buffersink_set_frame_size(ost->filter->filter,
+                                                     ost->st->codec->frame_size);
+                }
             }
     }
 
+    /* if the decoder provides a pts, use it instead of the last packet pts.
+       the decoder could be delaying output by a packet or more. */
+    if (decoded_frame->pts != AV_NOPTS_VALUE) {
+        ist->dts = ist->next_dts = ist->pts = ist->next_pts = av_rescale_q(decoded_frame->pts, avctx->time_base, AV_TIME_BASE_Q);
+        decoded_frame_tb   = avctx->time_base;
+    } else if (decoded_frame->pkt_pts != AV_NOPTS_VALUE) {
+        decoded_frame->pts = decoded_frame->pkt_pts;
+        pkt->pts           = AV_NOPTS_VALUE;
+        decoded_frame_tb   = ist->st->time_base;
+    } else if (pkt->pts != AV_NOPTS_VALUE) {
+        decoded_frame->pts = pkt->pts;
+        pkt->pts           = AV_NOPTS_VALUE;
+        decoded_frame_tb   = ist->st->time_base;
+    }else {
+        decoded_frame->pts = ist->dts;
+        decoded_frame_tb   = AV_TIME_BASE_Q;
+    }
+    if (decoded_frame->pts != AV_NOPTS_VALUE)
+        decoded_frame->pts = av_rescale_q(decoded_frame->pts,
+                                          decoded_frame_tb,
+                                          (AVRational){1, ist->st->codec->sample_rate});
     for (i = 0; i < ist->nb_filters; i++)
         av_buffersrc_add_frame(ist->filters[i]->filter, decoded_frame, 0);
+
+    decoded_frame->pts = AV_NOPTS_VALUE;
 
     return ret;
 }
@@ -2480,6 +2546,16 @@ static int decode_video(InputStream *ist, AVPacket *pkt, int *got_output)
     best_effort_timestamp= av_frame_get_best_effort_timestamp(decoded_frame);
     if(best_effort_timestamp != AV_NOPTS_VALUE)
         ist->next_pts = ist->pts = av_rescale_q(decoded_frame->pts = best_effort_timestamp, ist->st->time_base, AV_TIME_BASE_Q);
+
+    if (debug_ts) {
+        av_log(NULL, AV_LOG_INFO, "decoder -> ist_index:%d type:video "
+                "frame_pts:%s frame_pts_time:%s best_effort_ts:%"PRId64" best_effort_ts_time:%s keyframe:%d frame_type:%d \n",
+                ist->st->index, av_ts2str(decoded_frame->pts),
+                av_ts2timestr(decoded_frame->pts, &ist->st->time_base),
+                best_effort_timestamp,
+                av_ts2timestr(best_effort_timestamp, &ist->st->time_base),
+                decoded_frame->key_frame, decoded_frame->pict_type);
+    }
 
     pkt->size = 0;
     pre_process_video_frame(ist, (AVPicture *)decoded_frame, &buffer_to_free);
@@ -2789,11 +2865,34 @@ static void parse_forced_key_frames(char *kf, OutputStream *ost,
         av_log(NULL, AV_LOG_FATAL, "Could not allocate forced key frames array.\n");
         exit_program(1);
     }
+
+    p = kf;
     for (i = 0; i < n; i++) {
-        p = i ? strchr(p, ',') + 1 : kf;
+        char *next = strchr(p, ',');
+
+        if (next)
+            *next++ = 0;
+
         t = parse_time_or_die("force_key_frames", p, 1);
         ost->forced_kf_pts[i] = av_rescale_q(t, AV_TIME_BASE_Q, avctx->time_base);
+
+        p = next;
     }
+}
+
+static void report_new_stream(int input_index, AVPacket *pkt)
+{
+    InputFile *file = input_files[input_index];
+    AVStream *st = file->ctx->streams[pkt->stream_index];
+
+    if (pkt->stream_index < file->nb_streams_warn)
+        return;
+    av_log(file->ctx, AV_LOG_WARNING,
+           "New %s stream %d:%d at pos:%"PRId64" and DTS:%ss\n",
+           av_get_media_type_string(st->codec->codec_type),
+           input_index, pkt->stream_index,
+           pkt->pos, av_ts2timestr(pkt->dts, &st->time_base));
+    file->nb_streams_warn = pkt->stream_index + 1;
 }
 
 static int transcode_init(void)
@@ -2889,7 +2988,15 @@ static int transcode_init(void)
              * overhead
              */
             if(!strcmp(oc->oformat->name, "avi")) {
-                if (   copy_tb<0 && av_q2d(icodec->time_base)*icodec->ticks_per_frame > 2*av_q2d(ist->st->time_base)
+                if ( copy_tb<0 && av_q2d(ist->st->r_frame_rate) >= av_q2d(ist->st->avg_frame_rate)
+                               && 0.5/av_q2d(ist->st->r_frame_rate) > av_q2d(ist->st->time_base)
+                               && 0.5/av_q2d(ist->st->r_frame_rate) > av_q2d(icodec->time_base)
+                               && av_q2d(ist->st->time_base) < 1.0/500 && av_q2d(icodec->time_base) < 1.0/500
+                     || copy_tb==2){
+                    codec->time_base.num = ist->st->r_frame_rate.den;
+                    codec->time_base.den = 2*ist->st->r_frame_rate.num;
+                    codec->ticks_per_frame = 2;
+                } else if (   copy_tb<0 && av_q2d(icodec->time_base)*icodec->ticks_per_frame > 2*av_q2d(ist->st->time_base)
                                  && av_q2d(ist->st->time_base) < 1.0/500
                     || copy_tb==0){
                     codec->time_base = icodec->time_base;
@@ -2927,7 +3034,7 @@ static int transcode_init(void)
                 codec->frame_size         = icodec->frame_size;
                 codec->audio_service_type = icodec->audio_service_type;
                 codec->block_align        = icodec->block_align;
-                if(codec->block_align == 1 && codec->codec_id == CODEC_ID_MP3)
+                if((codec->block_align == 1 || codec->block_align == 1152) && codec->codec_id == CODEC_ID_MP3)
                     codec->block_align= 0;
                 if(codec->codec_id == CODEC_ID_AC3)
                     codec->block_align= 0;
@@ -2976,6 +3083,7 @@ static int transcode_init(void)
                     ost->frame_rate = av_buffersink_get_frame_rate(ost->filter->filter);
                 if (ist && !ost->frame_rate.num)
                     ost->frame_rate = ist->st->r_frame_rate.num ? ist->st->r_frame_rate : (AVRational){25, 1};
+//                    ost->frame_rate = ist->st->avg_frame_rate.num ? ist->st->avg_frame_rate : (AVRational){25, 1};
                 if (ost->enc && ost->enc->supported_framerates && !ost->force_fps) {
                     int idx = av_find_nearest_q_idx(ost->frame_rate, ost->enc->supported_framerates);
                     ost->frame_rate = ost->enc->supported_framerates[idx];
@@ -3102,6 +3210,10 @@ static int transcode_init(void)
                 ret = AVERROR(EINVAL);
                 goto dump_format;
             }
+            if (ost->enc->type == AVMEDIA_TYPE_AUDIO &&
+                !(ost->enc->capabilities & CODEC_CAP_VARIABLE_FRAME_SIZE))
+                av_buffersink_set_frame_size(ost->filter->filter,
+                                             ost->st->codec->frame_size);
             assert_codec_experimental(ost->st->codec, 1);
             assert_avoptions(ost->opts);
             if (ost->st->codec->bit_rate && ost->st->codec->bit_rate < 1000)
@@ -3258,26 +3370,84 @@ static int need_output(void)
     return 0;
 }
 
-static int select_input_file(uint8_t *no_packet)
+static int input_acceptable(InputStream *ist)
 {
-    int64_t ipts_min = INT64_MAX;
-    int i, file_index = -1;
+    av_assert1(!ist->discard);
+    return !input_files[ist->file_index]->unavailable &&
+           !input_files[ist->file_index]->eof_reached;
+}
 
-    for (i = 0; i < nb_input_streams; i++) {
-        InputStream *ist = input_streams[i];
-        int64_t ipts     = ist->pts;
+static int find_graph_input(FilterGraph *graph)
+{
+    int i, nb_req_max = 0, file_index = -1;
 
-        if (ist->discard || no_packet[ist->file_index])
-            continue;
-        if (!input_files[ist->file_index]->eof_reached) {
-            if (ipts < ipts_min) {
-                ipts_min = ipts;
+    for (i = 0; i < graph->nb_inputs; i++) {
+        int nb_req = av_buffersrc_get_nb_failed_requests(graph->inputs[i]->filter);
+        if (nb_req > nb_req_max) {
+            InputStream *ist = graph->inputs[i]->ist;
+            if (input_acceptable(ist)) {
+                nb_req_max = nb_req;
                 file_index = ist->file_index;
             }
         }
     }
 
     return file_index;
+}
+
+/**
+ * Select the input file to read from.
+ *
+ * @return  >=0 index of the input file to use;
+ *          -1  if no file is acceptable;
+ *          -2  to read from filters without reading from a file
+ */
+static int select_input_file(void)
+{
+    int i, ret, nb_active_out = nb_output_streams, ost_index = -1;
+    int64_t opts_min;
+    OutputStream *ost;
+    AVFilterBufferRef *dummy;
+
+    for (i = 0; i < nb_output_streams; i++)
+        nb_active_out -= output_streams[i]->unavailable =
+            output_streams[i]->is_past_recording_time;
+    while (nb_active_out) {
+        opts_min = INT64_MAX;
+        ost_index = -1;
+        for (i = 0; i < nb_output_streams; i++) {
+            OutputStream *ost = output_streams[i];
+            int64_t opts = av_rescale_q(ost->st->cur_dts, ost->st->time_base,
+                                        AV_TIME_BASE_Q);
+            if (!ost->unavailable && opts < opts_min) {
+                opts_min  = opts;
+                ost_index = i;
+            }
+        }
+        if (ost_index < 0)
+            return -1;
+
+        ost = output_streams[ost_index];
+        if (ost->source_index >= 0) {
+            /* ost is directly connected to an input */
+            InputStream *ist = input_streams[ost->source_index];
+            if (input_acceptable(ist))
+                return ist->file_index;
+        } else {
+            /* ost is connected to a complex filtergraph */
+            av_assert1(ost->filter);
+            ret = av_buffersink_get_buffer_ref(ost->filter->filter, &dummy,
+                                               AV_BUFFERSINK_FLAG_PEEK);
+            if (ret >= 0)
+                return -2;
+            ret = find_graph_input(ost->filter->graph);
+            if (ret >= 0)
+                return ret;
+        }
+        ost->unavailable = 1;
+        nb_active_out--;
+    }
+    return -1;
 }
 
 static int check_keyboard_interaction(int64_t cur_time)
@@ -3501,18 +3671,14 @@ static int transcode(void)
     AVFormatContext *is, *os;
     OutputStream *ost;
     InputStream *ist;
-    uint8_t *no_packet;
     int no_packet_count = 0;
     int64_t timer_start;
-
-    if (!(no_packet = av_mallocz(nb_input_files)))
-        exit_program(1);
 
     ret = transcode_init();
     if (ret < 0)
         goto fail;
 
-    if (!using_stdin) {
+    if (stdin_interaction) {
         av_log(NULL, AV_LOG_INFO, "Press [q] to stop, [?] for help\n");
     }
 
@@ -3529,7 +3695,7 @@ static int transcode(void)
         int64_t cur_time= av_gettime();
 
         /* if 'q' pressed, exits */
-        if (!using_stdin)
+        if (stdin_interaction)
             if (check_keyboard_interaction(cur_time) < 0)
                 break;
 
@@ -3540,12 +3706,17 @@ static int transcode(void)
         }
 
         /* select the stream that we must read now */
-        file_index = select_input_file(no_packet);
+        file_index = select_input_file();
         /* if none, if is finished */
+        if (file_index == -2) {
+            poll_filters() ;
+            continue;
+        }
         if (file_index < 0) {
             if (no_packet_count) {
                 no_packet_count = 0;
-                memset(no_packet, 0, nb_input_files);
+                for (i = 0; i < nb_input_files; i++)
+                    input_files[i]->unavailable = 0;
                 av_usleep(10000);
                 continue;
             }
@@ -3557,17 +3728,23 @@ static int transcode(void)
         ret = get_input_packet(input_files[file_index], &pkt);
 
         if (ret == AVERROR(EAGAIN)) {
-            no_packet[file_index] = 1;
+            input_files[file_index]->unavailable = 1;
             no_packet_count++;
             continue;
         }
         if (ret < 0) {
+            if (ret != AVERROR_EOF) {
+                print_error(is->filename, ret);
+                if (exit_on_error)
+                    exit_program(1);
+            }
             input_files[file_index]->eof_reached = 1;
 
             for (i = 0; i < input_files[file_index]->nb_streams; i++) {
                 ist = input_streams[input_files[file_index]->ist_index + i];
                 if (ist->decoding_needed)
                     output_packet(ist, NULL);
+                poll_filters();
             }
 
             if (opt_shortest)
@@ -3577,7 +3754,8 @@ static int transcode(void)
         }
 
         no_packet_count = 0;
-        memset(no_packet, 0, nb_input_files);
+        for (i = 0; i < nb_input_files; i++)
+            input_files[i]->unavailable = 0;
 
         if (do_pkt_dump) {
             av_pkt_dump_log2(NULL, AV_LOG_DEBUG, &pkt, do_hex_dump,
@@ -3585,12 +3763,28 @@ static int transcode(void)
         }
         /* the following test is needed in case new streams appear
            dynamically in stream : we ignore them */
-        if (pkt.stream_index >= input_files[file_index]->nb_streams)
+        if (pkt.stream_index >= input_files[file_index]->nb_streams) {
+            report_new_stream(file_index, &pkt);
             goto discard_packet;
+        }
         ist_index = input_files[file_index]->ist_index + pkt.stream_index;
         ist = input_streams[ist_index];
         if (ist->discard)
             goto discard_packet;
+
+        if(!ist->wrap_correction_done && input_files[file_index]->ctx->start_time != AV_NOPTS_VALUE && ist->st->pts_wrap_bits < 64){
+            uint64_t stime = av_rescale_q(input_files[file_index]->ctx->start_time, AV_TIME_BASE_Q, ist->st->time_base);
+            uint64_t stime2= stime + (1LL<<ist->st->pts_wrap_bits);
+            ist->wrap_correction_done = 1;
+            if(pkt.dts != AV_NOPTS_VALUE && pkt.dts > stime && pkt.dts - stime > stime2 - pkt.dts) {
+                pkt.dts -= 1LL<<ist->st->pts_wrap_bits;
+                ist->wrap_correction_done = 0;
+            }
+            if(pkt.pts != AV_NOPTS_VALUE && pkt.pts > stime && pkt.pts - stime > stime2 - pkt.pts) {
+                pkt.pts -= 1LL<<ist->st->pts_wrap_bits;
+                ist->wrap_correction_done = 0;
+            }
+        }
 
         if (pkt.dts != AV_NOPTS_VALUE)
             pkt.dts += av_rescale_q(input_files[ist->file_index]->ts_offset, AV_TIME_BASE_Q, ist->st->time_base);
@@ -3606,8 +3800,8 @@ static int transcode(void)
             av_log(NULL, AV_LOG_INFO, "demuxer -> ist_index:%d type:%s "
                     "next_dts:%s next_dts_time:%s next_pts:%s next_pts_time:%s  pkt_pts:%s pkt_pts_time:%s pkt_dts:%s pkt_dts_time:%s off:%"PRId64"\n",
                     ist_index, av_get_media_type_string(ist->st->codec->codec_type),
-                    av_ts2str(ist->next_dts), av_ts2timestr(ist->next_dts, &ist->st->time_base),
-                    av_ts2str(ist->next_pts), av_ts2timestr(ist->next_pts, &ist->st->time_base),
+                    av_ts2str(ist->next_dts), av_ts2timestr(ist->next_dts, &AV_TIME_BASE_Q),
+                    av_ts2str(ist->next_pts), av_ts2timestr(ist->next_pts, &AV_TIME_BASE_Q),
                     av_ts2str(pkt.pts), av_ts2timestr(pkt.pts, &ist->st->time_base),
                     av_ts2str(pkt.dts), av_ts2timestr(pkt.dts, &ist->st->time_base),
                     input_files[ist->file_index]->ts_offset);
@@ -3714,7 +3908,6 @@ static int transcode(void)
     ret = 0;
 
  fail:
-    av_freep(&no_packet);
 #if HAVE_PTHREADS
     free_input_threads();
 #endif
@@ -4136,7 +4329,7 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
         ist->file_index = nb_input_files;
         ist->discard = 1;
         st->discard  = AVDISCARD_ALL;
-        ist->opts = filter_codec_opts(codec_opts, choose_decoder(o, ic, st), ic, st);
+        ist->opts = filter_codec_opts(codec_opts, ist->st->codec->codec_id, ic, st, choose_decoder(o, ic, st));
 
         ist->ts_scale = 1.0;
         MATCH_PER_STREAM_OPT(ts_scale, dbl, ist->ts_scale, ic, st);
@@ -4204,7 +4397,7 @@ static void assert_file_overwrite(const char *filename)
         (strchr(filename, ':') == NULL || filename[1] == ':' ||
          av_strstart(filename, "file:", NULL))) {
         if (avio_check(filename, 0) == 0) {
-            if (!using_stdin && (!no_file_overwrite || file_overwrite)) {
+            if (stdin_interaction && (!no_file_overwrite || file_overwrite)) {
                 fprintf(stderr,"File '%s' already exists. Overwrite ? [y/N] ", filename);
                 fflush(stderr);
                 term_exit();
@@ -4275,8 +4468,8 @@ static int opt_input_file(OptionsContext *o, const char *opt, const char *filena
     if (!strcmp(filename, "-"))
         filename = "pipe:";
 
-    using_stdin |= !strncmp(filename, "pipe:", 5) ||
-                    !strcmp(filename, "/dev/stdin");
+    stdin_interaction &= strncmp(filename, "pipe:", 5) &&
+                         strcmp(filename, "/dev/stdin");
 
     /* get default parameters from command line */
     ic = avformat_alloc_context();
@@ -4492,7 +4685,7 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
     st->codec->codec_type = type;
     choose_encoder(o, oc, ost);
     if (ost->enc) {
-        ost->opts  = filter_codec_opts(codec_opts, ost->enc, oc, st);
+        ost->opts  = filter_codec_opts(codec_opts, ost->enc->id, oc, st, ost->enc);
     }
 
     avcodec_get_context_defaults3(st->codec, ost->enc);
@@ -5745,8 +5938,25 @@ static int opt_filter_complex(const char *opt, const char *arg)
     return 0;
 }
 
+static int opt_progress(const char *opt, const char *arg)
+{
+    AVIOContext *avio = NULL;
+    int ret;
+
+    if (!strcmp(arg, "-"))
+        arg = "pipe:";
+    ret = avio_open2(&avio, arg, AVIO_FLAG_WRITE, &int_cb, NULL);
+    if (ret < 0) {
+        av_log(0, AV_LOG_ERROR, "Failed to open progress URL \"%s\": %s\n",
+               arg, av_err2str(ret));
+        return ret;
+    }
+    progress_avio = avio;
+    return 0;
+}
+
 #define OFFSET(x) offsetof(OptionsContext, x)
-static const OptionDef options[] = {
+static const OptionDef real_options[] = {
     /* main options */
 #include "cmdutils_common_opts.h"
     { "f", HAS_ARG | OPT_STRING | OPT_OFFSET, {.off = OFFSET(format)}, "force format", "fmt" },
@@ -5773,6 +5983,10 @@ static const OptionDef options[] = {
       "add timings for benchmarking" },
     { "benchmark_all", OPT_BOOL | OPT_EXPERT, {(void*)&do_benchmark_all},
       "add timings for each task" },
+    { "progress", HAS_ARG | OPT_EXPERT, {(void*)opt_progress},
+      "write program-readable progress information", "url" },
+    { "stdin", OPT_BOOL | OPT_EXPERT, {(void*)&stdin_interaction},
+      "enable or disable interaction on standard input" },
     { "timelimit", HAS_ARG, {(void*)opt_timelimit}, "set max runtime in seconds", "limit" },
     { "dump", OPT_BOOL | OPT_EXPERT, {(void*)&do_pkt_dump},
       "dump each input packet" },
@@ -5894,6 +6108,7 @@ int main(int argc, char **argv)
     OptionsContext o = { 0 };
     int64_t ti;
 
+    options = real_options;
     reset_options(&o, 0);
 
     av_log_set_flags(AV_LOG_SKIP_REPEATED);

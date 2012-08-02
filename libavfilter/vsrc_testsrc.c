@@ -67,6 +67,8 @@ static const AVOption testsrc_options[]= {
     { "duration", "set video duration", OFFSET(duration), AV_OPT_TYPE_STRING, {.str = NULL},      0, 0 },
     { "d",        "set video duration", OFFSET(duration), AV_OPT_TYPE_STRING, {.str = NULL},      0, 0 },
     { "sar",      "set video sample aspect ratio", OFFSET(sar), AV_OPT_TYPE_RATIONAL, {.dbl= 1},  0, INT_MAX },
+
+    /* only used by testsrc */
     { "decimals", "set number of decimals to show", OFFSET(nb_decimals), AV_OPT_TYPE_INT, {.dbl=0},  INT_MIN, INT_MAX },
     { "n",        "set number of decimals to show", OFFSET(nb_decimals), AV_OPT_TYPE_INT, {.dbl=0},  INT_MIN, INT_MAX },
     { NULL },
@@ -111,7 +113,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args)
     test->nb_frame = 0;
     test->pts = 0;
 
-    av_log(ctx, AV_LOG_INFO, "size:%dx%d rate:%d/%d duration:%f sar:%d/%d\n",
+    av_log(ctx, AV_LOG_VERBOSE, "size:%dx%d rate:%d/%d duration:%f sar:%d/%d\n",
            test->w, test->h, frame_rate_q.num, frame_rate_q.den,
            duration < 0 ? -1 : test->max_pts * av_q2d(test->time_base),
            test->sar.num, test->sar.den);
@@ -134,10 +136,14 @@ static int request_frame(AVFilterLink *outlink)
 {
     TestSourceContext *test = outlink->src->priv;
     AVFilterBufferRef *picref;
+    int ret;
 
     if (test->max_pts >= 0 && test->pts >= test->max_pts)
         return AVERROR_EOF;
     picref = ff_get_video_buffer(outlink, AV_PERM_WRITE, test->w, test->h);
+    if (!picref)
+        return AVERROR(ENOMEM);
+
     picref->pts = test->pts++;
     picref->pos = -1;
     picref->video->key_frame = 1;
@@ -147,10 +153,10 @@ static int request_frame(AVFilterLink *outlink)
     test->fill_picture_fn(outlink->src, picref);
     test->nb_frame++;
 
-    ff_start_frame(outlink, avfilter_ref_buffer(picref, ~0));
-    ff_draw_slice(outlink, 0, picref->video->h, 1);
-    ff_end_frame(outlink);
-    avfilter_unref_buffer(picref);
+    if ((ret = ff_start_frame(outlink, picref)) < 0 ||
+        (ret = ff_draw_slice(outlink, 0, test->h, 1)) < 0 ||
+        (ret = ff_end_frame(outlink)) < 0)
+        return ret;
 
     return 0;
 }
@@ -402,10 +408,10 @@ AVFilter avfilter_vsrc_testsrc = {
     .inputs    = (const AVFilterPad[]) {{ .name = NULL}},
 
     .outputs   = (const AVFilterPad[]) {{ .name = "default",
-                                    .type = AVMEDIA_TYPE_VIDEO,
-                                    .request_frame = request_frame,
-                                    .config_props  = config_props, },
-                                  { .name = NULL }},
+                                          .type = AVMEDIA_TYPE_VIDEO,
+                                          .request_frame = request_frame,
+                                          .config_props  = config_props, },
+                                        { .name = NULL }},
 };
 
 #endif /* CONFIG_TESTSRC_FILTER */
@@ -526,10 +532,10 @@ AVFilter avfilter_vsrc_rgbtestsrc = {
     .inputs    = (const AVFilterPad[]) {{ .name = NULL}},
 
     .outputs   = (const AVFilterPad[]) {{ .name = "default",
-                                    .type = AVMEDIA_TYPE_VIDEO,
-                                    .request_frame = request_frame,
-                                    .config_props  = rgbtest_config_props, },
-                                  { .name = NULL }},
+                                          .type = AVMEDIA_TYPE_VIDEO,
+                                          .request_frame = request_frame,
+                                          .config_props  = rgbtest_config_props, },
+                                        { .name = NULL }},
 };
 
 #endif /* CONFIG_RGBTESTSRC_FILTER */

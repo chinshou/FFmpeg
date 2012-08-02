@@ -295,16 +295,16 @@ static int config_output(AVFilterLink *outlink)
     outlink->w = inlink->w*2;
     outlink->h = inlink->h*2;
 
-    av_log(inlink->dst, AV_LOG_INFO, "fmt:%s size:%dx%d -> size:%dx%d\n",
+    av_log(inlink->dst, AV_LOG_VERBOSE, "fmt:%s size:%dx%d -> size:%dx%d\n",
            av_get_pix_fmt_name(inlink->format),
            inlink->w, inlink->h, outlink->w, outlink->h);
 
     return 0;
 }
 
-static void null_draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir) { }
+static int null_draw_slice(AVFilterLink *inlink, int y, int h, int slice_dir) { return 0; }
 
-static void end_frame(AVFilterLink *inlink)
+static int end_frame(AVFilterLink *inlink)
 {
     AVFilterLink *outlink = inlink->dst->outputs[0];
     AVFilterBufferRef  *inpicref =  inlink->cur_buf;
@@ -314,10 +314,8 @@ static void end_frame(AVFilterLink *inlink)
                outpicref->data[0], outpicref->linesize[0],
                inlink->w, inlink->h);
 
-    avfilter_unref_buffer(inpicref);
     ff_draw_slice(outlink, 0, outlink->h, 1);
-    ff_end_frame(outlink);
-    avfilter_unref_buffer(outpicref);
+    return ff_end_frame(outlink);
 }
 
 AVFilter avfilter_vf_super2xsai = {
