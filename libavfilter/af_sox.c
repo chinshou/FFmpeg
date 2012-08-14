@@ -209,7 +209,7 @@ static int request_frame(AVFilterLink *outlink)
     ret = ff_request_frame(outlink->src->inputs[0]);
     if (ret == AVERROR_EOF) {
         /* drain cached samples */
-        while (1) {
+        while (0) {
             outsamples =
                 ff_get_audio_buffer(outlink, AV_PERM_WRITE, out_nb_samples);
             ret = effect->handler.drain(sox->effect,
