@@ -107,6 +107,7 @@ static int gdi_read_header(AVFormatContext *s)
     codec->width = ctx->bih->biWidth;
     codec->height = ctx->bih->biHeight;
     av_parse_video_rate(&codec->time_base, "ntsc");
+    codec->time_base = (AVRational){codec->time_base.den, codec->time_base.num};
 
     av_set_pts_info( st, 32, 1, 1000 );
 
