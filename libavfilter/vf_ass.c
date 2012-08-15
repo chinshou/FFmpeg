@@ -230,8 +230,7 @@ static ASS_Track* ass_read_subdata(AssContext* context, double fps) {
 }
 
 static int parse_args(AVFilterContext *ctx, AssContext *context, const char* args);
-
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
   AssContext *context= ctx->priv;
   //int num_fields;
@@ -261,17 +260,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
 
 static int query_formats(AVFilterContext *ctx)
 {
-
-  enum PixelFormat pix_fmts[] = {
-	  PIX_FMT_YUV444P,	PIX_FMT_YUV422P,  PIX_FMT_YUV420P,
-	  PIX_FMT_YUV411P,	PIX_FMT_YUV410P,
-	  PIX_FMT_YUVJ444P, PIX_FMT_YUVJ422P, PIX_FMT_YUVJ420P,
-	  PIX_FMT_YUV440P,	PIX_FMT_YUVJ440P,
-	  PIX_FMT_NONE
-  };
-  
-  ff_set_common_formats
-    (ctx, ff_make_format_list(pix_fmts));
+    ff_set_common_formats(ctx, ff_draw_supported_pixel_formats(0));
   return 0;
 }
 
@@ -342,11 +331,7 @@ static int config_input(AVFilterLink *link)
   return 0;
 }
 
-static void start_frame(AVFilterLink *link, AVFilterBufferRef *picref)
-{
-  ff_start_frame(link->dst->outputs[0], picref);
-}
-
+static int null_draw_slice(AVFilterLink *link, int y, int h, int slice_dir) { return 0; }
 #define _r(c)  ((c)>>24)
 #define _g(c)  (((c)>>16)&0xFF)
 #define _b(c)  (((c)>>8)&0xFF)
@@ -403,7 +388,7 @@ static void draw_ass_image(AVFilterBufferRef *pic, ASS_Image *img, AssContext *c
   } 
 }
 
-static void end_frame(AVFilterLink *link)
+static int end_frame(AVFilterLink *link)
 {
   AssContext *context = link->dst->priv;
   AVFilterLink* output = link->dst->outputs[0];
@@ -428,7 +413,7 @@ static void end_frame(AVFilterLink *link)
   }
 
   ff_draw_slice(output, 0, pic->video->h, 1);
-  ff_end_frame(output);
+  return ff_end_frame(output);
 }
 
 static int parse_args(AVFilterContext *ctx, AssContext *context, const char* args)
@@ -503,25 +488,29 @@ static int parse_args(AVFilterContext *ctx, AssContext *context, const char* arg
   return 0;
 }
 
-AVFilter avfilter_vf_ass=
-  {
+AVFilter avfilter_vf_ass = {
     .name      = "ass",
+    .description   = NULL_IF_CONFIG_SMALL("Render subtitles onto input video using the libass library."),
     .priv_size = sizeof(AssContext),
     .init      = init,
 
     .query_formats   = query_formats,
-    .inputs    = (AVFilterPad[]) {{ .name            = "default",
-                                    .type            = AVMEDIA_TYPE_VIDEO,
-                                    .get_video_buffer = ff_null_get_video_buffer,
-                                    .start_frame     = start_frame,
-                                    .end_frame       = end_frame,
-                                    .config_props    = config_input,
-                                    .min_perms       = AV_PERM_WRITE |
-				    AV_PERM_READ,
-                                    .rej_perms       = AV_PERM_REUSE |
-				    AV_PERM_REUSE2},
-                                  { .name = NULL}},
-    .outputs   = (AVFilterPad[]) {{ .name            = "default",
-                                    .type            = AVMEDIA_TYPE_VIDEO, },
-                                  { .name = NULL}},
-  };
+
+    .inputs = (const AVFilterPad[]) {
+        { .name             = "default",
+          .type             = AVMEDIA_TYPE_VIDEO,
+          .get_video_buffer = ff_null_get_video_buffer,
+          .start_frame      = ff_null_start_frame,
+          .draw_slice       = null_draw_slice,
+          .end_frame        = end_frame,
+          .config_props     = config_input,
+          .min_perms        = AV_PERM_WRITE | AV_PERM_READ,
+          .rej_perms        = AV_PERM_PRESERVE },
+        { .name = NULL}
+    },
+    .outputs = (const AVFilterPad[]) {
+        { .name             = "default",
+          .type             = AVMEDIA_TYPE_VIDEO, },
+        { .name = NULL}
+    },
+};
