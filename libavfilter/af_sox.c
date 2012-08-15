@@ -52,7 +52,7 @@ static inline int realloc_argv(char ***argv, int *numargs)
         return *numargs;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args, void *opaque)
+static av_cold int init(AVFilterContext *ctx, const char *args)
 {
     SoxContext *sox = ctx->priv;
     char **argv = NULL;
