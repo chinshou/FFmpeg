@@ -198,7 +198,7 @@ static av_cold int movie_common_init(AVFilterContext *ctx, const char *args, con
     av_opt_set_defaults(movie);
 
     if (args)
-        movie->file_name = av_get_token(&args, ":");
+        movie->file_name = av_get_token(&args, "|");
     if (!movie->file_name || !*movie->file_name) {
         av_log(ctx, AV_LOG_ERROR, "No filename provided!\n");
         return AVERROR(EINVAL);
