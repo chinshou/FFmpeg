@@ -1175,6 +1175,7 @@ CONFIG_LIST="
     librtmp
     libschroedinger
     libsoxr
+    libsox    
     libspeex
     libstagefright_h264
     libtheora
@@ -3847,6 +3848,7 @@ enabled libpulse && require_pkg_config libpulse-simple pulse/simple.h pa_simple_
 enabled librtmp    && require_pkg_config librtmp librtmp/rtmp.h RTMP_Socket
 enabled libschroedinger && require_pkg_config schroedinger-1.0 schroedinger/schro.h schro_init
 enabled libsoxr    && require  libsoxr soxr.h soxr_create -lsoxr
+enabled libsox     && require  libsox sox.h sox_create_effect -lsox
 enabled libspeex   && require  libspeex speex/speex.h speex_decoder_init -lspeex
 enabled libstagefright_h264  && require_cpp libstagefright_h264 "binder/ProcessState.h media/stagefright/MetaData.h
     media/stagefright/MediaBufferGroup.h media/stagefright/MediaDebug.h media/stagefright/MediaDefs.h
