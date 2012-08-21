@@ -200,7 +200,7 @@ static av_cold int movie_common_init(AVFilterContext *ctx, const char *args, con
     av_opt_set_defaults(movie);
 
     if (args) {
-        movie->file_name = av_get_token(&args, ":");
+        movie->file_name = av_get_token(&args, "|");
         if (!movie->file_name)
             return AVERROR(ENOMEM);
     }

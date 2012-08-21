@@ -41,6 +41,7 @@ OBJS = allfilters.o                                                     \
        graphdump.o                                                      \
        graphparser.o                                                    \
        transform.o                                                      \
+       subreader.o  							\
        video.o                                                          \
 
 
@@ -218,6 +219,8 @@ OBJS-$(CONFIG_SHOWWAVES_FILTER)              += avf_showwaves.o
 OBJS-$(CONFIG_AMOVIE_FILTER)                 += src_movie.o
 OBJS-$(CONFIG_MOVIE_FILTER)                  += src_movie.o
 
+CFLAGS += -I/usr/i686-mingw32/include/ass
+EXTRALIBS += -lass -lfreetype -liconv
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats
 

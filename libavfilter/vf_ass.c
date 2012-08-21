@@ -38,6 +38,7 @@
 #include "formats.h"
 #include "video.h"
 #include "subreader.h"
+#include "drawutils.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/avstring.h"
 
@@ -396,7 +397,8 @@ static int end_frame(AVFilterLink *link)
   
 
   //miliseconds
-  int scale = context->enc?1:1000;
+  //int scale = context->enc?1:1000;
+  int scale = 1000;
   int64_t picref_time = pic->pts * av_q2d(link->time_base)*scale;
 #if 0
   av_log(0, AV_LOG_ERROR, "draw_ass_image pts_time:%I64d pts:%I64d num:%d den:%d \n", picref_time, pic->pts, link->time_base.num, link->time_base.den);
