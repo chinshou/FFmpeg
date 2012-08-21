@@ -19,7 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/internal.h"
 #include "libavutil/opt.h"
+#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "avcodec.h"
 #include "internal.h"
@@ -654,7 +656,7 @@ static const AVCodecDefault x264_defaults[] = {
 AVCodec ff_libx264_encoder = {
     .name             = "libx264",
     .type             = AVMEDIA_TYPE_VIDEO,
-    .id               = CODEC_ID_H264,
+    .id               = AV_CODEC_ID_H264,
     .priv_data_size   = sizeof(X264Context),
     .init             = X264_init,
     .encode2          = X264_frame,
@@ -669,7 +671,7 @@ AVCodec ff_libx264_encoder = {
 AVCodec ff_libx264rgb_encoder = {
     .name           = "libx264rgb",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_H264,
+    .id             = AV_CODEC_ID_H264,
     .priv_data_size = sizeof(X264Context),
     .init           = X264_init,
     .encode2        = X264_frame,

@@ -79,6 +79,14 @@ Go to @url{http://lame.sourceforge.net/} and follow the
 instructions for installing the library.
 Then pass @code{--enable-libmp3lame} to configure to enable it.
 
+@section TwoLAME
+
+FFmpeg can make use of the TwoLAME library for MP2 encoding.
+
+Go to @url{http://www.twolame.org/} and follow the
+instructions for installing the library.
+Then pass @code{--enable-libtwolame} to configure to enable it.
+
 @section libvpx
 
 FFmpeg can make use of the libvpx library for VP8 encoding.
@@ -204,7 +212,7 @@ library:
     @tab General eXchange Format SMPTE 360M, used by Thomson Grass Valley
          playout servers.
 @item iCEDraw File              @tab   @tab X
-@item ICO                       @tab   @tab X
+@item ICO                       @tab X @tab X
     @tab Microsoft Windows ICO
 @item id Quake II CIN video     @tab   @tab X
 @item id RoQ                    @tab X @tab X
@@ -377,7 +385,6 @@ library:
 @item eXtended BINary text (XBIN) @tab @tab X
 @item YUV4MPEG pipe             @tab X @tab X
 @item Psygnosis YOP             @tab   @tab X
-@item ZeroCodec Lossless Video  @tab   @tab X
 @end multitable
 
 @code{X} means that encoding (resp. decoding) is supported.
@@ -501,6 +508,7 @@ following image formats are supported:
 @item Delphine Software International CIN video  @tab     @tab  X
     @tab Codec used in Delphine Software International games.
 @item Discworld II BMV Video @tab     @tab  X
+@item Canopus Lossless Codec @tab     @tab  X
 @item Cinepak                @tab     @tab  X
 @item Cirrus Logic AccuPak   @tab  X  @tab  X
     @tab fourcc: CLJR
@@ -658,7 +666,7 @@ following image formats are supported:
     @tab encoding supported through external library libtheora
 @item Tiertex Limited SEQ video  @tab     @tab  X
     @tab Codec used in DOS CD-ROM FlashBack game.
-@item Ut Video               @tab     @tab  X
+@item Ut Video               @tab  X  @tab  X
 @item v210 QuickTime uncompressed 4:2:2 10-bit     @tab  X  @tab  X
 @item v308 QuickTime uncompressed 4:4:4            @tab  X  @tab  X
 @item v408 QuickTime uncompressed 4:4:4:4          @tab  X  @tab  X
@@ -682,6 +690,7 @@ following image formats are supported:
 @item Psygnosis YOP Video    @tab     @tab  X
 @item yuv4                   @tab  X  @tab  X
     @tab libquicktime uncompressed packed 4:2:0
+@item ZeroCodec Lossless Video @tab     @tab  X
 @item ZLIB                   @tab  X  @tab  X
     @tab part of LCL, encoder experimental
 @item Zip Motion Blocks Video  @tab   X @tab  X
@@ -796,6 +805,7 @@ following image formats are supported:
     @tab Only versions 3.97-3.99 are supported.
 @item MP1 (MPEG audio layer 1)  @tab     @tab IX
 @item MP2 (MPEG audio layer 2)  @tab IX  @tab IX
+    @tab libtwolame can be used alternatively for encoding.
 @item MP3 (MPEG audio layer 3)  @tab  E  @tab IX
     @tab encoding supported through external library LAME, ADU MP3 and MP3onMP4 also supported
 @item MPEG-4 Audio Lossless Coding (ALS)  @tab     @tab  X
@@ -886,7 +896,7 @@ performance on systems without hardware floating point support).
 @item SAMI             @tab   @tab X @tab   @tab X
 @item SubRip (SRT)     @tab X @tab X @tab X @tab X
 @item SubViewer        @tab   @tab X @tab   @tab X
-@item 3GPP Timed Text  @tab   @tab   @tab   @tab X
+@item 3GPP Timed Text  @tab   @tab   @tab X @tab X
 @item XSUB             @tab   @tab   @tab X @tab X
 @end multitable
 

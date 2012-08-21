@@ -28,6 +28,7 @@
 #include <openjpeg.h>
 
 #include "libavutil/avassert.h"
+#include "libavutil/common.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/opt.h"
@@ -472,7 +473,7 @@ static const AVClass class = {
 AVCodec ff_libopenjpeg_encoder = {
     .name           = "libopenjpeg",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_JPEG2000,
+    .id             = AV_CODEC_ID_JPEG2000,
     .priv_data_size = sizeof(LibOpenJPEGContext),
     .init           = libopenjpeg_encode_init,
     .encode2        = libopenjpeg_encode_frame,

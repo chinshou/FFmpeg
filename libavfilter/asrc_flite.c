@@ -48,15 +48,16 @@ typedef struct {
 } FliteContext;
 
 #define OFFSET(x) offsetof(FliteContext, x)
+#define FLAGS AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
 
 static const AVOption flite_options[] = {
-    { "list_voices", "list voices and exit",              OFFSET(list_voices), AV_OPT_TYPE_INT, {.dbl=0}, 0, 1 },
-    { "nb_samples",  "set number of samples per frame",   OFFSET(frame_nb_samples), AV_OPT_TYPE_INT, {.dbl=512}, 0, INT_MAX },
-    { "n",           "set number of samples per frame",   OFFSET(frame_nb_samples), AV_OPT_TYPE_INT, {.dbl=512}, 0, INT_MAX },
-    { "text",        "set text to speak",                 OFFSET(text),      AV_OPT_TYPE_STRING, {.str=NULL}, CHAR_MIN, CHAR_MAX },
-    { "textfile",    "set filename of the text to speak", OFFSET(textfile),  AV_OPT_TYPE_STRING, {.str=NULL}, CHAR_MIN, CHAR_MAX },
-    { "v",           "set voice",                         OFFSET(voice_str), AV_OPT_TYPE_STRING, {.str="kal"}, CHAR_MIN, CHAR_MAX },
-    { "voice",       "set voice",                         OFFSET(voice_str), AV_OPT_TYPE_STRING, {.str="kal"}, CHAR_MIN, CHAR_MAX },
+    { "list_voices", "list voices and exit",              OFFSET(list_voices), AV_OPT_TYPE_INT, {.dbl=0}, 0, 1, FLAGS },
+    { "nb_samples",  "set number of samples per frame",   OFFSET(frame_nb_samples), AV_OPT_TYPE_INT, {.dbl=512}, 0, INT_MAX, FLAGS },
+    { "n",           "set number of samples per frame",   OFFSET(frame_nb_samples), AV_OPT_TYPE_INT, {.dbl=512}, 0, INT_MAX, FLAGS },
+    { "text",        "set text to speak",                 OFFSET(text),      AV_OPT_TYPE_STRING, {.str=NULL}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "textfile",    "set filename of the text to speak", OFFSET(textfile),  AV_OPT_TYPE_STRING, {.str=NULL}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "v",           "set voice",                         OFFSET(voice_str), AV_OPT_TYPE_STRING, {.str="kal"}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "voice",       "set voice",                         OFFSET(voice_str), AV_OPT_TYPE_STRING, {.str="kal"}, CHAR_MIN, CHAR_MAX, FLAGS },
     { NULL }
 };
 
@@ -138,10 +139,8 @@ static av_cold int init(AVFilterContext *ctx, const char *args)
     flite->class = &flite_class;
     av_opt_set_defaults(flite);
 
-    if ((ret = av_set_options_string(flite, args, "=", "|")) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+    if ((ret = av_set_options_string(flite, args, "=", "|")) < 0) 
         return ret;
-    }
 
     if (flite->list_voices) {
         list_voices(ctx, "\n");
@@ -288,4 +287,6 @@ AVFilter avfilter_asrc_flite = {
         },
         { .name = NULL }
     },
+
+    .priv_class = &flite_class,
 };

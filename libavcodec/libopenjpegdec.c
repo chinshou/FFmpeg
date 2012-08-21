@@ -27,6 +27,7 @@
 #define  OPJ_STATIC
 #include <openjpeg.h>
 
+#include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/pixfmt.h"
@@ -409,13 +410,13 @@ static const AVClass class = {
 AVCodec ff_libopenjpeg_decoder = {
     .name             = "libopenjpeg",
     .type             = AVMEDIA_TYPE_VIDEO,
-    .id               = CODEC_ID_JPEG2000,
+    .id               = AV_CODEC_ID_JPEG2000,
     .priv_data_size   = sizeof(LibOpenJPEGContext),
     .init             = libopenjpeg_decode_init,
     .close            = libopenjpeg_decode_close,
     .decode           = libopenjpeg_decode_frame,
     .capabilities     = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS,
-    .max_lowres       = 5,
+    .max_lowres       = 31,
     .long_name        = NULL_IF_CONFIG_SMALL("OpenJPEG JPEG 2000"),
     .priv_class       = &class,
     .init_thread_copy = ONLY_IF_THREADS_ENABLED(libopenjpeg_decode_init_thread_copy),

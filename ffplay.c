@@ -141,6 +141,7 @@ typedef struct VideoState {
     int force_refresh;
     int paused;
     int last_paused;
+    int que_attachments_req;
     int seek_req;
     int seek_flags;
     int64_t seek_pos;
@@ -242,8 +243,6 @@ typedef struct AllocEventProps {
     VideoState *is;
     AVFrame *frame;
 } AllocEventProps;
-
-static int opt_help(const char *opt, const char *arg);
 
 /* options specified by the user */
 static AVInputFormat *file_iformat;
@@ -2098,7 +2097,7 @@ static int audio_open(void *opaque, int64_t wanted_channel_layout, int wanted_nb
 
     env = SDL_getenv("SDL_AUDIO_CHANNELS");
     if (env) {
-        wanted_nb_channels = SDL_atoi(env);
+        wanted_nb_channels = atoi(env);
         wanted_channel_layout = av_get_default_channel_layout(wanted_nb_channels);
     }
     if (!wanted_channel_layout || wanted_nb_channels != av_get_channel_layout_nb_channels(wanted_channel_layout)) {
@@ -2503,6 +2502,10 @@ static int read_thread(void *arg)
             is->seek_req = 0;
             eof = 0;
         }
+        if (is->que_attachments_req) {
+            avformat_queue_attached_pictures(ic);
+            is->que_attachments_req = 0;
+        }
 
         /* if the queue are full, no need to read more */
         if (!infinite_buffer &&
@@ -2680,6 +2683,8 @@ static void stream_cycle_channel(VideoState *is, int codec_type)
  the_end:
     stream_component_close(is, old_index);
     stream_component_open(is, stream_index);
+    if (codec_type == AVMEDIA_TYPE_VIDEO)
+        is->que_attachments_req = 1;
 }
 
 
@@ -3016,19 +3021,19 @@ static void show_usage(void)
     av_log(NULL, AV_LOG_INFO, "\n");
 }
 
-static int opt_help(const char *opt, const char *arg)
+void show_help_default(const char *opt, const char *arg)
 {
     av_log_set_callback(log_callback_help);
     show_usage();
-    show_help_options(options, "Main options:\n",
-                      OPT_EXPERT, 0);
-    show_help_options(options, "\nAdvanced options:\n",
-                      OPT_EXPERT, OPT_EXPERT);
+    show_help_options(options, "Main options:", 0, OPT_EXPERT, 0);
+    show_help_options(options, "Advanced options:", OPT_EXPERT, 0, 0);
     printf("\n");
     show_help_children(avcodec_get_class(), AV_OPT_FLAG_DECODING_PARAM);
     show_help_children(avformat_get_class(), AV_OPT_FLAG_DECODING_PARAM);
 #if !CONFIG_AVFILTER
     show_help_children(sws_get_class(), AV_OPT_FLAG_ENCODING_PARAM);
+#else
+    show_help_children(avfilter_get_class(), AV_OPT_FLAG_FILTERING_PARAM);
 #endif
     printf("\nWhile playing:\n"
            "q, ESC              quit\n"
@@ -3044,7 +3049,6 @@ static int opt_help(const char *opt, const char *arg)
            "page down/page up   seek backward/forward 10 minutes\n"
            "mouse click         seek to percentage in file corresponding to fraction of width\n"
            );
-    return 0;
 }
 
 static int lockmgr(void **mtx, enum AVLockOp op)

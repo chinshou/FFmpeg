@@ -62,7 +62,7 @@ static int r3d_read_red1(AVFormatContext *s)
     if (!st)
         return AVERROR(ENOMEM);
     st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-    st->codec->codec_id = CODEC_ID_JPEG2000;
+    st->codec->codec_id = AV_CODEC_ID_JPEG2000;
 
     tmp  = avio_r8(s->pb); // major version
     tmp2 = avio_r8(s->pb); // minor version
@@ -101,7 +101,7 @@ static int r3d_read_red1(AVFormatContext *s)
         if (!ast)
             return AVERROR(ENOMEM);
         ast->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-        ast->codec->codec_id = CODEC_ID_PCM_S32BE;
+        ast->codec->codec_id = AV_CODEC_ID_PCM_S32BE;
         ast->codec->channels = tmp;
         avpriv_set_pts_info(ast, 32, 1, st->time_base.den);
     }
@@ -141,8 +141,7 @@ static int r3d_read_rdvo(AVFormatContext *s, Atom *atom)
 
     if (st->avg_frame_rate.num)
         st->duration = av_rescale_q(r3d->video_offsets_count,
-                                    (AVRational){st->avg_frame_rate.den,
-                                                 st->avg_frame_rate.num},
+                                    av_inv_q(st->avg_frame_rate),
                                     st->time_base);
     av_dlog(s, "duration %"PRId64"\n", st->duration);
 
@@ -370,7 +369,7 @@ static int r3d_seek(AVFormatContext *s, int stream_index, int64_t sample_time, i
         return -1;
 
     frame_num = av_rescale_q(sample_time, st->time_base,
-                             (AVRational){st->avg_frame_rate.den, st->avg_frame_rate.num});
+                             av_inv_q(st->avg_frame_rate));
     av_dlog(s, "seek frame num %d timestamp %"PRId64"\n",
             frame_num, sample_time);
 
@@ -396,7 +395,7 @@ static int r3d_close(AVFormatContext *s)
 
 AVInputFormat ff_r3d_demuxer = {
     .name           = "r3d",
-    .long_name      = NULL_IF_CONFIG_SMALL("REDCODE R3D format"),
+    .long_name      = NULL_IF_CONFIG_SMALL("REDCODE R3D"),
     .priv_data_size = sizeof(R3DContext),
     .read_probe     = r3d_probe,
     .read_header    = r3d_read_header,

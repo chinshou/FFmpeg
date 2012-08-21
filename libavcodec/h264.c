@@ -1095,7 +1095,7 @@ av_cold int ff_h264_decode_init(AVCodecContext *avctx)
     h->prev_frame_num = -1;
     h->x264_build   = -1;
     ff_h264_reset_sei(h);
-    if (avctx->codec_id == CODEC_ID_H264) {
+    if (avctx->codec_id == AV_CODEC_ID_H264) {
         if (avctx->ticks_per_frame == 1)
             s->avctx->time_base.den *= 2;
         avctx->ticks_per_frame = 2;
@@ -1324,7 +1324,7 @@ int ff_h264_frame_start(H264Context *h)
      * SVQ3 as well as most other codecs have only last/next/current and thus
      * get released even with set reference, besides SVQ3 and others do not
      * mark frames as reference later "naturally". */
-    if (s->codec_id != CODEC_ID_SVQ3)
+    if (s->codec_id != AV_CODEC_ID_SVQ3)
         s->current_picture_ptr->f.reference = 0;
 
     s->current_picture_ptr->field_poc[0]     =
@@ -2494,6 +2494,15 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
         s->avctx->sample_aspect_ratio = h->sps.sar;
         av_assert0(s->avctx->sample_aspect_ratio.den);
 
+        if (s->avctx->codec->capabilities & CODEC_CAP_HWACCEL_VDPAU
+            && (h->sps.bit_depth_luma != 8 ||
+                h->sps.chroma_format_idc > 1)) {
+            av_log(s->avctx, AV_LOG_ERROR,
+                   "VDPAU decoding does not support video "
+                   "colorspace\n");
+            return -1;
+        }
+
         if (s->avctx->bits_per_raw_sample != h->sps.bit_depth_luma ||
             h->cur_chroma_format_idc != h->sps.chroma_format_idc) {
             if (h->sps.bit_depth_luma >= 8 && h->sps.bit_depth_luma <= 14 && h->sps.bit_depth_luma != 11 && h->sps.bit_depth_luma != 13 &&
@@ -2836,7 +2845,7 @@ static int decode_slice_header(H264Context *h, H264Context *h0)
             }
         } else {
             /* Frame or first field in a potentially complementary pair */
-            assert(!s0->current_picture_ptr);
+//             assert(!s0->current_picture_ptr);
             s0->first_field = FIELD_PICTURE;
         }
 
@@ -3519,7 +3528,7 @@ static int decode_slice(struct AVCodecContext *avctx, void *arg)
     s->mb_skip_run = -1;
 
     h->is_complex = FRAME_MBAFF || s->picture_structure != PICT_FRAME ||
-                    s->codec_id != CODEC_ID_H264 ||
+                    s->codec_id != AV_CODEC_ID_H264 ||
                     (CONFIG_GRAY && (s->flags & CODEC_FLAG_GRAY));
 
     if (h->pps.cabac) {
@@ -3858,11 +3867,17 @@ again:
                 if ((err = decode_slice_header(hx, h)))
                     break;
 
+                if (h->sei_recovery_frame_cnt >= 0 && (h->frame_num != h->sei_recovery_frame_cnt || hx->slice_type_nos != AV_PICTURE_TYPE_I))
+                    h->valid_recovery_point = 1;
+
                 if (   h->sei_recovery_frame_cnt >= 0
                     && (   h->recovery_frame<0
                         || ((h->recovery_frame - h->frame_num) & ((1 << h->sps.log2_max_frame_num)-1)) > h->sei_recovery_frame_cnt)) {
                     h->recovery_frame = (h->frame_num + h->sei_recovery_frame_cnt) %
                                         (1 << h->sps.log2_max_frame_num);
+
+                    if (!h->valid_recovery_point)
+                        h->recovery_frame = h->frame_num;
                 }
 
                 s->current_picture_ptr->f.key_frame |=
@@ -4206,7 +4221,7 @@ static const AVClass h264_vdpau_class = {
 AVCodec ff_h264_decoder = {
     .name                  = "h264",
     .type                  = AVMEDIA_TYPE_VIDEO,
-    .id                    = CODEC_ID_H264,
+    .id                    = AV_CODEC_ID_H264,
     .priv_data_size        = sizeof(H264Context),
     .init                  = ff_h264_decode_init,
     .close                 = h264_decode_end,
@@ -4226,7 +4241,7 @@ AVCodec ff_h264_decoder = {
 AVCodec ff_h264_vdpau_decoder = {
     .name           = "h264_vdpau",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_H264,
+    .id             = AV_CODEC_ID_H264,
     .priv_data_size = sizeof(H264Context),
     .init           = ff_h264_decode_init,
     .close          = h264_decode_end,

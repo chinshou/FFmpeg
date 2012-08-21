@@ -12,12 +12,15 @@ HTMLPAGES   = $(PROGS-yes:%=doc/%.html)                                 \
 TXTPAGES    = doc/fate.txt                                              \
 
 
-DOCS-$(HAVE_TEXI2HTML)  += $(HTMLPAGES)
-DOCS-$(HAVE_POD2MAN)    += $(MANPAGES) $(PODPAGES)
-DOCS-$(HAVE_MAKEINFO)   += $(TXTPAGES)
+DOCS-$(CONFIG_HTMLPAGES) += $(HTMLPAGES)
+DOCS-$(CONFIG_PODPAGES)  += $(PODPAGES)
+DOCS-$(CONFIG_MANPAGES)  += $(MANPAGES)
+DOCS-$(CONFIG_TXTPAGES)  += $(TXTPAGES)
 DOCS = $(DOCS-yes)
 
-all-$(CONFIG_DOC): documentation
+all-$(CONFIG_DOC): doc
+
+doc: documentation
 
 documentation: $(DOCS)
 
@@ -43,7 +46,7 @@ doc/%.html: doc/%.texi $(SRC_PATH)/doc/t2h.init $(GENTEXI)
 doc/%.pod: TAG = POD
 doc/%.pod: doc/%.texi $(GENTEXI)
 	$(Q)$(TEXIDEP)
-	$(M)$(SRC_PATH)/doc/texi2pod.pl -Idoc $< $@
+	$(M)perl $(SRC_PATH)/doc/texi2pod.pl -Idoc $< $@
 
 doc/%.1: TAG = MAN
 doc/%.1: doc/%.pod $(GENTEXI)
@@ -53,7 +56,7 @@ $(DOCS): | doc/
 
 install-man:
 
-ifdef HAVE_POD2MAN
+ifdef CONFIG_MANPAGES
 install-progs-$(CONFIG_DOC): install-man
 
 install-man: $(MANPAGES)
@@ -71,4 +74,4 @@ clean::
 
 -include $(wildcard $(DOCS:%=%.d))
 
-.PHONY: documentation
+.PHONY: doc documentation

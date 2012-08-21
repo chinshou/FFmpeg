@@ -90,7 +90,7 @@ static int get_codec_data(AVIOContext *pb, AVStream *vst,
                     vst->codec->codec_id =
                         ff_codec_get_id(ff_codec_bmp_tags, vst->codec->codec_tag);
                     if (vst->codec->codec_tag == MKTAG('R', 'J', 'P', 'G'))
-                        vst->codec->codec_id = CODEC_ID_NUV;
+                        vst->codec->codec_id = AV_CODEC_ID_NUV;
                 } else
                     avio_skip(pb, 4);
 
@@ -158,7 +158,7 @@ static int nuv_header(AVFormatContext *s) {
         if (!vst)
             return AVERROR(ENOMEM);
         vst->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-        vst->codec->codec_id = CODEC_ID_NUV;
+        vst->codec->codec_id = AV_CODEC_ID_NUV;
         vst->codec->width = width;
         vst->codec->height = height;
         vst->codec->bits_per_coded_sample = 10;
@@ -177,7 +177,7 @@ static int nuv_header(AVFormatContext *s) {
         if (!ast)
             return AVERROR(ENOMEM);
         ast->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-        ast->codec->codec_id = CODEC_ID_PCM_S16LE;
+        ast->codec->codec_id = AV_CODEC_ID_PCM_S16LE;
         ast->codec->channels = 2;
         ast->codec->sample_rate = 44100;
         ast->codec->bit_rate = 2 * 2 * 44100 * 8;
@@ -188,7 +188,7 @@ static int nuv_header(AVFormatContext *s) {
         ctx->a_id = -1;
 
     get_codec_data(pb, vst, ast, is_mythtv);
-    ctx->rtjpg_video = vst && vst->codec->codec_id == CODEC_ID_NUV;
+    ctx->rtjpg_video = vst && vst->codec->codec_id == AV_CODEC_ID_NUV;
     return 0;
 }
 
@@ -338,7 +338,7 @@ static int64_t nuv_read_dts(AVFormatContext *s, int stream_index,
 
 AVInputFormat ff_nuv_demuxer = {
     .name           = "nuv",
-    .long_name      = NULL_IF_CONFIG_SMALL("NuppelVideo format"),
+    .long_name      = NULL_IF_CONFIG_SMALL("NuppelVideo"),
     .priv_data_size = sizeof(NUVContext),
     .read_probe     = nuv_probe,
     .read_header    = nuv_header,

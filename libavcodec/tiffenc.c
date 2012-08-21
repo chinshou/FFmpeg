@@ -30,12 +30,12 @@
 #include "libavutil/opt.h"
 
 #include "avcodec.h"
-#include "internal.h"
+#include "config.h"
 #if CONFIG_ZLIB
 #include <zlib.h>
 #endif
-#include "libavutil/opt.h"
 #include "bytestream.h"
+#include "internal.h"
 #include "tiff.h"
 #include "rle.h"
 #include "lzw.h"
@@ -510,7 +510,7 @@ static const AVClass tiffenc_class = {
 AVCodec ff_tiff_encoder = {
     .name           = "tiff",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_TIFF,
+    .id             = AV_CODEC_ID_TIFF,
     .priv_data_size = sizeof(TiffEncoderContext),
     .init           = encode_init,
     .encode2        = encode_frame,

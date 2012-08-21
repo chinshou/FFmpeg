@@ -30,7 +30,6 @@ OBJS = allfilters.o                                                     \
        buffer.o                                                         \
        buffersink.o                                                     \
        buffersrc.o                                                      \
-       defaults.o                                                       \
        drawutils.o                                                      \
        formats.o                                                        \
        graphdump.o                                                      \
@@ -40,7 +39,8 @@ OBJS = allfilters.o                                                     \
        subreader.o  							\
        vf_scale.o                                                       \
        video.o                                                          \
-       
+
+
 OBJS-$(CONFIG_AVCODEC)                       += avcodec.o
 OBJS-$(CONFIG_AVFORMAT)                      += lavfutils.o
 OBJS-$(CONFIG_SWSCALE)                       += lswsutils.o
@@ -53,6 +53,7 @@ OBJS-$(CONFIG_AMIX_FILTER)                   += af_amix.o
 OBJS-$(CONFIG_ANULL_FILTER)                  += af_anull.o
 OBJS-$(CONFIG_ARESAMPLE_FILTER)              += af_aresample.o
 OBJS-$(CONFIG_ASETNSAMPLES_FILTER)           += af_asetnsamples.o
+OBJS-$(CONFIG_ASETPTS_FILTER)                += vf_setpts.o
 OBJS-$(CONFIG_ASETTB_FILTER)                 += f_settb.o
 OBJS-$(CONFIG_ASHOWINFO_FILTER)              += af_ashowinfo.o
 OBJS-$(CONFIG_ASPLIT_FILTER)                 += split.o
@@ -67,6 +68,7 @@ OBJS-$(CONFIG_PAN_FILTER)                    += af_pan.o
 OBJS-$(CONFIG_RESAMPLE_FILTER)               += af_resample.o
 OBJS-$(CONFIG_SILENCEDETECT_FILTER)          += af_silencedetect.o
 OBJS-$(CONFIG_VOLUME_FILTER)                 += af_volume.o
+OBJS-$(CONFIG_VOLUMEDETECT_FILTER)           += af_volumedetect.o
 OBJS-$(CONFIG_SOX_FILTER)                    += af_sox.o
 
 OBJS-$(CONFIG_AEVALSRC_FILTER)               += asrc_aevalsrc.o
@@ -91,15 +93,18 @@ OBJS-$(CONFIG_DELOGO_FILTER)                 += vf_delogo.o
 OBJS-$(CONFIG_DESHAKE_FILTER)                += vf_deshake.o
 OBJS-$(CONFIG_DRAWBOX_FILTER)                += vf_drawbox.o
 OBJS-$(CONFIG_DRAWTEXT_FILTER)               += vf_drawtext.o
+OBJS-$(CONFIG_EDGEDETECT_FILTER)             += vf_edgedetect.o
 OBJS-$(CONFIG_FADE_FILTER)                   += vf_fade.o
 OBJS-$(CONFIG_FIELDORDER_FILTER)             += vf_fieldorder.o
 OBJS-$(CONFIG_FIFO_FILTER)                   += fifo.o
 OBJS-$(CONFIG_FORMAT_FILTER)                 += vf_format.o
+OBJS-$(CONFIG_FRAMESTEP_FILTER)              += vf_framestep.o
 OBJS-$(CONFIG_FPS_FILTER)                    += vf_fps.o
 OBJS-$(CONFIG_FREI0R_FILTER)                 += vf_frei0r.o
 OBJS-$(CONFIG_GRADFUN_FILTER)                += vf_gradfun.o
 OBJS-$(CONFIG_HFLIP_FILTER)                  += vf_hflip.o
 OBJS-$(CONFIG_HQDN3D_FILTER)                 += vf_hqdn3d.o
+OBJS-$(CONFIG_HUE_FILTER)                    += vf_hue.o
 OBJS-$(CONFIG_IDET_FILTER)                   += vf_idet.o
 OBJS-$(CONFIG_LUT_FILTER)                    += vf_lut.o
 OBJS-$(CONFIG_LUTRGB_FILTER)                 += vf_lut.o
@@ -133,15 +138,15 @@ OBJS-$(CONFIG_UNSHARP_FILTER)                += vf_unsharp.o
 OBJS-$(CONFIG_VFLIP_FILTER)                  += vf_vflip.o
 OBJS-$(CONFIG_YADIF_FILTER)                  += vf_yadif.o
 
-OBJS-$(CONFIG_ASS_FILTER)                    += vf_ass.o
 OBJS-$(CONFIG_CELLAUTO_FILTER)               += vsrc_cellauto.o
-OBJS-$(CONFIG_COLOR_FILTER)                  += vsrc_color.o
+OBJS-$(CONFIG_COLOR_FILTER)                  += vsrc_testsrc.o
 OBJS-$(CONFIG_FREI0R_SRC_FILTER)             += vf_frei0r.o
 OBJS-$(CONFIG_LIFE_FILTER)                   += vsrc_life.o
 OBJS-$(CONFIG_MANDELBROT_FILTER)             += vsrc_mandelbrot.o
 OBJS-$(CONFIG_MPTESTSRC_FILTER)              += vsrc_mptestsrc.o
 OBJS-$(CONFIG_NULLSRC_FILTER)                += vsrc_testsrc.o
 OBJS-$(CONFIG_RGBTESTSRC_FILTER)             += vsrc_testsrc.o
+OBJS-$(CONFIG_SMPTEBARS_FILTER)              += vsrc_testsrc.o
 OBJS-$(CONFIG_TESTSRC_FILTER)                += vsrc_testsrc.o
 
 OBJS-$(CONFIG_BUFFERSINK_FILTER)             += sink_buffer.o
@@ -162,12 +167,10 @@ OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_field.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_fil.o
 #OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_filmdint.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_fixpts.o
-OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_framestep.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_fspp.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_geq.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_harddup.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_hqdn3d.o
-OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_hue.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_il.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_ilpack.o
 OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/vf_ivtc.o
@@ -201,6 +204,7 @@ OBJS-$(CONFIG_MP_FILTER) += libmpcodecs/pullup.o
 
 # multimedia filters
 OBJS-$(CONFIG_CONCAT_FILTER)                 += avf_concat.o
+OBJS-$(CONFIG_SHOWSPECTRUM_FILTER)           += avf_showspectrum.o
 OBJS-$(CONFIG_SHOWWAVES_FILTER)              += avf_showwaves.o
 
 # multimedia sources
@@ -209,7 +213,8 @@ OBJS-$(CONFIG_MOVIE_FILTER)                  += src_movie.o
 
 CFLAGS += -I/usr/i686-mingw32/include/ass
 EXTRALIBS += -lass -lfreetype -liconv
-TESTPROGS = drawutils formats
-
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats
+
+clean::
+	$(RM) $(CLEANSUFFIXES:%=libavfilter/libmpcodecs/%)

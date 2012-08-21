@@ -204,8 +204,8 @@ For Emacs, add these roughly equivalent lines to your @file{.emacs.d/init.el}:
 (c-add-style "ffmpeg"
              '("k&r"
                (c-basic-offset . 4)
-               (indent-tabs-mode nil)
-               (show-trailing-whitespace t)
+               (indent-tabs-mode . nil)
+               (show-trailing-whitespace . t)
                (c-offsets-alist
                 (statement-cont . (c-lineup-assignments +)))
                )
@@ -393,7 +393,7 @@ send a reminder by email. Your patch should eventually be dealt with.
 @item
     Did you register it in @file{allcodecs.c} or @file{allformats.c}?
 @item
-    Did you add the CodecID to @file{avcodec.h}?
+    Did you add the AVCodecID to @file{avcodec.h}?
 @item
     If it has a fourCC, did you add it to @file{libavformat/riff.c},
     even if it is only a decoder?
