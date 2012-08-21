@@ -33,6 +33,7 @@
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/dict.h"
+#include "libavutil/libm.h"
 #include "libavutil/timecode.h"
 #include "libavdevice/avdevice.h"
 #include "libswscale/swscale.h"
@@ -121,7 +122,7 @@ static char *value_string(char *buf, int buf_size, struct unit_value uv)
             long long int index;
 
             if (uv.unit == unit_byte_str && use_byte_value_binary_prefix) {
-                index = (long long int) (log(vald)/log(2)) / 10;
+                index = (long long int) (log2(vald)) / 10;
                 index = av_clip(index, 0, FF_ARRAY_ELEMS(binary_unit_prefixes) - 1);
                 vald /= pow(2, index * 10);
                 prefix_string = binary_unit_prefixes[index];
@@ -457,10 +458,8 @@ static av_cold int default_init(WriterContext *wctx, const char *args, void *opa
     av_opt_set_defaults(def);
 
     if (args &&
-        (err = (av_set_options_string(def, args, "=", ":"))) < 0) {
-        av_log(wctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+        (err = (av_set_options_string(def, args, "=", ":"))) < 0)
         return err;
-    }
 
     return 0;
 }
@@ -650,10 +649,8 @@ static av_cold int compact_init(WriterContext *wctx, const char *args, void *opa
     av_opt_set_defaults(compact);
 
     if (args &&
-        (err = (av_set_options_string(compact, args, "=", ":"))) < 0) {
-        av_log(wctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+        (err = (av_set_options_string(compact, args, "=", ":"))) < 0)
         return err;
-    }
     if (strlen(compact->item_sep_str) != 1) {
         av_log(wctx, AV_LOG_ERROR, "Item separator '%s' specified, but must contain a single character\n",
                compact->item_sep_str);
@@ -808,10 +805,8 @@ static av_cold int flat_init(WriterContext *wctx, const char *args, void *opaque
     av_opt_set_defaults(flat);
 
     if (args &&
-        (err = (av_set_options_string(flat, args, "=", ":"))) < 0) {
-        av_log(wctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+        (err = (av_set_options_string(flat, args, "=", ":"))) < 0)
         return err;
-    }
     if (strlen(flat->sep_str) != 1) {
         av_log(wctx, AV_LOG_ERROR, "Item separator '%s' specified, but must contain a single character\n",
                flat->sep_str);
@@ -966,10 +961,8 @@ static av_cold int ini_init(WriterContext *wctx, const char *args, void *opaque)
     ini->class = &ini_class;
     av_opt_set_defaults(ini);
 
-    if (args && (err = av_set_options_string(ini, args, "=", ":")) < 0) {
-        av_log(wctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+    if (args && (err = av_set_options_string(ini, args, "=", ":")) < 0)
         return err;
-    }
 
     return 0;
 }
@@ -1125,10 +1118,8 @@ static av_cold int json_init(WriterContext *wctx, const char *args, void *opaque
     av_opt_set_defaults(json);
 
     if (args &&
-        (err = (av_set_options_string(json, args, "=", ":"))) < 0) {
-        av_log(wctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+        (err = (av_set_options_string(json, args, "=", ":"))) < 0)
         return err;
-    }
 
     json->item_sep       = json->compact ? ", " : ",\n";
     json->item_start_end = json->compact ? " "  : "\n";
@@ -1350,10 +1341,8 @@ static av_cold int xml_init(WriterContext *wctx, const char *args, void *opaque)
     av_opt_set_defaults(xml);
 
     if (args &&
-        (err = (av_set_options_string(xml, args, "=", ":"))) < 0) {
-        av_log(wctx, AV_LOG_ERROR, "Error parsing options string: '%s'\n", args);
+        (err = (av_set_options_string(xml, args, "=", ":"))) < 0)
         return err;
-    }
 
     if (xml->xsd_strict) {
         xml->fully_qualified = 1;
@@ -1647,6 +1636,14 @@ static void show_frame(WriterContext *w, AVFrame *frame, AVStream *stream,
         if (s) print_str    ("sample_fmt", s);
         else   print_str_opt("sample_fmt", "unknown");
         print_int("nb_samples",         frame->nb_samples);
+        print_int("channels", av_frame_get_channels(frame));
+        if (av_frame_get_channel_layout(frame)) {
+            av_bprint_clear(&pbuf);
+            av_bprint_channel_layout(&pbuf, av_frame_get_channels(frame),
+                                     av_frame_get_channel_layout(frame));
+            print_str    ("channel_layout", pbuf.str);
+        } else
+            print_str_opt("channel_layout", "unknown");
         break;
     }
     show_tags(av_frame_get_metadata(frame));
@@ -1657,34 +1654,44 @@ static void show_frame(WriterContext *w, AVFrame *frame, AVStream *stream,
     fflush(stdout);
 }
 
-static av_always_inline int get_decoded_frame(AVFormatContext *fmt_ctx,
-                                              AVFrame *frame, int *got_frame,
-                                              AVPacket *pkt)
+static av_always_inline int process_frame(WriterContext *w,
+                                          AVFormatContext *fmt_ctx,
+                                          AVFrame *frame, AVPacket *pkt)
 {
     AVCodecContext *dec_ctx = fmt_ctx->streams[pkt->stream_index]->codec;
-    int ret = 0;
+    int ret = 0, got_frame = 0;
 
-    *got_frame = 0;
+    avcodec_get_frame_defaults(frame);
     if (dec_ctx->codec) {
         switch (dec_ctx->codec_type) {
         case AVMEDIA_TYPE_VIDEO:
-            ret = avcodec_decode_video2(dec_ctx, frame, got_frame, pkt);
+            ret = avcodec_decode_video2(dec_ctx, frame, &got_frame, pkt);
             break;
 
         case AVMEDIA_TYPE_AUDIO:
-            ret = avcodec_decode_audio4(dec_ctx, frame, got_frame, pkt);
+            ret = avcodec_decode_audio4(dec_ctx, frame, &got_frame, pkt);
             break;
         }
     }
 
-    return ret;
+    if (ret < 0)
+        return ret;
+    ret = FFMIN(ret, pkt->size); /* guard against bogus return values */
+    pkt->data += ret;
+    pkt->size -= ret;
+    if (got_frame) {
+        nb_streams_frames[pkt->stream_index]++;
+        if (do_show_frames)
+            show_frame(w, frame, fmt_ctx->streams[pkt->stream_index], fmt_ctx);
+    }
+    return got_frame;
 }
 
 static void read_packets(WriterContext *w, AVFormatContext *fmt_ctx)
 {
     AVPacket pkt, pkt1;
     AVFrame frame;
-    int i = 0, ret, got_frame;
+    int i = 0;
 
     av_init_packet(&pkt);
 
@@ -1696,17 +1703,7 @@ static void read_packets(WriterContext *w, AVFormatContext *fmt_ctx)
         }
         if (do_read_frames) {
             pkt1 = pkt;
-            while (pkt1.size) {
-                avcodec_get_frame_defaults(&frame);
-                ret = get_decoded_frame(fmt_ctx, &frame, &got_frame, &pkt1);
-                if (ret < 0 || !got_frame)
-                    break;
-                if (do_show_frames)
-                    show_frame(w, &frame, fmt_ctx->streams[pkt.stream_index], fmt_ctx);
-                pkt1.data += ret;
-                pkt1.size -= ret;
-                nb_streams_frames[pkt.stream_index]++;
-            }
+            while (pkt1.size && process_frame(w, fmt_ctx, &frame, &pkt1) > 0);
         }
         av_free_packet(&pkt);
     }
@@ -1716,13 +1713,8 @@ static void read_packets(WriterContext *w, AVFormatContext *fmt_ctx)
     //Flush remaining frames that are cached in the decoder
     for (i = 0; i < fmt_ctx->nb_streams; i++) {
         pkt.stream_index = i;
-        while (get_decoded_frame(fmt_ctx, &frame, &got_frame, &pkt) >= 0 && got_frame) {
-            if (do_read_frames) {
-                if (do_show_frames)
-                    show_frame(w, &frame, fmt_ctx->streams[pkt.stream_index], fmt_ctx);
-                nb_streams_frames[pkt.stream_index]++;
-            }
-        }
+        if (do_read_frames)
+            while (process_frame(w, fmt_ctx, &frame, &pkt) > 0);
     }
 }
 
@@ -1730,7 +1722,7 @@ static void show_stream(WriterContext *w, AVFormatContext *fmt_ctx, int stream_i
 {
     AVStream *stream = fmt_ctx->streams[stream_idx];
     AVCodecContext *dec_ctx;
-    AVCodec *dec;
+    const AVCodec *dec;
     char val_str[128];
     const char *s;
     AVRational sar, dar;
@@ -1836,10 +1828,10 @@ static void show_stream(WriterContext *w, AVFormatContext *fmt_ctx, int stream_i
     else                                print_str_opt("nb_read_frames", "N/A");
     if (nb_streams_packets[stream_idx]) print_fmt    ("nb_read_packets", "%"PRIu64, nb_streams_packets[stream_idx]);
     else                                print_str_opt("nb_read_packets", "N/A");
-    show_tags(stream->metadata);
     if (do_show_data)
         writer_print_data(w, "extradata", dec_ctx->extradata,
                                           dec_ctx->extradata_size);
+    show_tags(stream->metadata);
 
     print_section_footer("stream");
     av_bprint_finalize(&pbuf, NULL);
@@ -1920,7 +1912,7 @@ static int open_input_file(AVFormatContext **fmt_ctx_ptr, const char *filename)
         AVStream *stream = fmt_ctx->streams[i];
         AVCodec *codec;
 
-        if (stream->codec->codec_id == CODEC_ID_PROBE) {
+        if (stream->codec->codec_id == AV_CODEC_ID_PROBE) {
             av_log(NULL, AV_LOG_ERROR,
                    "Failed to probe codec for input stream %d\n",
                     stream->index);
@@ -1945,7 +1937,7 @@ static void close_input_file(AVFormatContext **ctx_ptr)
 
     /* close decoder for each stream */
     for (i = 0; i < fmt_ctx->nb_streams; i++)
-        if (fmt_ctx->streams[i]->codec->codec_id != CODEC_ID_NONE)
+        if (fmt_ctx->streams[i]->codec->codec_id != AV_CODEC_ID_NONE)
             avcodec_close(fmt_ctx->streams[i]->codec);
 
     avformat_close_input(ctx_ptr);
@@ -2080,16 +2072,14 @@ static void opt_input_file(void *optctx, const char *arg)
     input_filename = arg;
 }
 
-static int opt_help(const char *opt, const char *arg)
+void show_help_default(const char *opt, const char *arg)
 {
     av_log_set_callback(log_callback_help);
     show_usage();
-    show_help_options(options, "Main options:\n", 0, 0);
+    show_help_options(options, "Main options:", 0, 0, 0);
     printf("\n");
 
     show_help_children(avformat_get_class(), AV_OPT_FLAG_DECODING_PARAM);
-
-    return 0;
 }
 
 static int opt_pretty(const char *opt, const char *arg)

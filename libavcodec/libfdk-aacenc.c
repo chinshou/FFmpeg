@@ -25,6 +25,7 @@
 #include "audio_frame_queue.h"
 #include "internal.h"
 #include "libavutil/audioconvert.h"
+#include "libavutil/common.h"
 #include "libavutil/opt.h"
 
 typedef struct AACContext {
@@ -393,7 +394,7 @@ static const uint64_t aac_channel_layout[] = {
 AVCodec ff_libfdk_aac_encoder = {
     .name            = "libfdk_aac",
     .type            = AVMEDIA_TYPE_AUDIO,
-    .id              = CODEC_ID_AAC,
+    .id              = AV_CODEC_ID_AAC,
     .priv_data_size  = sizeof(AACContext),
     .init            = aac_encode_init,
     .encode2         = aac_encode_frame,

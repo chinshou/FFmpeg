@@ -35,8 +35,7 @@ static void flush_packet(AVFormatContext *s)
     fill_size = ffm->packet_end - ffm->packet_ptr;
     memset(ffm->packet_ptr, 0, fill_size);
 
-    if (avio_tell(pb) % ffm->packet_size)
-        av_abort();
+    av_assert1(avio_tell(pb) % ffm->packet_size == 0);
 
     /* put header */
     avio_wb16(pb, PACKET_ID);
@@ -240,11 +239,11 @@ static int ffm_write_trailer(AVFormatContext *s)
 
 AVOutputFormat ff_ffm_muxer = {
     .name              = "ffm",
-    .long_name         = NULL_IF_CONFIG_SMALL("FFM (FFserver live feed) format"),
+    .long_name         = NULL_IF_CONFIG_SMALL("FFM (FFserver live feed)"),
     .extensions        = "ffm",
     .priv_data_size    = sizeof(FFMContext),
-    .audio_codec       = CODEC_ID_MP2,
-    .video_codec       = CODEC_ID_MPEG1VIDEO,
+    .audio_codec       = AV_CODEC_ID_MP2,
+    .video_codec       = AV_CODEC_ID_MPEG1VIDEO,
     .write_header      = ffm_write_header,
     .write_packet      = ffm_write_packet,
     .write_trailer     = ffm_write_trailer,

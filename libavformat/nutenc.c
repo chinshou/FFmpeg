@@ -37,20 +37,20 @@ static int find_expected_header(AVCodecContext *c, int size, int key_frame, uint
 
     AV_WB24(out, 1);
 
-    if(c->codec_id == CODEC_ID_MPEG4){
+    if(c->codec_id == AV_CODEC_ID_MPEG4){
         if(key_frame){
             return 3;
         }else{
             out[3]= 0xB6;
             return 4;
         }
-    }else if(c->codec_id == CODEC_ID_MPEG1VIDEO || c->codec_id == CODEC_ID_MPEG2VIDEO){
+    }else if(c->codec_id == AV_CODEC_ID_MPEG1VIDEO || c->codec_id == AV_CODEC_ID_MPEG2VIDEO){
         return 3;
-    }else if(c->codec_id == CODEC_ID_H264){
+    }else if(c->codec_id == AV_CODEC_ID_H264){
         return 3;
-    }else if(c->codec_id == CODEC_ID_MP3 || c->codec_id == CODEC_ID_MP2){
+    }else if(c->codec_id == AV_CODEC_ID_MP3 || c->codec_id == AV_CODEC_ID_MP2){
         int lsf, mpeg25, sample_rate_index, bitrate_index, frame_size;
-        int layer= c->codec_id == CODEC_ID_MP3 ? 3 : 2;
+        int layer= c->codec_id == AV_CODEC_ID_MP3 ? 3 : 2;
         unsigned int header= 0xFFF00000;
 
         lsf     = sample_rate < (24000+32000)/2;
@@ -211,7 +211,7 @@ static void build_frame_code(AVFormatContext *s){
             pred_table[2]=1;
             pred_table[3]=3;
             pred_table[4]=4;
-        }else if(codec->codec_id == CODEC_ID_VORBIS){
+        }else if(codec->codec_id == AV_CODEC_ID_VORBIS){
             pred_count=3;
             pred_table[0]=2;
             pred_table[1]=9;
@@ -462,6 +462,7 @@ static int write_globalinfo(NUTContext *nut, AVIOContext *bc){
 static int write_streaminfo(NUTContext *nut, AVIOContext *bc, int stream_id){
     AVFormatContext *s= nut->avf;
     AVStream* st = s->streams[stream_id];
+    AVDictionaryEntry *t = NULL;
     AVIOContext *dyn_bc;
     uint8_t *dyn_buf=NULL;
     int count=0, dyn_size, i;
@@ -469,6 +470,8 @@ static int write_streaminfo(NUTContext *nut, AVIOContext *bc, int stream_id){
     if(ret < 0)
         return ret;
 
+    while ((t = av_dict_get(st->metadata, "", t, AV_DICT_IGNORE_SUFFIX)))
+        count += add_info(dyn_bc, t->key, t->value);
     for (i=0; ff_nut_dispositions[i].flag; ++i) {
         if (st->disposition & ff_nut_dispositions[i].flag)
             count += add_info(dyn_bc, "Disposition", ff_nut_dispositions[i].str);
@@ -866,13 +869,13 @@ static int nut_write_trailer(AVFormatContext *s){
 
 AVOutputFormat ff_nut_muxer = {
     .name           = "nut",
-    .long_name      = NULL_IF_CONFIG_SMALL("NUT format"),
+    .long_name      = NULL_IF_CONFIG_SMALL("NUT"),
     .mime_type      = "video/x-nut",
     .extensions     = "nut",
     .priv_data_size = sizeof(NUTContext),
-    .audio_codec    = CONFIG_LIBVORBIS ? CODEC_ID_VORBIS :
-                      CONFIG_LIBMP3LAME ? CODEC_ID_MP3 : CODEC_ID_MP2,
-    .video_codec    = CODEC_ID_MPEG4,
+    .audio_codec    = CONFIG_LIBVORBIS ? AV_CODEC_ID_VORBIS :
+                      CONFIG_LIBMP3LAME ? AV_CODEC_ID_MP3 : AV_CODEC_ID_MP2,
+    .video_codec    = AV_CODEC_ID_MPEG4,
     .write_header   = nut_write_header,
     .write_packet   = nut_write_packet,
     .write_trailer  = nut_write_trailer,

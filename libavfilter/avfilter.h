@@ -47,6 +47,10 @@ const char *avfilter_configuration(void);
  */
 const char *avfilter_license(void);
 
+/**
+ * Get the class for the AVFilterContext struct.
+ */
+const AVClass *avfilter_get_class(void);
 
 typedef struct AVFilterContext AVFilterContext;
 typedef struct AVFilterLink    AVFilterLink;
@@ -236,22 +240,29 @@ struct AVFilterPad {
     enum AVMediaType type;
 
     /**
+     * Input pads:
      * Minimum required permissions on incoming buffers. Any buffer with
      * insufficient permissions will be automatically copied by the filter
      * system to a new buffer which provides the needed access permissions.
      *
-     * Input pads only.
+     * Output pads:
+     * Guaranteed permissions on outgoing buffers. Any buffer pushed on the
+     * link must have at least these permissions; this fact is checked by
+     * asserts. It can be used to optimize buffer allocation.
      */
     int min_perms;
 
     /**
+     * Input pads:
      * Permissions which are not accepted on incoming buffers. Any buffer
      * which has any of these permissions set will be automatically copied
      * by the filter system to a new buffer which does not have those
      * permissions. This can be used to easily disallow buffers with
      * AV_PERM_REUSE.
      *
-     * Input pads only.
+     * Output pads:
+     * Permissions which are automatically removed on outgoing buffers. It
+     * can be used to optimize buffer allocation.
      */
     int rej_perms;
 
@@ -259,6 +270,12 @@ struct AVFilterPad {
      * Callback called before passing the first slice of a new frame. If
      * NULL, the filter layer will default to storing a reference to the
      * picture inside the link structure.
+     *
+     * The reference given as argument is also available in link->cur_buf.
+     * It can be stored elsewhere or given away, but then clearing
+     * link->cur_buf is advised, as it is automatically unreferenced.
+     * The reference must not be unreferenced before end_frame(), as it may
+     * still be in use by the automatic copy mechanism.
      *
      * Input video pads only.
      *
@@ -463,6 +480,8 @@ typedef struct AVFilter {
      * used for providing binary data.
      */
     int (*init_opaque)(AVFilterContext *ctx, const char *args, void *opaque);
+
+    const AVClass *priv_class;      ///< private class, containing filter specific options
 } AVFilter;
 
 /** An instance of a filter */
@@ -640,7 +659,7 @@ struct AVFilterLink {
      * Sources should set it to the best estimation of the real frame rate.
      * Filters should update it if necessary depending on their function.
      * Sinks can use it to set a default output frame rate.
-     * It is similar to the r_frae_rate field in AVStream.
+     * It is similar to the r_frame_rate field in AVStream.
      */
     AVRational frame_rate;
 
@@ -669,6 +688,15 @@ struct AVFilterLink {
      * called with more samples, it will split them.
      */
     int max_samples;
+
+    /**
+     * The buffer reference currently being received across the link by the
+     * destination filter. This is used internally by the filter system to
+     * allow automatic copying of buffers which do not have sufficient
+     * permissions for the destination. This should not be accessed directly
+     * by the filters.
+     */
+    AVFilterBufferRef *cur_buf_copy;
 };
 
 /**

@@ -69,6 +69,7 @@
 #include <speex/speex_stereo.h>
 
 #include "libavutil/audioconvert.h"
+#include "libavutil/common.h"
 #include "libavutil/opt.h"
 #include "avcodec.h"
 #include "internal.h"
@@ -326,7 +327,7 @@ static const AVCodecDefault defaults[] = {
 AVCodec ff_libspeex_encoder = {
     .name           = "libspeex",
     .type           = AVMEDIA_TYPE_AUDIO,
-    .id             = CODEC_ID_SPEEX,
+    .id             = AV_CODEC_ID_SPEEX,
     .priv_data_size = sizeof(LibSpeexEncContext),
     .init           = encode_init,
     .encode2        = encode_frame,

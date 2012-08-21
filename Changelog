@@ -23,14 +23,14 @@ version next:
 - RTMPTS protocol support
 - RTMPE protocol support
 - RTMPTE protocol support
-- showwaves filter
+- showwaves and showspectrum filter
 - LucasArts SMUSH playback support
 - SAMI, RealText and SubViewer demuxers and decoders
 - Heart Of Darkness PAF playback support
 - iec61883 device
 - asettb filter
 - new option: -progress
-- 3GPP Timed Text decoder
+- 3GPP Timed Text encoder/decoder
 - GeoTIFF decoder support
 - ffmpeg -(no)stdin option
 - Opus decoder using libopus
@@ -38,6 +38,20 @@ version next:
 - alphaextract and alphamerge filters
 - concat filter
 - flite filter
+- Canopus Lossless Codec decoder
+- bitmap subtitles in filters (experimental and temporary)
+- MP2 encoding via TwoLAME
+- bmp parser
+- smptebars source
+- asetpts filter
+- hue filter
+- ICO muxer
+- SubRip encoder and decoder without embedded timing
+- edge detection filter
+- framestep filter
+- ffmpeg -shortest option is now per-output file
+- volume measurement filter
+- Ut Video encoder
 
 
 version 0.11:

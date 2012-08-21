@@ -27,6 +27,7 @@
 #include <lame/lame.h>
 
 #include "libavutil/audioconvert.h"
+#include "libavutil/common.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
@@ -292,7 +293,7 @@ static const int libmp3lame_sample_rates[] = {
 AVCodec ff_libmp3lame_encoder = {
     .name                  = "libmp3lame",
     .type                  = AVMEDIA_TYPE_AUDIO,
-    .id                    = CODEC_ID_MP3,
+    .id                    = AV_CODEC_ID_MP3,
     .priv_data_size        = sizeof(LAMEContext),
     .init                  = mp3lame_encode_init,
     .encode2               = mp3lame_encode_frame,

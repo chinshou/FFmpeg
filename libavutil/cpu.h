@@ -27,6 +27,7 @@
 
     /* lower 16 bits - CPU features */
 #define AV_CPU_FLAG_MMX          0x0001 ///< standard MMX
+#define AV_CPU_FLAG_MMXEXT       0x0002 ///< SSE integer functions or AMD MMX ext
 #define AV_CPU_FLAG_MMX2         0x0002 ///< SSE integer functions or AMD MMX ext
 #define AV_CPU_FLAG_3DNOW        0x0004 ///< AMD 3DNOW
 #define AV_CPU_FLAG_SSE          0x0008 ///< SSE functions
@@ -86,6 +87,7 @@ attribute_deprecated void av_set_cpu_flags_mask(int mask);
  * Please use av_parse_cpu_caps() when possible.
  * @return a combination of AV_CPU_* flags, negative on error.
  */
+attribute_deprecated
 int av_parse_cpu_flags(const char *s);
 
 /**

@@ -690,6 +690,46 @@ volume=-12dB
 @end example
 @end itemize
 
+@section volumedetect
+
+Detect the volume of the input video.
+
+The filter has no parameters. The input is not modified. Statistics about
+the volume will be printed in the log when the input stream end is reached.
+
+In particular it will show the mean volume (root mean square), maximum
+volume (on a per-sample basis), and the beginning of an histogram of the
+registered volume values (from the maximum value to a cumulated 1/1000 of
+the samples).
+
+All volumes are in decibels relative to the maximum PCM value.
+
+Here is an excerpt of the output:
+@example
+[Parsed_volumedetect_0 @ 0xa23120] mean_volume: -27 dB
+[Parsed_volumedetect_0 @ 0xa23120] max_volume: -4 dB
+[Parsed_volumedetect_0 @ 0xa23120] histogram_4db: 6
+[Parsed_volumedetect_0 @ 0xa23120] histogram_5db: 62
+[Parsed_volumedetect_0 @ 0xa23120] histogram_6db: 286
+[Parsed_volumedetect_0 @ 0xa23120] histogram_7db: 1042
+[Parsed_volumedetect_0 @ 0xa23120] histogram_8db: 2551
+[Parsed_volumedetect_0 @ 0xa23120] histogram_9db: 4609
+[Parsed_volumedetect_0 @ 0xa23120] histogram_10db: 8409
+@end example
+
+It means that:
+@itemize
+@item
+The mean square energy is approximately -27 dB, or 10^-2.7.
+@item
+The largest sample is at -4 dB, or more precisely between -4 dB and -5 dB.
+@item
+There are 6 samples at -4 dB, 62 at -5 dB, 286 at -6 dB, etc.
+@end itemize
+
+In other words, raising the volume by +4 dB does not cause any clipping,
+raising it by +5 dB causes clipping for 6 samples, etc.
+
 @section asyncts
 Synchronize audio data with timestamps by squeezing/stretching it and/or
 dropping samples/adding silence when needed.
@@ -706,6 +746,13 @@ adding/dropping samples.
 
 @item max_comp
 Maximum compensation in samples per second.
+
+@item first_pts
+Assume the first pts should be this value.
+This allows for padding/trimming at the start of stream. By default, no
+assumption is made about the first frame's expected pts, so no padding or
+trimming is done. For example, this could be set to 0 to pad the beginning with
+silence if an audio stream starts after the video stream.
 
 @end table
 
@@ -1922,6 +1969,33 @@ For more information about libfreetype, check:
 For more information about fontconfig, check:
 @url{http://freedesktop.org/software/fontconfig/fontconfig-user.html}.
 
+@section edgedetect
+
+Detect and draw edges. The filter uses the Canny Edge Detection algorithm.
+
+This filter accepts the following optional named parameters:
+
+@table @option
+@item low, high
+Set low and high threshold values used by the Canny thresholding
+algorithm.
+
+The high threshold selects the "strong" edge pixels, which are then
+connected through 8-connectivity with the "weak" edge pixels selected
+by the low threshold.
+
+@var{low} and @var{high} threshold values must be choosen in the range
+[0,1], and @var{low} should be lesser or equal to @var{high}.
+
+Default value for @var{low} is @code{20/255}, and default value for @var{high}
+is @code{50/255}.
+@end table
+
+Example:
+@example
+edgedetect=low=0.1:high=0.4
+@end example
+
 @section fade
 
 Apply fade-in/out effect to input video.
@@ -2049,6 +2123,13 @@ This filter accepts the following named parameters:
 Desired output framerate.
 
 @end table
+
+@section framestep
+
+Select one frame every N.
+
+This filter accepts in input a string representing a positive
+integer. Default argument is @code{1}.
 
 @anchor{frei0r}
 @section frei0r
@@ -2179,6 +2260,58 @@ a float number which specifies luma temporal strength, defaults to
 a float number which specifies chroma temporal strength, defaults to
 @var{luma_tmp}*@var{chroma_spatial}/@var{luma_spatial}
 @end table
+
+@section hue
+
+Modify the hue and/or the saturation of the input.
+
+This filter accepts the following optional named options:
+
+@table @option
+@item h
+Specify the hue angle as a number of degrees. It accepts a float
+number or an expression, and defaults to 0.0.
+
+@item H
+Specify the hue angle as a number of degrees. It accepts a float
+number or an expression, and defaults to 0.0.
+
+@item s
+Specify the saturation in the [-10,10] range. It accepts a float number and
+defaults to 1.0.
+@end table
+
+The options can also be set using the syntax: @var{hue}:@var{saturation}
+
+In this case @var{hue} is expressed in degrees.
+
+Some examples follow:
+@itemize
+@item
+Set the hue to 90 degrees and the saturation to 1.0:
+@example
+hue=h=90:s=1
+@end example
+
+@item
+Same command but expressing the hue in radians:
+@example
+hue=H=PI/2:s=1
+@end example
+
+@item
+Same command without named options, hue must be expressed in degrees:
+@example
+hue=90:1
+@end example
+
+@item
+Note that "h:s" syntax does not support expressions for the values of
+h and s, so the following example will issue an error:
+@example
+hue=PI/2:1
+@end example
+@end itemize
 
 @section idet
 
@@ -2338,12 +2471,10 @@ The list of the currently supported filters follows:
 @item field
 @item fil
 @item fixpts
-@item framestep
 @item fspp
 @item geq
 @item harddup
 @item hqdn3d
-@item hue
 @item il
 @item ilpack
 @item ivtc
@@ -3025,9 +3156,11 @@ Mark the frame as top-field-first.
 Mark the frame as progressive.
 @end table
 
-@section setpts
+@section asetpts, setpts
 
-Change the PTS (presentation timestamp) of the input video frames.
+Change the PTS (presentation timestamp) of the input frames.
+
+@code{asetpts} works on audio frames, @code{setpts} on video frames.
 
 Accept in input an expression evaluated through the eval API, which
 can contain the following constants:
@@ -3038,6 +3171,16 @@ the presentation timestamp in input
 
 @item N
 the count of the input frame, starting from 0.
+
+@item NB_CONSUMED_SAMPLES
+the number of consumed samples, not including the current frame (only
+audio)
+
+@item NB_SAMPLES
+the number of samples in the current frame (only audio)
+
+@item SAMPLE_RATE
+audio sample rate
 
 @item STARTPTS
 the PTS of the first video frame
@@ -3077,6 +3220,9 @@ setpts=N/(25*TB)
 
 # fixed rate 25 fps with some jitter
 setpts='1/(25*TB) * (N + 0.05 * sin(N*2*PI/25))'
+
+# apply an offset of 10 seconds to the input PTS
+setpts=PTS+10/TB
 @end example
 
 @section settb, asettb
@@ -3628,44 +3774,78 @@ cellauto=p='@@@@ @@ @@@@':s=100x400:full=0:rule=18
 
 @end itemize
 
-@section color
+@section mandelbrot
 
-Provide an uniformly colored input.
+Generate a Mandelbrot set fractal, and progressively zoom towards the
+point specified with @var{start_x} and @var{start_y}.
 
-This source accepts list of options in the form of
-@var{key}=@var{value} pairs separated by ":".
-
-Follows the description of the accepted parameters.
+This source accepts a list of options in the form of
+@var{key}=@var{value} pairs separated by ":". A description of the
+accepted options follows.
 
 @table @option
 
-@item color, c
-Specify the color of the source. It can be the name of a color (case
-insensitive match) or a 0xRRGGBB[AA] sequence, possibly followed by an
-alpha specifier. The default value is "black".
+@item end_pts
+Set the terminal pts value. Default value is 400.
 
-@item size, s
-Specify the size of the sourced video, it may be a string of the form
-@var{width}x@var{height}, or the name of a size abbreviation. The
-default value is "320x240".
+@item end_scale
+Set the terminal scale value.
+Must be a floating point value. Default value is 0.3.
 
-@item rate, r
-Specify the frame rate of the sourced video, as the number of frames
-generated per second. It has to be a string in the format
-@var{frame_rate_num}/@var{frame_rate_den}, an integer number, a float
-number or a valid video frame rate abbreviation. The default value is
-"25".
+@item inner
+Set the inner coloring mode, that is the algorithm used to draw the
+Mandelbrot fractal internal region.
 
+It shall assume one of the following values:
+@table @option
+@item black
+Set black mode.
+@item convergence
+Show time until convergence.
+@item mincol
+Set color based on point closest to the origin of the iterations.
+@item period
+Set period mode.
 @end table
 
-For example the following graph description will generate a red source
-with an opacity of 0.2, with size "qcif" and a frame rate of 10
-frames per second, which will be overlayed over the source connected
-to the pad with identifier "in".
+Default value is @var{mincol}.
 
-@example
-"color=c=red@@0.2:s=qcif:r=10 [color]; [in][color] overlay [out]"
-@end example
+@item bailout
+Set the bailout value. Default value is 10.0.
+
+@item maxiter
+Set the maximum of iterations performed by the rendering
+algorithm. Default value is 7189.
+
+@item outer
+Set outer coloring mode.
+It shall assume one of following values:
+@table @option
+@item iteration_count
+Set iteration cound mode.
+@item normalized_iteration_count
+set normalized iteration count mode.
+@end table
+Default value is @var{normalized_iteration_count}.
+
+@item rate, r
+Set frame rate, expressed as number of frames per second. Default
+value is "25".
+
+@item size, s
+Set frame size. Default value is "640x480".
+
+@item start_scale
+Set the initial scale value. Default value is 3.0.
+
+@item start_x
+Set the initial x position. Must be a floating point value between
+-100 and 100. Default value is -0.743643887037158704752191506114774.
+
+@item start_y
+Set the initial y position. Must be a floating point value between
+-100 and 100. Default value is -0.131825904205311970493132056385139.
+@end table
 
 @section mptestsrc
 
@@ -3877,7 +4057,9 @@ ffplay -f lavfi life=s=300x200:mold=10:r=60:ratio=0.1:death_color=#C83232:life_c
 @end example
 @end itemize
 
-@section nullsrc, rgbtestsrc, testsrc
+@section color, nullsrc, rgbtestsrc, smptebars, testsrc
+
+The @code{color} source provides an uniformly colored input.
 
 The @code{nullsrc} source returns unprocessed video frames. It is
 mainly useful to be employed in analysis / debugging tools, or as the
@@ -3887,6 +4069,9 @@ The @code{rgbtestsrc} source generates an RGB test pattern useful for
 detecting RGB vs BGR issues. You should see a red, green and blue
 stripe from top to bottom.
 
+The @code{smptebars} source generates a color bars pattern, based on
+the SMPTE Engineering Guideline EG 1-1990.
+
 The @code{testsrc} source generates a test video pattern, showing a
 color pattern, a scrolling gradient and a timestamp. This is mainly
 intended for testing purposes.
@@ -3895,6 +4080,12 @@ These sources accept an optional sequence of @var{key}=@var{value} pairs,
 separated by ":". The description of the accepted options follows.
 
 @table @option
+
+@item color, c
+Specify the color of the source, only used in the @code{color}
+source. It can be the name of a color (case insensitive match) or a
+0xRRGGBB[AA] sequence, possibly followed by an alpha specifier. The
+default value is "black".
 
 @item size, s
 Specify the size of the sourced video, it may be a string of the form
@@ -3938,6 +4129,13 @@ testsrc=duration=5.3:size=qcif:rate=10
 
 will generate a video with a duration of 5.3 seconds, with size
 176x144 and a frame rate of 10 frames per second.
+
+The following graph description will generate a red source
+with an opacity of 0.2, with size "qcif" and a frame rate of 10
+frames per second.
+@example
+color=c=red@@0.2:s=qcif:r=10
+@end example
 
 If the input content is to be ignored, @code{nullsrc} can be used. The
 following command generates noise in the luminance plane by employing
@@ -4053,6 +4251,20 @@ Note that a desync will happen at the stitch if the audio and video streams
 do not have exactly the same duration in the first file.
 
 @end itemize
+
+@section showspectrum
+
+Convert input audio to a video output, representing the audio frequency
+spectrum.
+
+The filter accepts the following named parameters:
+@table @option
+@item size, s
+Specify the video size for the output. Default value is @code{640x480}.
+@end table
+
+The usage is very similar to the showwaves filter; see the examples in that
+section.
 
 @section showwaves
 
