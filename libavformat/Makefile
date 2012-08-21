@@ -23,7 +23,7 @@ OBJS = allformats.o         \
        subtitles.o          \
        utils.o              \
        lang.o              \
-       dvdnav.o             \
+#       dvdnav.o             \
 
 OBJS-$(CONFIG_NETWORK)                   += network.o
 
