@@ -31,8 +31,8 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#include <ass.h>
-#include <ass_library.h>
+#include <ass/ass.h>
+#include <ass/ass_library.h>
 
 #include "avfilter.h"
 #include "formats.h"
