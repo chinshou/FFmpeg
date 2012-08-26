@@ -25,6 +25,7 @@
 #include <OpenAL/alc.h>
 
 #include "libavutil/opt.h"
+#include "libavutil/time.h"
 #include "libavformat/internal.h"
 #include "avdevice.h"
 
@@ -193,7 +194,7 @@ static int read_packet(AVFormatContext* ctx, AVPacket *pkt)
 
     /* Create a packet of appropriate size */
         if (!nb_samples)
-    	    usleep(1000);
+    	    ;//av_usleep(1000);
         else
     	    break;
     }
