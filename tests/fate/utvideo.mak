@@ -4,6 +4,9 @@ fate-utvideo_rgba_left: CMD = framecrc -i $(SAMPLES)/utvideo/utvideo_rgba_left.a
 FATE_UTVIDEO += fate-utvideo_rgba_median
 fate-utvideo_rgba_median: CMD = framecrc -i $(SAMPLES)/utvideo/utvideo_rgba_median.avi
 
+FATE_UTVIDEO += fate-utvideo_rgba_single_symbol
+fate-utvideo_rgba_single_symbol: CMD = framecrc -i $(SAMPLES)/utvideo/utvideo_rgba_single_symbol.avi
+
 FATE_UTVIDEO += fate-utvideo_rgb_left
 fate-utvideo_rgb_left: CMD = framecrc -i $(SAMPLES)/utvideo/utvideo_rgb_left.avi
 
@@ -25,7 +28,7 @@ fate-utvideo_yuv422_median: CMD = framecrc -i $(SAMPLES)/utvideo/utvideo_yuv422_
 FATE_SAMPLES_AVCONV += $(FATE_UTVIDEO)
 fate-utvideo: $(FATE_UTVIDEO)
 
-fate-utvideoenc%: CMD = framemd5 -f image2 -vcodec pgmyuv -i $(TARGET_PATH)/tests/vsynth1/%02d.pgm -vcodec utvideo -f avi ${OPTS}
+fate-utvideoenc%: CMD = framemd5 -f image2 -vcodec pgmyuv -i $(TARGET_PATH)/tests/vsynth1/%02d.pgm -vcodec utvideo -f avi -sws_flags +accurate_rnd+bitexact ${OPTS}
 
 FATE_UTVIDEOENC += fate-utvideoenc_rgba_none
 fate-utvideoenc_rgba_none: OPTS = -pix_fmt rgba -pred 3
