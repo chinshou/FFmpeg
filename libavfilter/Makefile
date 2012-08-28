@@ -211,13 +211,8 @@ OBJS-$(CONFIG_SHOWWAVES_FILTER)              += avf_showwaves.o
 OBJS-$(CONFIG_AMOVIE_FILTER)                 += src_movie.o
 OBJS-$(CONFIG_MOVIE_FILTER)                  += src_movie.o
 
-<<<<<<< HEAD
 #CFLAGS += -I/usr/i686-mingw32/include/ass
 EXTRALIBS += -liconv
-=======
-CFLAGS += -I/usr/i686-mingw32/include/ass
-EXTRALIBS += -lass -lfreetype -liconv
->>>>>>> remotes/origin/master
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats
 

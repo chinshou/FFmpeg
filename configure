@@ -1766,11 +1766,7 @@ caca_outdev_deps="libcaca"
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
-<<<<<<< HEAD
 gdi_indev_deps="GetDeviceCaps"
-=======
-#gdi_indev_deps="GetDeviceCaps"
->>>>>>> remotes/origin/master
 gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 iec61883_indev_deps="libiec61883"
@@ -1791,11 +1787,7 @@ v4l2_indev_deps_any="linux_videodev2_h sys_videoio_h"
 vfwcap_indev_deps="capCreateCaptureWindow vfwcap_defines"
 vfwcap_indev_extralibs="-lavicap32"
 x11grab_indev_deps="x11grab"
-<<<<<<< HEAD
 waveform_indev_deps="waveInOpen"
-=======
-#waveform_indev_deps="waveInOpen"
->>>>>>> remotes/origin/master
 waveform_indev_extralibs="-lwinmm"
 
 # protocols
