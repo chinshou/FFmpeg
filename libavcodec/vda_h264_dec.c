@@ -38,15 +38,15 @@
 extern AVCodec ff_h264_decoder, ff_h264_vda_decoder;
 
 static const enum PixelFormat vda_pixfmts_prior_10_7[] = {
-    PIX_FMT_UYVY422,
+    //PIX_FMT_UYVY422,
     PIX_FMT_YUV420P,
     PIX_FMT_NONE
 };
 
 static const enum PixelFormat vda_pixfmts[] = {
-    PIX_FMT_UYVY422,
-    PIX_FMT_YUYV422,
-    PIX_FMT_NV12,
+    //PIX_FMT_UYVY422,
+    //PIX_FMT_YUYV422,
+    //PIX_FMT_NV12,
     PIX_FMT_YUV420P,
     PIX_FMT_NONE
 };
@@ -210,6 +210,8 @@ static av_cold int vdadec_init(AVCodecContext *avctx)
         av_log(avctx, AV_LOG_ERROR, "Unsupported pixel format: %d\n", avctx->pix_fmt);
         goto failed;
     }
+    av_log(avctx, AV_LOG_ERROR, "vda pixel format: %d\n", avctx->pix_fmt);  
+    
     status = ff_vda_create_decoder(vda_ctx,
                                    avctx->extradata, avctx->extradata_size);
     if (status != kVDADecoderNoErr) {
@@ -217,6 +219,8 @@ static av_cold int vdadec_init(AVCodecContext *avctx)
                 "Failed to init VDA decoder: %d.\n", status);
         goto failed;
     }
+    
+    av_log(avctx, AV_LOG_ERROR, "vda decoder ok\n");    
     avctx->hwaccel_context = vda_ctx;
 
     /* changes callback functions */
