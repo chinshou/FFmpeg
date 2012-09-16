@@ -177,7 +177,7 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
-static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     SoxContext *sox = inlink->dst->priv;
     AVFilterBufferRef *outsamples;
@@ -195,7 +195,7 @@ static void filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
         (int32_t *)outsamples->data[0], &nb_in_samples, &nb_out_samples);
 
     outsamples->audio->nb_samples = nb_out_samples / sox->effect->out_signal.channels;
-    ff_filter_samples(inlink->dst->outputs[0], outsamples);
+    return ff_filter_samples(inlink->dst->outputs[0], outsamples);
 }
 
 static int request_frame(AVFilterLink *outlink)
