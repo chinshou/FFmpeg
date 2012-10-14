@@ -28,7 +28,10 @@
 #include "libavutil/avassert.h"
 
 /* Note: when encoding, the first matching tag is used, so order is
-   important if multiple tags possible for a given codec. */
+   important if multiple tags possible for a given codec.
+   Note also that this list is used for more than just riff, other
+   files use it as well.
+*/
 const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_H264,         MKTAG('H', '2', '6', '4') },
     { AV_CODEC_ID_H264,         MKTAG('h', '2', '6', '4') },
@@ -316,6 +319,8 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_TSCC2,        MKTAG('T', 'S', 'C', '2') },
     { AV_CODEC_ID_MTS2,         MKTAG('M', 'T', 'S', '2') },
     { AV_CODEC_ID_CLLC,         MKTAG('C', 'L', 'L', 'C') },
+    { AV_CODEC_ID_MSS2,         MKTAG('M', 'S', 'S', '2') },
+    { AV_CODEC_ID_SVQ3,         MKTAG('S', 'V', 'Q', '3') },
     { AV_CODEC_ID_NONE,         0 }
 };
 

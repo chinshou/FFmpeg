@@ -35,6 +35,7 @@
 #include "video.h"
 
 static const char *const var_names[] = {
+    "FRAME_RATE",  ///< defined only for constant frame-rate video
     "INTERLACED",  ///< tell if the current frame is interlaced
     "N",           ///< frame number (starting at zero)
     "NB_CONSUMED_SAMPLES", ///< number of samples consumed by the filter (only audio)
@@ -54,6 +55,7 @@ static const char *const var_names[] = {
 };
 
 enum var_name {
+    VAR_FRAME_RATE,
     VAR_INTERLACED,
     VAR_N,
     VAR_NB_CONSUMED_SAMPLES,
@@ -104,11 +106,16 @@ static int config_input(AVFilterLink *inlink)
     setpts->type = inlink->type;
     setpts->var_values[VAR_TB] = av_q2d(inlink->time_base);
 
-    if (setpts->type == AVMEDIA_TYPE_AUDIO)
-        setpts->var_values[VAR_SAMPLE_RATE] = inlink->sample_rate;
+    setpts->var_values[VAR_SAMPLE_RATE] =
+        setpts->type == AVMEDIA_TYPE_AUDIO ? inlink->sample_rate : NAN;
 
-    av_log(inlink->src, AV_LOG_VERBOSE, "TB:%f SAMPLE_RATE:%f\n",
-           setpts->var_values[VAR_TB], setpts->var_values[VAR_SAMPLE_RATE]);
+    setpts->var_values[VAR_FRAME_RATE] = inlink->frame_rate.num && inlink->frame_rate.den ?
+        av_q2d(inlink->frame_rate) : NAN;
+
+    av_log(inlink->src, AV_LOG_VERBOSE, "TB:%f FRAME_RATE:%f SAMPLE_RATE:%f\n",
+           setpts->var_values[VAR_TB],
+           setpts->var_values[VAR_FRAME_RATE],
+           setpts->var_values[VAR_SAMPLE_RATE]);
     return 0;
 }
 
@@ -209,6 +216,25 @@ AVFilter avfilter_af_asetpts = {
 #endif /* CONFIG_ASETPTS_FILTER */
 
 #if CONFIG_SETPTS_FILTER
+static const AVFilterPad avfilter_vf_setpts_inputs[] = {
+    {
+        .name             = "default",
+        .type             = AVMEDIA_TYPE_VIDEO,
+        .get_video_buffer = ff_null_get_video_buffer,
+        .config_props     = config_input,
+        .start_frame      = filter_frame,
+    },
+    { NULL }
+};
+
+static const AVFilterPad avfilter_vf_setpts_outputs[] = {
+    {
+        .name = "default",
+        .type = AVMEDIA_TYPE_VIDEO,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_vf_setpts = {
     .name      = "setpts",
     .description = NULL_IF_CONFIG_SMALL("Set PTS for the output video frame."),
@@ -217,14 +243,7 @@ AVFilter avfilter_vf_setpts = {
 
     .priv_size = sizeof(SetPTSContext),
 
-    .inputs    = (const AVFilterPad[]) {{ .name             = "default",
-                                          .type             = AVMEDIA_TYPE_VIDEO,
-                                          .get_video_buffer = ff_null_get_video_buffer,
-                                          .config_props     = config_input,
-                                          .start_frame      = filter_frame, },
-                                        { .name = NULL }},
-    .outputs   = (const AVFilterPad[]) {{ .name             = "default",
-                                          .type             = AVMEDIA_TYPE_VIDEO, },
-                                        { .name = NULL}},
+    .inputs    = avfilter_vf_setpts_inputs,
+    .outputs   = avfilter_vf_setpts_outputs,
 };
 #endif /* CONFIG_SETPTS_FILTER */

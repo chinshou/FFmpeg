@@ -859,7 +859,7 @@ int ff_rtmp_calc_digest(const uint8_t *src, int len, int gap,
     uint8_t hmac_buf[64+32] = {0};
     int i;
 
-    sha = av_mallocz(av_sha_size);
+    sha = av_sha_alloc();
     if (!sha)
         return AVERROR(ENOMEM);
 
@@ -1135,7 +1135,7 @@ static int rtmp_handshake(URLContext *s, RTMPContext *rt)
     for (i = 9; i <= RTMP_HANDSHAKE_PACKET_SIZE; i++)
         tosend[i] = av_lfg_get(&rnd) >> 24;
 
-    if (rt->encrypted && CONFIG_FFRTMPCRYPT_PROTOCOL) {
+    if (CONFIG_FFRTMPCRYPT_PROTOCOL && rt->encrypted) {
         /* When the client wants to use RTMPE, we have to change the command
          * byte to 0x06 which means to use encrypted data and we have to set
          * the flash version to at least 9.0.115.0. */
@@ -1213,7 +1213,7 @@ static int rtmp_handshake(URLContext *s, RTMPContext *rt)
         if (ret < 0)
             return ret;
 
-        if (rt->encrypted && CONFIG_FFRTMPCRYPT_PROTOCOL) {
+        if (CONFIG_FFRTMPCRYPT_PROTOCOL && rt->encrypted) {
             /* Compute the shared secret key sent by the server and initialize
              * the RC4 encryption. */
             if ((ret = ff_rtmpe_compute_secret_key(rt->stream, serverdata + 1,
@@ -1243,7 +1243,7 @@ static int rtmp_handshake(URLContext *s, RTMPContext *rt)
         if (ret < 0)
             return ret;
 
-        if (rt->encrypted && CONFIG_FFRTMPCRYPT_PROTOCOL) {
+        if (CONFIG_FFRTMPCRYPT_PROTOCOL && rt->encrypted) {
             /* Encrypt the signature to be send to the server. */
             ff_rtmpe_encrypt_sig(rt->stream, tosend +
                                  RTMP_HANDSHAKE_PACKET_SIZE - 32, digest,
@@ -1255,13 +1255,13 @@ static int rtmp_handshake(URLContext *s, RTMPContext *rt)
                                RTMP_HANDSHAKE_PACKET_SIZE)) < 0)
             return ret;
 
-        if (rt->encrypted && CONFIG_FFRTMPCRYPT_PROTOCOL) {
+        if (CONFIG_FFRTMPCRYPT_PROTOCOL && rt->encrypted) {
             /* Set RC4 keys for encryption and update the keystreams. */
             if ((ret = ff_rtmpe_update_keystream(rt->stream)) < 0)
                 return ret;
         }
     } else {
-        if (rt->encrypted && CONFIG_FFRTMPCRYPT_PROTOCOL) {
+        if (CONFIG_FFRTMPCRYPT_PROTOCOL && rt->encrypted) {
             /* Compute the shared secret key sent by the server and initialize
              * the RC4 encryption. */
             if ((ret = ff_rtmpe_compute_secret_key(rt->stream, serverdata + 1,
@@ -1279,7 +1279,7 @@ static int rtmp_handshake(URLContext *s, RTMPContext *rt)
                                RTMP_HANDSHAKE_PACKET_SIZE)) < 0)
             return ret;
 
-        if (rt->encrypted && CONFIG_FFRTMPCRYPT_PROTOCOL) {
+        if (CONFIG_FFRTMPCRYPT_PROTOCOL && rt->encrypted) {
             /* Set RC4 keys for encryption and update the keystreams. */
             if ((ret = ff_rtmpe_update_keystream(rt->stream)) < 0)
                 return ret;
@@ -1371,9 +1371,9 @@ static int rtmp_server_handshake(URLContext *s, RTMPContext *rt)
     /* By now same epoch will be sent */
     hs_my_epoch = hs_epoch;
     /* Generate random */
-    for (randomidx = 0; randomidx < (RTMP_HANDSHAKE_PACKET_SIZE);
+    for (randomidx = 8; randomidx < (RTMP_HANDSHAKE_PACKET_SIZE);
          randomidx += 4)
-        AV_WB32(hs_s1 + 8 + randomidx, av_get_random_seed());
+        AV_WB32(hs_s1 + randomidx, av_get_random_seed());
 
     ret = rtmp_send_hs_packet(rt, hs_my_epoch, 0, hs_s1,
                               RTMP_HANDSHAKE_PACKET_SIZE);
@@ -2407,24 +2407,24 @@ static int rtmp_write(URLContext *s, const uint8_t *buf, int size)
 
 static const AVOption rtmp_options[] = {
     {"rtmp_app", "Name of application to connect to on the RTMP server", OFFSET(app), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC|ENC},
-    {"rtmp_buffer", "Set buffer time in milliseconds. The default is 3000.", OFFSET(client_buffer_time), AV_OPT_TYPE_INT, {3000}, 0, INT_MAX, DEC|ENC},
+    {"rtmp_buffer", "Set buffer time in milliseconds. The default is 3000.", OFFSET(client_buffer_time), AV_OPT_TYPE_INT, {.i64 = 3000}, 0, INT_MAX, DEC|ENC},
     {"rtmp_conn", "Append arbitrary AMF data to the Connect message", OFFSET(conn), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC|ENC},
     {"rtmp_flashver", "Version of the Flash plugin used to run the SWF player.", OFFSET(flashver), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC|ENC},
-    {"rtmp_flush_interval", "Number of packets flushed in the same request (RTMPT only).", OFFSET(flush_interval), AV_OPT_TYPE_INT, {10}, 0, INT_MAX, ENC},
-    {"rtmp_live", "Specify that the media is a live stream.", OFFSET(live), AV_OPT_TYPE_INT, {-2}, INT_MIN, INT_MAX, DEC, "rtmp_live"},
-    {"any", "both", 0, AV_OPT_TYPE_CONST, {-2}, 0, 0, DEC, "rtmp_live"},
-    {"live", "live stream", 0, AV_OPT_TYPE_CONST, {-1}, 0, 0, DEC, "rtmp_live"},
-    {"recorded", "recorded stream", 0, AV_OPT_TYPE_CONST, {0}, 0, 0, DEC, "rtmp_live"},
+    {"rtmp_flush_interval", "Number of packets flushed in the same request (RTMPT only).", OFFSET(flush_interval), AV_OPT_TYPE_INT, {.i64 = 10}, 0, INT_MAX, ENC},
+    {"rtmp_live", "Specify that the media is a live stream.", OFFSET(live), AV_OPT_TYPE_INT, {.i64 = -2}, INT_MIN, INT_MAX, DEC, "rtmp_live"},
+    {"any", "both", 0, AV_OPT_TYPE_CONST, {.i64 = -2}, 0, 0, DEC, "rtmp_live"},
+    {"live", "live stream", 0, AV_OPT_TYPE_CONST, {.i64 = -1}, 0, 0, DEC, "rtmp_live"},
+    {"recorded", "recorded stream", 0, AV_OPT_TYPE_CONST, {.i64 = 0}, 0, 0, DEC, "rtmp_live"},
     {"rtmp_pageurl", "URL of the web page in which the media was embedded. By default no value will be sent.", OFFSET(pageurl), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC},
     {"rtmp_playpath", "Stream identifier to play or to publish", OFFSET(playpath), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC|ENC},
     {"rtmp_subscribe", "Name of live stream to subscribe to. Defaults to rtmp_playpath.", OFFSET(subscribe), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC},
     {"rtmp_swfhash", "SHA256 hash of the decompressed SWF file (32 bytes).", OFFSET(swfhash), AV_OPT_TYPE_BINARY, .flags = DEC},
-    {"rtmp_swfsize", "Size of the decompressed SWF file, required for SWFVerification.", OFFSET(swfsize), AV_OPT_TYPE_INT, {0}, 0, INT_MAX, DEC},
+    {"rtmp_swfsize", "Size of the decompressed SWF file, required for SWFVerification.", OFFSET(swfsize), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, DEC},
     {"rtmp_swfurl", "URL of the SWF player. By default no value will be sent", OFFSET(swfurl), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC|ENC},
     {"rtmp_swfverify", "URL to player swf file, compute hash/size automatically.", OFFSET(swfverify), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC},
     {"rtmp_tcurl", "URL of the target stream. Defaults to proto://host[:port]/app.", OFFSET(tcurl), AV_OPT_TYPE_STRING, {.str = NULL }, 0, 0, DEC|ENC},
-    {"rtmp_listen", "Listen for incoming rtmp connections", OFFSET(listen), AV_OPT_TYPE_INT, {0}, INT_MIN, INT_MAX, DEC, "rtmp_listen" },
-    {"timeout", "Maximum timeout (in seconds) to wait for incoming connections. -1 is infinite. Implies -rtmp_listen 1",  OFFSET(listen_timeout), AV_OPT_TYPE_INT, {-1}, INT_MIN, INT_MAX, DEC, "rtmp_listen" },
+    {"rtmp_listen", "Listen for incoming rtmp connections", OFFSET(listen), AV_OPT_TYPE_INT, {.i64 = 0}, INT_MIN, INT_MAX, DEC, "rtmp_listen" },
+    {"timeout", "Maximum timeout (in seconds) to wait for incoming connections. -1 is infinite. Implies -rtmp_listen 1",  OFFSET(listen_timeout), AV_OPT_TYPE_INT, {.i64 = -1}, INT_MIN, INT_MAX, DEC, "rtmp_listen" },
     { NULL },
 };
 

@@ -48,7 +48,7 @@ typedef struct {
 
     /* video only */
     int               w, h;
-    enum PixelFormat  pix_fmt;
+    enum AVPixelFormat  pix_fmt;
     AVRational        pixel_aspect;
     char              *sws_param;
 
@@ -94,7 +94,7 @@ int av_buffersrc_add_frame(AVFilterContext *buffer_src,
     return ret;
 }
 
-int av_buffersrc_write_frame(AVFilterContext *buffer_filter, AVFrame *frame)
+int av_buffersrc_write_frame(AVFilterContext *buffer_filter, const AVFrame *frame)
 {
     return av_buffersrc_add_frame(buffer_filter, frame, 0);
 }
@@ -170,11 +170,11 @@ unsigned av_buffersrc_get_nb_failed_requests(AVFilterContext *buffer_src)
 #define OFFSET(x) offsetof(BufferSourceContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption buffer_options[] = {
-    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, FLAGS },
-    { "frame_rate",     NULL, OFFSET(frame_rate),          AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, FLAGS },
+    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL,   { .dbl = 0 }, 0, INT_MAX, FLAGS },
+    { "frame_rate",     NULL, OFFSET(frame_rate),          AV_OPT_TYPE_RATIONAL,   { .dbl = 0 }, 0, INT_MAX, FLAGS },
     { "video_size",     NULL, OFFSET(w),                   AV_OPT_TYPE_IMAGE_SIZE, .flags = FLAGS },
     { "pix_fmt",        NULL, OFFSET(pix_fmt),             AV_OPT_TYPE_PIXEL_FMT,  .flags = FLAGS },
-    { "pixel_aspect",   NULL, OFFSET(pixel_aspect),        AV_OPT_TYPE_RATIONAL,   { 0 }, 0, INT_MAX, FLAGS },
+    { "pixel_aspect",   NULL, OFFSET(pixel_aspect),        AV_OPT_TYPE_RATIONAL,   { .dbl = 0 }, 0, INT_MAX, FLAGS },
     { "sws_param",      NULL, OFFSET(sws_param),           AV_OPT_TYPE_STRING,     .flags = FLAGS },
     { NULL },
 };
@@ -226,7 +226,7 @@ static av_cold int init_video(AVFilterContext *ctx, const char *args)
     }
 
     av_log(ctx, AV_LOG_VERBOSE, "w:%d h:%d pixfmt:%s tb:%d/%d fr:%d/%d sar:%d/%d sws_param:%s\n",
-           c->w, c->h, av_pix_fmt_descriptors[c->pix_fmt].name,
+           c->w, c->h, av_get_pix_fmt_name(c->pix_fmt),
            c->time_base.num, c->time_base.den, c->frame_rate.num, c->frame_rate.den,
            c->pixel_aspect.num, c->pixel_aspect.den, (char *)av_x_if_null(c->sws_param, ""));
     c->warning_limit = 100;
@@ -239,8 +239,8 @@ fail:
 
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_AUDIO_PARAM
 static const AVOption abuffer_options[] = {
-    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL, { 0 }, 0, INT_MAX, FLAGS },
-    { "sample_rate",    NULL, OFFSET(sample_rate),         AV_OPT_TYPE_INT,      { 0 }, 0, INT_MAX, FLAGS },
+    { "time_base",      NULL, OFFSET(time_base),           AV_OPT_TYPE_RATIONAL, { .dbl = 0 }, 0, INT_MAX, FLAGS },
+    { "sample_rate",    NULL, OFFSET(sample_rate),         AV_OPT_TYPE_INT,      { .i64 = 0 }, 0, INT_MAX, FLAGS },
     { "sample_fmt",     NULL, OFFSET(sample_fmt_str),      AV_OPT_TYPE_STRING, .flags = FLAGS },
     { "channel_layout", NULL, OFFSET(channel_layout_str),  AV_OPT_TYPE_STRING, .flags = FLAGS },
     { NULL },
@@ -400,6 +400,17 @@ static int poll_frame(AVFilterLink *link)
     return size/sizeof(AVFilterBufferRef*);
 }
 
+static const AVFilterPad avfilter_vsrc_buffer_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_VIDEO,
+        .request_frame = request_frame,
+        .poll_frame    = poll_frame,
+        .config_props  = config_props,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_vsrc_buffer = {
     .name      = "buffer",
     .description = NULL_IF_CONFIG_SMALL("Buffer video frames, and make them accessible to the filterchain."),
@@ -409,14 +420,20 @@ AVFilter avfilter_vsrc_buffer = {
     .init      = init_video,
     .uninit    = uninit,
 
-    .inputs    = (const AVFilterPad[]) {{ .name = NULL }},
-    .outputs   = (const AVFilterPad[]) {{ .name            = "default",
-                                          .type            = AVMEDIA_TYPE_VIDEO,
-                                          .request_frame   = request_frame,
-                                          .poll_frame      = poll_frame,
-                                          .config_props    = config_props, },
-                                        { .name = NULL}},
+    .inputs    = NULL,
+    .outputs   = avfilter_vsrc_buffer_outputs,
     .priv_class = &buffer_class,
+};
+
+static const AVFilterPad avfilter_asrc_abuffer_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_AUDIO,
+        .request_frame = request_frame,
+        .poll_frame    = poll_frame,
+        .config_props  = config_props,
+    },
+    { NULL }
 };
 
 AVFilter avfilter_asrc_abuffer = {
@@ -428,12 +445,7 @@ AVFilter avfilter_asrc_abuffer = {
     .init      = init_audio,
     .uninit    = uninit,
 
-    .inputs    = (const AVFilterPad[]) {{ .name = NULL }},
-    .outputs   = (const AVFilterPad[]) {{ .name            = "default",
-                                          .type            = AVMEDIA_TYPE_AUDIO,
-                                          .request_frame   = request_frame,
-                                          .poll_frame      = poll_frame,
-                                          .config_props    = config_props, },
-                                        { .name = NULL}},
+    .inputs    = NULL,
+    .outputs   = avfilter_asrc_abuffer_outputs,
     .priv_class = &abuffer_class,
 };

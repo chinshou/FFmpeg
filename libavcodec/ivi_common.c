@@ -27,10 +27,11 @@
  */
 
 #define BITSTREAM_READER_LE
+#include "libavutil/attributes.h"
 #include "avcodec.h"
 #include "get_bits.h"
+#include "mathops.h"
 #include "ivi_common.h"
-#include "libavutil/common.h"
 #include "ivi_dsp.h"
 
 extern const IVIHuffDesc ff_ivi_mb_huff_desc[8];  ///< static macroblock huffman tables
@@ -48,9 +49,9 @@ static uint16_t inv_bits(uint16_t val, int nbits)
     uint16_t res;
 
     if (nbits <= 8) {
-        res = av_reverse[val] >> (8-nbits);
+        res = ff_reverse[val] >> (8-nbits);
     } else
-        res = ((av_reverse[val & 0xFF] << 8) + (av_reverse[val >> 8])) >> (16-nbits);
+        res = ((ff_reverse[val & 0xFF] << 8) + (ff_reverse[val >> 8])) >> (16-nbits);
 
     return res;
 }
@@ -495,8 +496,17 @@ int ff_ivi_decode_blocks(GetBitContext *gb, IVIBandDesc *band, IVITile *tile)
     return 0;
 }
 
-void ff_ivi_process_empty_tile(AVCodecContext *avctx, IVIBandDesc *band,
-                               IVITile *tile, int32_t mv_scale)
+/**
+ *  Handle empty tiles by performing data copying and motion
+ *  compensation respectively.
+ *
+ *  @param[in]  avctx     ptr to the AVCodecContext
+ *  @param[in]  band      pointer to the band descriptor
+ *  @param[in]  tile      pointer to the tile descriptor
+ *  @param[in]  mv_scale  scaling factor for motion vectors
+ */
+static int ivi_process_empty_tile(AVCodecContext *avctx, IVIBandDesc *band,
+                                  IVITile *tile, int32_t mv_scale)
 {
     int             x, y, need_mc, mbn, blk, num_blocks, mv_x, mv_y, mc_type;
     int             offs, mb_offset, row_offset;
@@ -506,10 +516,11 @@ void ff_ivi_process_empty_tile(AVCodecContext *avctx, IVIBandDesc *band,
     void (*mc_no_delta_func)(int16_t *buf, const int16_t *ref_buf, uint32_t pitch,
                              int mc_type);
 
-    if( tile->num_MBs != IVI_MBs_PER_TILE(tile->width, tile->height, band->mb_size) ){
-        av_log(avctx, AV_LOG_ERROR, "allocated tile size %d mismatches parameters %d in ff_ivi_process_empty_tile()\n",
+    if (tile->num_MBs != IVI_MBs_PER_TILE(tile->width, tile->height, band->mb_size)) {
+        av_log(avctx, AV_LOG_ERROR, "Allocated tile size %d mismatches "
+               "parameters %d in ivi_process_empty_tile()\n",
                tile->num_MBs, IVI_MBs_PER_TILE(tile->width, tile->height, band->mb_size));
-        return;
+        return AVERROR_INVALIDDATA;
     }
 
     offs       = tile->ypos * band->pitch + tile->xpos;
@@ -592,6 +603,8 @@ void ff_ivi_process_empty_tile(AVCodecContext *avctx, IVIBandDesc *band,
             dst += band->pitch;
         }
     }
+
+    return 0;
 }
 
 
@@ -689,8 +702,10 @@ static int decode_band(IVI45DecContext *ctx, int plane_num,
         }
         tile->is_empty = get_bits1(&ctx->gb);
         if (tile->is_empty) {
-            ff_ivi_process_empty_tile(avctx, band, tile,
+            result = ivi_process_empty_tile(avctx, band, tile,
                                       (ctx->planes[0].bands[0].mb_size >> 3) - (band->mb_size >> 3));
+            if (result < 0)
+                break;
             av_dlog(avctx, "Empty tile encountered!\n");
         } else {
             tile->data_size = ff_ivi_dec_tile_data_size(&ctx->gb);
@@ -755,11 +770,13 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *data_size,
     ctx->frame_size = buf_size;
 
     result = ctx->decode_pic_hdr(ctx, avctx);
-    if (result || ctx->gop_invalid) {
+    if (result) {
         av_log(avctx, AV_LOG_ERROR,
                "Error while decoding picture header: %d\n", result);
         return -1;
     }
+    if (ctx->gop_invalid)
+        return AVERROR_INVALIDDATA;
 
     if (ctx->gop_flags & IVI5_IS_PROTECTED) {
         av_log(avctx, AV_LOG_ERROR, "Password-protected clip!\n");
@@ -805,8 +822,8 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *data_size,
     if (ctx->frame.data[0])
         avctx->release_buffer(avctx, &ctx->frame);
 
-    avcodec_set_dimensions(avctx, ctx->planes[0].width, ctx->planes[0].height);
     ctx->frame.reference = 0;
+    avcodec_set_dimensions(avctx, ctx->planes[0].width, ctx->planes[0].height);
     if ((result = avctx->get_buffer(avctx, &ctx->frame)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return result;
@@ -814,9 +831,9 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *data_size,
 
     if (ctx->is_scalable) {
         if (avctx->codec_id == AV_CODEC_ID_INDEO4)
-            ff_ivi_recompose_haar(&ctx->planes[0], ctx->frame.data[0], ctx->frame.linesize[0], 4);
+            ff_ivi_recompose_haar(&ctx->planes[0], ctx->frame.data[0], ctx->frame.linesize[0]);
         else
-            ff_ivi_recompose53   (&ctx->planes[0], ctx->frame.data[0], ctx->frame.linesize[0], 4);
+            ff_ivi_recompose53   (&ctx->planes[0], ctx->frame.data[0], ctx->frame.linesize[0]);
     } else {
         ff_ivi_output_plane(&ctx->planes[0], ctx->frame.data[0], ctx->frame.linesize[0]);
     }

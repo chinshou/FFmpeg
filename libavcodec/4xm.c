@@ -836,7 +836,7 @@ static int decode_frame(AVCodecContext *avctx, void *data,
                                      cfrm->size + data_size + FF_INPUT_BUFFER_PADDING_SIZE);
         // explicit check needed as memcpy below might not catch a NULL
         if (!cfrm->data) {
-            av_log(f->avctx, AV_LOG_ERROR, "realloc falure");
+            av_log(f->avctx, AV_LOG_ERROR, "realloc falure\n");
             return -1;
         }
 
@@ -950,9 +950,9 @@ static av_cold int decode_init(AVCodecContext *avctx)
     init_vlcs(f);
 
     if (f->version > 2)
-        avctx->pix_fmt = PIX_FMT_RGB565;
+        avctx->pix_fmt = AV_PIX_FMT_RGB565;
     else
-        avctx->pix_fmt = PIX_FMT_BGR555;
+        avctx->pix_fmt = AV_PIX_FMT_BGR555;
 
     return 0;
 }

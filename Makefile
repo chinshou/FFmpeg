@@ -57,9 +57,9 @@ $(PROGS): %$(EXESUF): %_g$(EXESUF)
 	$(STRIP) $@
 
 $(TOOLS): %$(EXESUF): %.o
-	$(LD) $(LDFLAGS) -o $@ $< $(ELIBS)
+	$(LD) $(LDFLAGS) $(LD_O) $< $(ELIBS)
 
-tools/cws2fws$(EXESUF): ELIBS = -lz
+tools/cws2fws$(EXESUF): ELIBS = $(ZLIB)
 
 config.h: .config
 .config: $(wildcard $(FFLIBS:%=$(SRC_PATH)/lib%/all*.c))
@@ -70,7 +70,7 @@ config.h: .config
 SUBDIR_VARS := CLEANFILES EXAMPLES FFLIBS HOSTPROGS TESTPROGS TOOLS      \
                ARCH_HEADERS BUILT_HEADERS SKIPHEADERS                    \
                ARMV5TE-OBJS ARMV6-OBJS ARMVFP-OBJS NEON-OBJS             \
-               MMI-OBJS ALTIVEC-OBJS VIS-OBJS                            \
+               ALTIVEC-OBJS VIS-OBJS                                     \
                MMX-OBJS YASM-OBJS                                        \
                MIPSFPU-OBJS MIPSDSPR2-OBJS MIPSDSPR1-OBJS MIPS32R2-OBJS  \
                OBJS HOSTOBJS TESTOBJS
@@ -102,7 +102,7 @@ endef
 $(foreach P,$(PROGS-yes),$(eval $(call DOPROG,$(P))))
 
 %$(PROGSSUF)_g$(EXESUF): %.o cmdutils.o $(FF_DEP_LIBS)
-	$(LD) $(LDFLAGS) -o $@ $(OBJS-$*) cmdutils.o $(FF_EXTRALIBS)
+	$(LD) $(LDFLAGS) $(LD_O) $(OBJS-$*) cmdutils.o $(FF_EXTRALIBS)
 
 OBJDIRS += tools
 
@@ -159,7 +159,7 @@ clean::
 
 distclean::
 	$(RM) $(DISTCLEANSUFFIXES)
-	$(RM) config.* .version version.h libavutil/avconfig.h
+	$(RM) config.* .version version.h libavutil/avconfig.h libavcodec/codec_names.h
 
 config:
 	$(SRC_PATH)/configure $(value FFMPEG_CONFIGURATION)

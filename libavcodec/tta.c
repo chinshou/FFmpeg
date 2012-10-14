@@ -200,7 +200,7 @@ static av_cold int tta_decode_init(AVCodecContext * avctx)
         }
         if (s->format == FORMAT_ENCRYPTED) {
             av_log_missing_feature(s->avctx, "Encrypted TTA", 0);
-            return AVERROR(EINVAL);
+            return AVERROR_PATCHWELCOME;
         }
         avctx->channels = s->channels = get_bits(&s->gb, 16);
         if (s->channels > 1 && s->channels < 9)
@@ -427,7 +427,7 @@ static int tta_decode_frame(AVCodecContext *avctx, void *data,
         break;
         }
     case 2: {
-        uint16_t *samples = (int16_t *)s->frame.data[0];
+        int16_t *samples = (int16_t *)s->frame.data[0];
         for (p = s->decode_buffer; p < s->decode_buffer + (framelen * s->channels); p++)
             *samples++ = *p;
         break;

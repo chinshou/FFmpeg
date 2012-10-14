@@ -52,7 +52,7 @@ static const AVOption showwaves_options[] = {
     { "r",    "set video rate", OFFSET(rate_str), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, FLAGS },
     { "size", "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "600x240"}, 0, 0, FLAGS },
     { "s",    "set video size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "600x240"}, 0, 0, FLAGS },
-    { "n",    "set how many samples to show in the same point", OFFSET(n), AV_OPT_TYPE_INT, {.dbl = 0}, 0, INT_MAX, FLAGS },
+    { "n",    "set how many samples to show in the same point", OFFSET(n), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, FLAGS },
     { NULL },
 };
 
@@ -88,7 +88,7 @@ static int query_formats(AVFilterContext *ctx)
     AVFilterLink *inlink = ctx->inputs[0];
     AVFilterLink *outlink = ctx->outputs[0];
     static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_S16, -1 };
-    static const enum PixelFormat pix_fmts[] = { PIX_FMT_GRAY8, -1 };
+    static const enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_GRAY8, -1 };
 
     /* set input audio formats */
     formats = ff_make_format_list(sample_fmts);

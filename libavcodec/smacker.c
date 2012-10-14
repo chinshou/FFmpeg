@@ -231,12 +231,9 @@ static int smacker_decode_header_tree(SmackVContext *smk, GetBitContext *gb, int
         av_log(smk->avctx, AV_LOG_ERROR, "Skipping high bytes tree\n");
     }
 
-    escapes[0]  = get_bits(gb, 8);
-    escapes[0] |= get_bits(gb, 8) << 8;
-    escapes[1]  = get_bits(gb, 8);
-    escapes[1] |= get_bits(gb, 8) << 8;
-    escapes[2]  = get_bits(gb, 8);
-    escapes[2] |= get_bits(gb, 8) << 8;
+    escapes[0]  = get_bits(gb, 16);
+    escapes[1]  = get_bits(gb, 16);
+    escapes[2]  = get_bits(gb, 16);
 
     last[0] = last[1] = last[2] = -1;
 
@@ -391,7 +388,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *data_size, AVPac
         smk->pic.pict_type = AV_PICTURE_TYPE_P;
 
     for(i = 0; i < 256; i++)
-        *pal++ = 0xFF << 24 | bytestream2_get_be24u(&gb2);
+        *pal++ = 0xFFU << 24 | bytestream2_get_be24u(&gb2);
 
     last_reset(smk->mmap_tbl, smk->mmap_last);
     last_reset(smk->mclr_tbl, smk->mclr_last);
@@ -524,7 +521,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     c->avctx = avctx;
 
-    avctx->pix_fmt = PIX_FMT_PAL8;
+    avctx->pix_fmt = AV_PIX_FMT_PAL8;
 
     avcodec_get_frame_defaults(&c->pic);
 

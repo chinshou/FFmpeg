@@ -665,8 +665,8 @@ static int decode_ga_specific_config(AACContext *ac, AVCodecContext *avctx,
     int tags = 0;
 
     if (get_bits1(gb)) { // frameLengthFlag
-        av_log_missing_feature(avctx, "960/120 MDCT window is", 1);
-        return -1;
+        av_log_missing_feature(avctx, "960/120 MDCT window", 1);
+        return AVERROR_PATCHWELCOME;
     }
 
     if (get_bits1(gb))       // dependsOnCoreCoder
@@ -781,7 +781,7 @@ static int decode_audio_specific_config(AACContext *ac,
  *
  * @return  Returns a 32-bit pseudorandom integer
  */
-static av_always_inline int lcg_random(int previous_val)
+static av_always_inline int lcg_random(unsigned previous_val)
 {
     return previous_val * 1664525 + 1013904223;
 }
@@ -1670,7 +1670,7 @@ static int decode_ics(AACContext *ac, SingleChannelElement *sce,
             return -1;
         if (get_bits1(gb)) {
             av_log_missing_feature(ac->avctx, "SSR", 1);
-            return -1;
+            return AVERROR_PATCHWELCOME;
         }
     }
 
@@ -1947,6 +1947,32 @@ static int decode_dynamic_range(DynamicRangeControl *che_drc,
     return n;
 }
 
+static int decode_fill(AACContext *ac, GetBitContext *gb, int len) {
+    uint8_t buf[256];
+    int i, major, minor;
+
+    if (len < 13+7*8)
+        goto unknown;
+
+    get_bits(gb, 13); len -= 13;
+
+    for(i=0; i+1<sizeof(buf) && len>=8; i++, len-=8)
+        buf[i] = get_bits(gb, 8);
+
+    buf[i] = 0;
+    if (ac->avctx->debug & FF_DEBUG_PICT_INFO)
+        av_log(ac->avctx, AV_LOG_DEBUG, "FILL:%s\n", buf);
+
+    if (sscanf(buf, "libfaac %d.%d", &major, &minor) == 2){
+        ac->avctx->internal->skip_samples = 1024;
+    }
+
+unknown:
+    skip_bits_long(gb, len);
+
+    return 0;
+}
+
 /**
  * Decode extension data (incomplete); reference: table 4.51.
  *
@@ -1988,6 +2014,8 @@ static int decode_extension_payload(AACContext *ac, GetBitContext *gb, int cnt,
         res = decode_dynamic_range(&ac->che_drc, gb, cnt);
         break;
     case EXT_FILL:
+        decode_fill(ac, gb, 8 * cnt - 4);
+        break;
     case EXT_FILL_DATA:
     case EXT_DATA_ELEMENT:
     default:
@@ -2360,7 +2388,7 @@ static int parse_adts_frame_header(AACContext *ac, GetBitContext *gb)
         if (!ac->warned_num_aac_frames && hdr_info.num_aac_frames != 1) {
             // This is 2 for "VLB " audio in NSV files.
             // See samples/nsv/vlb_audio.
-            av_log_missing_feature(ac->avctx, "More than one AAC RDB per ADTS frame is", 0);
+            av_log_missing_feature(ac->avctx, "More than one AAC RDB per ADTS frame", 0);
             ac->warned_num_aac_frames = 1;
         }
         push_output_configuration(ac);
@@ -2375,6 +2403,21 @@ static int parse_adts_frame_header(AACContext *ac, GetBitContext *gb)
                 return -7;
         } else {
             ac->oc[1].m4ac.chan_config = 0;
+            /**
+             * dual mono frames in Japanese DTV can have chan_config 0
+             * WITHOUT specifying PCE.
+             *  thus, set dual mono as default.
+             */
+            if (ac->enable_jp_dmono && ac->oc[0].status == OC_NONE) {
+                layout_map_tags = 2;
+                layout_map[0][0] = layout_map[1][0] = TYPE_SCE;
+                layout_map[0][2] = layout_map[1][2] = AAC_CHANNEL_FRONT;
+                layout_map[0][1] = 0;
+                layout_map[1][1] = 1;
+                if (output_configure(ac, layout_map, layout_map_tags,
+                                     0, OC_TRIAL_FRAME))
+                    return -7;
+            }
         }
         ac->oc[1].m4ac.sample_rate     = hdr_info.sample_rate;
         ac->oc[1].m4ac.sampling_index  = hdr_info.sampling_index;
@@ -2392,13 +2435,15 @@ static int parse_adts_frame_header(AACContext *ac, GetBitContext *gb)
 }
 
 static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
-                                int *got_frame_ptr, GetBitContext *gb)
+                                int *got_frame_ptr, GetBitContext *gb, AVPacket *avpkt)
 {
     AACContext *ac = avctx->priv_data;
     ChannelElement *che = NULL, *che_prev = NULL;
     enum RawDataBlockType elem_type, elem_type_prev = TYPE_END;
     int err, elem_id;
     int samples = 0, multiplier, audio_found = 0, pce_found = 0;
+    int is_dmono, sce_count = 0;
+    float *tmp = NULL;
 
     if (show_bits(gb, 12) == 0xfff) {
         if (parse_adts_frame_header(ac, gb) < 0) {
@@ -2433,6 +2478,7 @@ static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
         case TYPE_SCE:
             err = decode_ics(ac, &che->ch[0], gb, 0, 0);
             audio_found = 1;
+            sce_count++;
             break;
 
         case TYPE_CPE:
@@ -2511,6 +2557,20 @@ static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
     multiplier = (ac->oc[1].m4ac.sbr == 1) ? ac->oc[1].m4ac.ext_sample_rate > ac->oc[1].m4ac.sample_rate : 0;
     samples <<= multiplier;
 
+    /* for dual-mono audio (SCE + SCE) */
+    is_dmono = ac->enable_jp_dmono && sce_count == 2 &&
+               ac->oc[1].channel_layout == (AV_CH_FRONT_LEFT | AV_CH_FRONT_RIGHT);
+
+    if (is_dmono) {
+        if (ac->dmono_mode == 0) {
+            tmp = ac->output_data[1];
+            ac->output_data[1] = ac->output_data[0];
+        } else if (ac->dmono_mode == 1) {
+            tmp = ac->output_data[0];
+            ac->output_data[0] = ac->output_data[1];
+        }
+    }
+
     if (samples) {
         /* get output buffer */
         ac->frame.nb_samples = samples;
@@ -2533,12 +2593,25 @@ static int aac_decode_frame_int(AVCodecContext *avctx, void *data,
     }
     *got_frame_ptr = !!samples;
 
+    if (is_dmono) {
+        if (ac->dmono_mode == 0)
+            ac->output_data[1] = tmp;
+        else if (ac->dmono_mode == 1)
+            ac->output_data[0] = tmp;
+    }
+
     if (ac->oc[1].status && audio_found) {
         avctx->sample_rate = ac->oc[1].m4ac.sample_rate << multiplier;
         avctx->frame_size = samples;
         ac->oc[1].status = OC_LOCKED;
     }
 
+    if (multiplier) {
+        int side_size;
+        uint32_t *side = av_packet_get_side_data(avpkt, AV_PKT_DATA_SKIP_SAMPLES, &side_size);
+        if (side && side_size>=4)
+            AV_WL32(side, 2*AV_RL32(side));
+    }
     return 0;
 fail:
     pop_output_configuration(ac);
@@ -2559,6 +2632,10 @@ static int aac_decode_frame(AVCodecContext *avctx, void *data,
     const uint8_t *new_extradata = av_packet_get_side_data(avpkt,
                                        AV_PKT_DATA_NEW_EXTRADATA,
                                        &new_extradata_size);
+    int jp_dualmono_size;
+    const uint8_t *jp_dualmono   = av_packet_get_side_data(avpkt,
+                                       AV_PKT_DATA_JP_DUALMONO,
+                                       &jp_dualmono_size);
 
     if (new_extradata && 0) {
         av_free(avctx->extradata);
@@ -2577,9 +2654,14 @@ static int aac_decode_frame(AVCodecContext *avctx, void *data,
         }
     }
 
+    ac->enable_jp_dmono = !!jp_dualmono;
+    ac->dmono_mode = 0;
+    if (jp_dualmono && jp_dualmono_size > 0)
+        ac->dmono_mode = *jp_dualmono;
+
     init_get_bits(&gb, buf, buf_size * 8);
 
-    if ((err = aac_decode_frame_int(avctx, data, got_frame_ptr, &gb)) < 0)
+    if ((err = aac_decode_frame_int(avctx, data, got_frame_ptr, &gb, avpkt)) < 0)
         return err;
 
     buf_consumed = (get_bits_count(&gb) + 7) >> 3;
@@ -2646,9 +2728,9 @@ static int latm_decode_audio_specific_config(struct LATMContext *latmctx,
         asclen         = get_bits_left(gb);
 
     if (config_start_bit % 8) {
-        av_log_missing_feature(latmctx->aac_ctx.avctx, "audio specific "
-                               "config not byte aligned.\n", 1);
-        return AVERROR_INVALIDDATA;
+        av_log_missing_feature(latmctx->aac_ctx.avctx,
+                               "Non-byte-aligned audio-specific config", 1);
+        return AVERROR_PATCHWELCOME;
     }
     if (asclen <= 0)
         return AVERROR_INVALIDDATA;
@@ -2707,16 +2789,16 @@ static int read_stream_mux_config(struct LATMContext *latmctx,
         // numPrograms
         if (get_bits(gb, 4)) {                  // numPrograms
             av_log_missing_feature(latmctx->aac_ctx.avctx,
-                                   "multiple programs are not supported\n", 1);
+                                   "multiple programs", 1);
             return AVERROR_PATCHWELCOME;
         }
 
-        // for each program (which there is only on in DVB)
+        // for each program (which there is only one in DVB)
 
-        // for each layer (which there is only on in DVB)
+        // for each layer (which there is only one in DVB)
         if (get_bits(gb, 3)) {                   // numLayer
             av_log_missing_feature(latmctx->aac_ctx.avctx,
-                                   "multiple layers are not supported\n", 1);
+                                   "multiple layers", 1);
             return AVERROR_PATCHWELCOME;
         }
 
@@ -2834,7 +2916,7 @@ static int latm_decode_frame(AVCodecContext *avctx, void *out,
         return AVERROR_INVALIDDATA;
 
     muxlength = get_bits(&gb, 13) + 3;
-    // not enough data, the parser should have sorted this
+    // not enough data, the parser should have sorted this out
     if (muxlength > avpkt->size)
         return AVERROR_INVALIDDATA;
 
@@ -2864,7 +2946,7 @@ static int latm_decode_frame(AVCodecContext *avctx, void *out,
         return AVERROR_INVALIDDATA;
     }
 
-    if ((err = aac_decode_frame_int(avctx, out, got_frame_ptr, &gb)) < 0)
+    if ((err = aac_decode_frame_int(avctx, out, got_frame_ptr, &gb, avpkt)) < 0)
         return err;
 
     return muxlength;
