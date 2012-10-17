@@ -379,7 +379,7 @@ static av_cold int init(AVFilterContext *ctx, const char *args)
     sendcmd->class = &sendcmd_class;
     av_opt_set_defaults(sendcmd);
 
-    if ((ret = av_set_options_string(sendcmd, args, "=", ":")) < 0)
+    if ((ret = av_set_options_string(sendcmd, args, "=", "|")) < 0)
         return ret;
 
     if (sendcmd->commands_filename && sendcmd->commands_str) {
