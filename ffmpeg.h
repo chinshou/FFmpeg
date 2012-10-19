@@ -57,12 +57,12 @@
 
 /* select an input stream for an output stream */
 typedef struct StreamMap {
-    int disabled;           /** 1 is this mapping is disabled by a negative map */
+    int disabled;           /* 1 is this mapping is disabled by a negative map */
     int file_index;
     int stream_index;
     int sync_file_index;
     int sync_stream_index;
-    char *linklabel;       /** name of an output link, for mapping lavfi outputs */
+    char *linklabel;       /* name of an output link, for mapping lavfi outputs */
 } StreamMap;
 
 typedef struct {
@@ -157,10 +157,16 @@ typedef struct OptionsContext {
     int        nb_presets;
     SpecifierOpt *copy_initial_nonkeyframes;
     int        nb_copy_initial_nonkeyframes;
+    SpecifierOpt *copy_prior_start;
+    int        nb_copy_prior_start;
     SpecifierOpt *filters;
     int        nb_filters;
     SpecifierOpt *fix_sub_duration;
     int        nb_fix_sub_duration;
+    SpecifierOpt *pass;
+    int        nb_pass;
+    SpecifierOpt *passlogfiles;
+    int        nb_passlogfiles;
 } OptionsContext;
 
 typedef struct InputFilter {
@@ -228,7 +234,6 @@ typedef struct InputStream {
 
     int fix_sub_duration;
     struct { /* previous decoded subtitle and related variables */
-        int64_t pts;
         int got_output;
         int ret;
         AVSubtitle subtitle;
@@ -296,7 +301,6 @@ typedef struct OutputStream {
     int top_field_first;
 
     float frame_aspect_ratio;
-    float last_quality;
 
     /* forced key frames */
     int64_t *forced_kf_pts;
@@ -308,6 +312,7 @@ typedef struct OutputStream {
     int audio_channels_map[SWR_CH_MAX];  /* list of the channels id to pick from the source stream */
     int audio_channels_mapped;           /* number of channels in audio_channels_map */
 
+    char *logfile_prefix;
     FILE *logfile;
 
     OutputFilter *filter;
@@ -322,6 +327,7 @@ typedef struct OutputStream {
     int stream_copy;
     const char *attachment_filename;
     int copy_initial_nonkeyframes;
+    int copy_prior_start;
 
     int keep_pix_fmt;
 } OutputStream;
@@ -350,7 +356,6 @@ extern int         nb_output_files;
 extern FilterGraph **filtergraphs;
 extern int        nb_filtergraphs;
 
-extern const char *pass_logfilename_prefix;
 extern char *vstats_filename;
 
 extern float audio_drift_threshold;
@@ -371,7 +376,6 @@ extern int debug_ts;
 extern int exit_on_error;
 extern int print_stats;
 extern int qp_hist;
-extern int same_quant;
 extern int stdin_interaction;
 extern int frame_bits_per_raw_sample;
 extern AVIOContext *progress_avio;
@@ -392,7 +396,7 @@ void assert_avoptions(AVDictionary *m);
 
 int guess_input_channel_layout(InputStream *ist);
 
-enum PixelFormat choose_pixel_fmt(AVStream *st, AVCodec *codec, enum PixelFormat target);
+enum AVPixelFormat choose_pixel_fmt(AVStream *st, AVCodec *codec, enum AVPixelFormat target);
 void choose_sample_fmt(AVStream *st, AVCodec *codec);
 
 int configure_filtergraph(FilterGraph *fg);

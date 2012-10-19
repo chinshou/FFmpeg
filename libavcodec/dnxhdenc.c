@@ -38,7 +38,7 @@
 #define DNX10BIT_QMAT_SHIFT 18 // The largest value that will not lead to overflow for 10bit samples.
 
 static const AVOption options[]={
-    {"nitris_compat", "encode with Avid Nitris compatibility", offsetof(DNXHDEncContext, nitris_compat), AV_OPT_TYPE_INT, {.dbl = 0}, 0, 1, VE},
+    {"nitris_compat", "encode with Avid Nitris compatibility", offsetof(DNXHDEncContext, nitris_compat), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, VE},
 {NULL}
 };
 
@@ -51,7 +51,7 @@ static const AVClass class = {
 
 #define LAMBDA_FRAC_BITS 10
 
-static void dnxhd_8bit_get_pixels_8x4_sym(DCTELEM *restrict block, const uint8_t *pixels, int line_size)
+static void dnxhd_8bit_get_pixels_8x4_sym(DCTELEM *av_restrict block, const uint8_t *pixels, int line_size)
 {
     int i;
     for (i = 0; i < 4; i++) {
@@ -68,10 +68,10 @@ static void dnxhd_8bit_get_pixels_8x4_sym(DCTELEM *restrict block, const uint8_t
     memcpy(block + 24, block - 32, sizeof(*block) * 8);
 }
 
-static av_always_inline void dnxhd_10bit_get_pixels_8x4_sym(DCTELEM *restrict block, const uint8_t *pixels, int line_size)
+static av_always_inline void dnxhd_10bit_get_pixels_8x4_sym(DCTELEM *av_restrict block, const uint8_t *pixels, int line_size)
 {
     int i;
-    const uint16_t* pixels16 = pixels;
+    const uint16_t* pixels16 = (const uint16_t*)pixels;
     line_size >>= 1;
 
     for (i = 0; i < 4; i++) {
@@ -253,10 +253,10 @@ static int dnxhd_encode_init(AVCodecContext *avctx)
     int i, index, bit_depth;
 
     switch (avctx->pix_fmt) {
-    case PIX_FMT_YUV422P:
+    case AV_PIX_FMT_YUV422P:
         bit_depth = 8;
         break;
-    case PIX_FMT_YUV422P10:
+    case AV_PIX_FMT_YUV422P10:
         bit_depth = 10;
         break;
     default:
@@ -272,6 +272,7 @@ static int dnxhd_encode_init(AVCodecContext *avctx)
     av_log(avctx, AV_LOG_DEBUG, "cid %d\n", ctx->cid);
 
     index = ff_dnxhd_get_cid_table(ctx->cid);
+    av_assert0(index >= 0);
     ctx->cid_table = &ff_dnxhd_cid_table[index];
 
     ctx->m.avctx = avctx;
@@ -280,8 +281,9 @@ static int dnxhd_encode_init(AVCodecContext *avctx)
 
     avctx->bits_per_raw_sample = ctx->cid_table->bit_depth;
 
-    ff_dsputil_init(&ctx->m.dsp, avctx);
     ff_dct_common_init(&ctx->m);
+    ff_dct_encode_init(&ctx->m);
+
     if (!ctx->m.dct_quantize)
         ctx->m.dct_quantize = ff_dct_quantize_c;
 
@@ -1020,9 +1022,9 @@ AVCodec ff_dnxhd_encoder = {
     .encode2        = dnxhd_encode_picture,
     .close          = dnxhd_encode_end,
     .capabilities   = CODEC_CAP_SLICE_THREADS,
-    .pix_fmts       = (const enum PixelFormat[]){ PIX_FMT_YUV422P,
-                                                  PIX_FMT_YUV422P10,
-                                                  PIX_FMT_NONE },
+    .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_YUV422P,
+                                                  AV_PIX_FMT_YUV422P10,
+                                                  AV_PIX_FMT_NONE },
     .long_name      = NULL_IF_CONFIG_SMALL("VC3/DNxHD"),
     .priv_class     = &class,
     .defaults       = dnxhd_defaults,

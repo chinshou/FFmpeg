@@ -62,19 +62,20 @@ static av_cold int utvideo_encode_init(AVCodecContext *avctx)
 
     c->avctx           = avctx;
     c->frame_info_size = 4;
+    c->slice_stride    = FFALIGN(avctx->width, 32);
 
     switch (avctx->pix_fmt) {
-    case PIX_FMT_RGB24:
+    case AV_PIX_FMT_RGB24:
         c->planes        = 3;
         avctx->codec_tag = MKTAG('U', 'L', 'R', 'G');
         original_format  = UTVIDEO_RGB;
         break;
-    case PIX_FMT_RGBA:
+    case AV_PIX_FMT_RGBA:
         c->planes        = 4;
         avctx->codec_tag = MKTAG('U', 'L', 'R', 'A');
         original_format  = UTVIDEO_RGBA;
         break;
-    case PIX_FMT_YUV420P:
+    case AV_PIX_FMT_YUV420P:
         if (avctx->width & 1 || avctx->height & 1) {
             av_log(avctx, AV_LOG_ERROR,
                    "4:2:0 video requires even width and height.\n");
@@ -84,7 +85,7 @@ static av_cold int utvideo_encode_init(AVCodecContext *avctx)
         avctx->codec_tag = MKTAG('U', 'L', 'Y', '0');
         original_format  = UTVIDEO_420;
         break;
-    case PIX_FMT_YUV422P:
+    case AV_PIX_FMT_YUV422P:
         if (avctx->width & 1) {
             av_log(avctx, AV_LOG_ERROR,
                    "4:2:2 video requires even width.\n");
@@ -145,7 +146,6 @@ static av_cold int utvideo_encode_init(AVCodecContext *avctx)
     }
 
     for (i = 0; i < c->planes; i++) {
-        c->slice_stride = FFALIGN(avctx->width, 32);
         c->slice_buffer[i] = av_malloc(c->slice_stride * (avctx->height + 2) +
                                        FF_INPUT_BUFFER_PADDING_SIZE);
         if (!c->slice_buffer[i]) {
@@ -202,14 +202,14 @@ static void mangle_rgb_planes(uint8_t *dst[4], int dst_stride, uint8_t *src,
 {
     int i, j;
     int k = 2 * dst_stride;
-    unsigned g;
+    unsigned int g;
 
     for (j = 0; j < height; j++) {
         if (step == 3) {
             for (i = 0; i < width * step; i += step) {
                 g         = src[i + 1];
                 dst[0][k] = g;
-                g += 0x80;
+                g        += 0x80;
                 dst[1][k] = src[i + 2] - g;
                 dst[2][k] = src[i + 0] - g;
                 k++;
@@ -218,7 +218,7 @@ static void mangle_rgb_planes(uint8_t *dst[4], int dst_stride, uint8_t *src,
             for (i = 0; i < width * step; i += step) {
                 g         = src[i + 1];
                 dst[0][k] = g;
-                g += 0x80;
+                g        += 0x80;
                 dst[1][k] = src[i + 2] - g;
                 dst[2][k] = src[i + 0] - g;
                 dst[3][k] = src[i + 3];
@@ -266,7 +266,7 @@ static void median_predict(UtvideoContext *c, uint8_t *src, uint8_t *dst, int st
                            int width, int height)
 {
     int i, j;
-    int A, B, C;
+    int A, B;
     uint8_t prev;
 
     /* First line uses left neighbour prediction */
@@ -285,11 +285,11 @@ static void median_predict(UtvideoContext *c, uint8_t *src, uint8_t *dst, int st
      * Second line uses top prediction for the first sample,
      * and median for the rest.
      */
-    A = C = 0;
+    A = B = 0;
 
     /* Rest of the coded part uses median prediction */
     for (j = 1; j < height; j++) {
-        c->dsp.sub_hfyu_median_prediction(dst, src - stride, src, width, &A, &C);
+        c->dsp.sub_hfyu_median_prediction(dst, src - stride, src, width, &A, &B);
         dst += width;
         src += stride;
     }
@@ -441,7 +441,7 @@ static int encode_plane(AVCodecContext *avctx, uint8_t *src,
     }
 
     /* Calculate huffman lengths */
-    ff_generate_len_table(lengths, counts);
+    ff_huff_gen_len_table(lengths, counts);
 
     /*
      * Write the plane's header into the output packet:
@@ -534,14 +534,14 @@ static int utvideo_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     }
 
     /* In case of RGB, mangle the planes to Ut Video's format */
-    if (avctx->pix_fmt == PIX_FMT_RGBA || avctx->pix_fmt == PIX_FMT_RGB24)
+    if (avctx->pix_fmt == AV_PIX_FMT_RGBA || avctx->pix_fmt == AV_PIX_FMT_RGB24)
         mangle_rgb_planes(c->slice_buffer, c->slice_stride, pic->data[0],
                           c->planes, pic->linesize[0], width, height);
 
     /* Deal with the planes */
     switch (avctx->pix_fmt) {
-    case PIX_FMT_RGB24:
-    case PIX_FMT_RGBA:
+    case AV_PIX_FMT_RGB24:
+    case AV_PIX_FMT_RGBA:
         for (i = 0; i < c->planes; i++) {
             ret = encode_plane(avctx, c->slice_buffer[i] + 2 * c->slice_stride,
                                c->slice_buffer[i], c->slice_stride,
@@ -553,7 +553,7 @@ static int utvideo_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             }
         }
         break;
-    case PIX_FMT_YUV422P:
+    case AV_PIX_FMT_YUV422P:
         for (i = 0; i < c->planes; i++) {
             ret = encode_plane(avctx, pic->data[i], c->slice_buffer[0],
                                pic->linesize[i], width >> !!i, height, &pb);
@@ -564,7 +564,7 @@ static int utvideo_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             }
         }
         break;
-    case PIX_FMT_YUV420P:
+    case AV_PIX_FMT_YUV420P:
         for (i = 0; i < c->planes; i++) {
             ret = encode_plane(avctx, pic->data[i], c->slice_buffer[0],
                                pic->linesize[i], width >> !!i, height >> !!i,
@@ -610,14 +610,14 @@ static int utvideo_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 AVCodec ff_utvideo_encoder = {
     .name           = "utvideo",
     .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = CODEC_ID_UTVIDEO,
+    .id             = AV_CODEC_ID_UTVIDEO,
     .priv_data_size = sizeof(UtvideoContext),
     .init           = utvideo_encode_init,
     .encode2        = utvideo_encode_frame,
     .close          = utvideo_encode_close,
-    .pix_fmts       = (const enum PixelFormat[]) {
-                          PIX_FMT_RGB24, PIX_FMT_RGBA, PIX_FMT_YUV422P,
-                          PIX_FMT_YUV420P, PIX_FMT_NONE
+    .pix_fmts       = (const enum AVPixelFormat[]) {
+                          AV_PIX_FMT_RGB24, AV_PIX_FMT_RGBA, AV_PIX_FMT_YUV422P,
+                          AV_PIX_FMT_YUV420P, AV_PIX_FMT_NONE
                       },
     .long_name      = NULL_IF_CONFIG_SMALL("Ut Video"),
 };

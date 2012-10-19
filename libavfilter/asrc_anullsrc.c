@@ -53,8 +53,8 @@ static const AVOption anullsrc_options[]= {
     { "cl",             "set channel_layout", OFFSET(channel_layout_str), AV_OPT_TYPE_STRING, {.str = "stereo"}, 0, 0, FLAGS },
     { "sample_rate",    "set sample rate",    OFFSET(sample_rate_str)   , AV_OPT_TYPE_STRING, {.str = "44100"}, 0, 0, FLAGS },
     { "r",              "set sample rate",    OFFSET(sample_rate_str)   , AV_OPT_TYPE_STRING, {.str = "44100"}, 0, 0, FLAGS },
-    { "nb_samples",     "set the number of samples per requested frame", OFFSET(nb_samples), AV_OPT_TYPE_INT, {.dbl = 1024}, 0, INT_MAX, FLAGS },
-    { "n",              "set the number of samples per requested frame", OFFSET(nb_samples), AV_OPT_TYPE_INT, {.dbl = 1024}, 0, INT_MAX, FLAGS },
+    { "nb_samples",     "set the number of samples per requested frame", OFFSET(nb_samples), AV_OPT_TYPE_INT, {.i64 = 1024}, 0, INT_MAX, FLAGS },
+    { "n",              "set the number of samples per requested frame", OFFSET(nb_samples), AV_OPT_TYPE_INT, {.i64 = 1024}, 0, INT_MAX, FLAGS },
     { NULL },
 };
 
@@ -119,6 +119,16 @@ static int request_frame(AVFilterLink *outlink)
     return 0;
 }
 
+static const AVFilterPad avfilter_asrc_anullsrc_outputs[] = {
+    {
+        .name          = "default",
+        .type          = AVMEDIA_TYPE_AUDIO,
+        .config_props  = config_props,
+        .request_frame = request_frame,
+    },
+    { NULL }
+};
+
 AVFilter avfilter_asrc_anullsrc = {
     .name        = "anullsrc",
     .description = NULL_IF_CONFIG_SMALL("Null audio source, return empty audio frames."),
@@ -126,12 +136,8 @@ AVFilter avfilter_asrc_anullsrc = {
     .init        = init,
     .priv_size   = sizeof(ANullContext),
 
-    .inputs      = (const AVFilterPad[]) {{ .name = NULL}},
+    .inputs      = NULL,
 
-    .outputs     = (const AVFilterPad[]) {{ .name = "default",
-                                            .type = AVMEDIA_TYPE_AUDIO,
-                                            .config_props = config_props,
-                                            .request_frame = request_frame, },
-                                          { .name = NULL}},
+    .outputs     = avfilter_asrc_anullsrc_outputs,
     .priv_class = &anullsrc_class,
 };

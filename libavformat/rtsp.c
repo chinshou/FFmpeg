@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/base64.h"
 #include "libavutil/avstring.h"
 #include "libavutil/intreadwrite.h"
@@ -64,29 +65,29 @@
 #define ENC AV_OPT_FLAG_ENCODING_PARAM
 
 #define RTSP_FLAG_OPTS(name, longname) \
-    { name, longname, OFFSET(rtsp_flags), AV_OPT_TYPE_FLAGS, {0}, INT_MIN, INT_MAX, DEC, "rtsp_flags" }, \
-    { "filter_src", "Only receive packets from the negotiated peer IP", 0, AV_OPT_TYPE_CONST, {RTSP_FLAG_FILTER_SRC}, 0, 0, DEC, "rtsp_flags" }, \
-    { "listen", "Wait for incoming connections", 0, AV_OPT_TYPE_CONST, {RTSP_FLAG_LISTEN}, 0, 0, DEC, "rtsp_flags" }
+    { name, longname, OFFSET(rtsp_flags), AV_OPT_TYPE_FLAGS, {.i64 = 0}, INT_MIN, INT_MAX, DEC, "rtsp_flags" }, \
+    { "filter_src", "Only receive packets from the negotiated peer IP", 0, AV_OPT_TYPE_CONST, {.i64 = RTSP_FLAG_FILTER_SRC}, 0, 0, DEC, "rtsp_flags" }, \
+    { "listen", "Wait for incoming connections", 0, AV_OPT_TYPE_CONST, {.i64 = RTSP_FLAG_LISTEN}, 0, 0, DEC, "rtsp_flags" }
 
 #define RTSP_MEDIATYPE_OPTS(name, longname) \
-    { name, longname, OFFSET(media_type_mask), AV_OPT_TYPE_FLAGS, { (1 << (AVMEDIA_TYPE_DATA+1)) - 1 }, INT_MIN, INT_MAX, DEC, "allowed_media_types" }, \
-    { "video", "Video", 0, AV_OPT_TYPE_CONST, {1 << AVMEDIA_TYPE_VIDEO}, 0, 0, DEC, "allowed_media_types" }, \
-    { "audio", "Audio", 0, AV_OPT_TYPE_CONST, {1 << AVMEDIA_TYPE_AUDIO}, 0, 0, DEC, "allowed_media_types" }, \
-    { "data", "Data", 0, AV_OPT_TYPE_CONST, {1 << AVMEDIA_TYPE_DATA}, 0, 0, DEC, "allowed_media_types" }
+    { name, longname, OFFSET(media_type_mask), AV_OPT_TYPE_FLAGS, { .i64 = (1 << (AVMEDIA_TYPE_DATA+1)) - 1 }, INT_MIN, INT_MAX, DEC, "allowed_media_types" }, \
+    { "video", "Video", 0, AV_OPT_TYPE_CONST, {.i64 = 1 << AVMEDIA_TYPE_VIDEO}, 0, 0, DEC, "allowed_media_types" }, \
+    { "audio", "Audio", 0, AV_OPT_TYPE_CONST, {.i64 = 1 << AVMEDIA_TYPE_AUDIO}, 0, 0, DEC, "allowed_media_types" }, \
+    { "data", "Data", 0, AV_OPT_TYPE_CONST, {.i64 = 1 << AVMEDIA_TYPE_DATA}, 0, 0, DEC, "allowed_media_types" }
 
 const AVOption ff_rtsp_options[] = {
-    { "initial_pause",  "Don't start playing the stream immediately", OFFSET(initial_pause), AV_OPT_TYPE_INT, {0}, 0, 1, DEC },
+    { "initial_pause",  "Don't start playing the stream immediately", OFFSET(initial_pause), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC },
     FF_RTP_FLAG_OPTS(RTSPState, rtp_muxer_flags),
-    { "rtsp_transport", "RTSP transport protocols", OFFSET(lower_transport_mask), AV_OPT_TYPE_FLAGS, {0}, INT_MIN, INT_MAX, DEC|ENC, "rtsp_transport" }, \
-    { "udp", "UDP", 0, AV_OPT_TYPE_CONST, {1 << RTSP_LOWER_TRANSPORT_UDP}, 0, 0, DEC|ENC, "rtsp_transport" }, \
-    { "tcp", "TCP", 0, AV_OPT_TYPE_CONST, {1 << RTSP_LOWER_TRANSPORT_TCP}, 0, 0, DEC|ENC, "rtsp_transport" }, \
-    { "udp_multicast", "UDP multicast", 0, AV_OPT_TYPE_CONST, {1 << RTSP_LOWER_TRANSPORT_UDP_MULTICAST}, 0, 0, DEC, "rtsp_transport" },
-    { "http", "HTTP tunneling", 0, AV_OPT_TYPE_CONST, {(1 << RTSP_LOWER_TRANSPORT_HTTP)}, 0, 0, DEC, "rtsp_transport" },
+    { "rtsp_transport", "RTSP transport protocols", OFFSET(lower_transport_mask), AV_OPT_TYPE_FLAGS, {.i64 = 0}, INT_MIN, INT_MAX, DEC|ENC, "rtsp_transport" }, \
+    { "udp", "UDP", 0, AV_OPT_TYPE_CONST, {.i64 = 1 << RTSP_LOWER_TRANSPORT_UDP}, 0, 0, DEC|ENC, "rtsp_transport" }, \
+    { "tcp", "TCP", 0, AV_OPT_TYPE_CONST, {.i64 = 1 << RTSP_LOWER_TRANSPORT_TCP}, 0, 0, DEC|ENC, "rtsp_transport" }, \
+    { "udp_multicast", "UDP multicast", 0, AV_OPT_TYPE_CONST, {.i64 = 1 << RTSP_LOWER_TRANSPORT_UDP_MULTICAST}, 0, 0, DEC, "rtsp_transport" },
+    { "http", "HTTP tunneling", 0, AV_OPT_TYPE_CONST, {.i64 = (1 << RTSP_LOWER_TRANSPORT_HTTP)}, 0, 0, DEC, "rtsp_transport" },
     RTSP_FLAG_OPTS("rtsp_flags", "RTSP flags"),
     RTSP_MEDIATYPE_OPTS("allowed_media_types", "Media types to accept from the server"),
-    { "min_port", "Minimum local UDP port", OFFSET(rtp_port_min), AV_OPT_TYPE_INT, {RTSP_RTP_PORT_MIN}, 0, 65535, DEC|ENC },
-    { "max_port", "Maximum local UDP port", OFFSET(rtp_port_max), AV_OPT_TYPE_INT, {RTSP_RTP_PORT_MAX}, 0, 65535, DEC|ENC },
-    { "timeout", "Maximum timeout (in seconds) to wait for incoming connections. -1 is infinite. Implies flag listen", OFFSET(initial_timeout), AV_OPT_TYPE_INT, {-1}, INT_MIN, INT_MAX, DEC },
+    { "min_port", "Minimum local UDP port", OFFSET(rtp_port_min), AV_OPT_TYPE_INT, {.i64 = RTSP_RTP_PORT_MIN}, 0, 65535, DEC|ENC },
+    { "max_port", "Maximum local UDP port", OFFSET(rtp_port_max), AV_OPT_TYPE_INT, {.i64 = RTSP_RTP_PORT_MAX}, 0, 65535, DEC|ENC },
+    { "timeout", "Maximum timeout (in seconds) to wait for incoming connections. -1 is infinite. Implies flag listen", OFFSET(initial_timeout), AV_OPT_TYPE_INT, {.i64 = -1}, INT_MIN, INT_MAX, DEC },
     { NULL },
 };
 
@@ -154,8 +155,6 @@ static void rtsp_parse_range_npt(const char *p, int64_t *start, int64_t *end)
         get_word_sep(buf, sizeof(buf), "-", &p);
         av_parse_time(end, buf, 1);
     }
-//    av_log(NULL, AV_LOG_DEBUG, "Range Start: %lld\n", *start);
-//    av_log(NULL, AV_LOG_DEBUG, "Range End: %lld\n", *end);
 }
 
 static int get_sockaddr(const char *buf, struct sockaddr_storage *sock)
@@ -617,7 +616,7 @@ int ff_rtsp_open_transport_ctx(AVFormatContext *s, RTSPStream *rtsp_st)
         s->ctx_flags |= AVFMTCTX_NOHEADER;
 
     if (s->oformat && CONFIG_RTSP_MUXER) {
-        int ret = ff_rtp_chain_mux_open(&rtsp_st->transport_priv, s, st,
+        int ret = ff_rtp_chain_mux_open((AVFormatContext **)&rtsp_st->transport_priv, s, st,
                                         rtsp_st->rtp_handle,
                                         RTSP_TCP_MAX_PACKET_SIZE);
         /* Ownership of rtp_handle is passed to the rtp mux context */
@@ -1793,7 +1792,8 @@ int ff_rtsp_fetch_packet(AVFormatContext *s, AVPacket *pkt)
                 rt->recvbuf_pos += ret;
                 ret = rt->recvbuf_pos < rt->recvbuf_len;
             }
-        }
+        } else
+            av_assert0(0);
         if (ret == 0) {
             rt->cur_transport_priv = NULL;
             return 0;

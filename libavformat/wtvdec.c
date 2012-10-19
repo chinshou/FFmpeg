@@ -31,7 +31,6 @@
 #include "internal.h"
 #include "wtv.h"
 #include "mpegts.h"
-#include <strings.h>
 
 /* Macros for formating GUIDs */
 #define PRI_PRETTY_GUID \
@@ -581,8 +580,10 @@ static AVStream * new_stream(AVFormatContext *s, AVStream *st, int sid, int code
         if (!wst)
             return NULL;
         st = avformat_new_stream(s, NULL);
-        if (!st)
+        if (!st) {
+            av_free(wst);
             return NULL;
+        }
         st->id = sid;
         st->priv_data = wst;
     }
@@ -695,7 +696,7 @@ static AVStream * parse_media_type(AVFormatContext *s, AVStream *st, int sid,
         if (ff_guidcmp(formattype, ff_format_none))
             av_log(s, AV_LOG_WARNING, "unknown formattype:"FF_PRI_GUID"\n", FF_ARG_GUID(formattype));
         avio_skip(pb, size);
-        st->codec->codec_id   = AV_CODEC_ID_DVB_TELETEXT;
+        st->codec->codec_id = !ff_guidcmp(subtype, mediasubtype_teletext) ? AV_CODEC_ID_DVB_TELETEXT : AV_CODEC_ID_EIA_608;
         return st;
     } else if (!ff_guidcmp(mediatype, mediatype_mpeg2_sections) &&
                !ff_guidcmp(subtype, mediasubtype_mpeg2_sections)) {

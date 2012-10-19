@@ -77,11 +77,11 @@ static const AVOption movie_options[]= {
 {"f",            "set format name",         OFFSET(format_name),  AV_OPT_TYPE_STRING, {.str =  0},  CHAR_MIN, CHAR_MAX, F },
 {"streams",      "set streams",             OFFSET(stream_specs), AV_OPT_TYPE_STRING, {.str =  0},  CHAR_MAX, CHAR_MAX, F },
 {"s",            "set streams",             OFFSET(stream_specs), AV_OPT_TYPE_STRING, {.str =  0},  CHAR_MAX, CHAR_MAX, F },
-{"si",           "set stream index",        OFFSET(stream_index), AV_OPT_TYPE_INT,    {.dbl = -1},  -1,       INT_MAX, F },
-{"stream_index", "set stream index",        OFFSET(stream_index), AV_OPT_TYPE_INT,    {.dbl = -1},  -1,       INT_MAX, F },
+{"si",           "set stream index",        OFFSET(stream_index), AV_OPT_TYPE_INT,    {.i64 = -1},  -1,       INT_MAX, F },
+{"stream_index", "set stream index",        OFFSET(stream_index), AV_OPT_TYPE_INT,    {.i64 = -1},  -1,       INT_MAX, F },
 {"seek_point",   "set seekpoint (seconds)", OFFSET(seek_point_d), AV_OPT_TYPE_DOUBLE, {.dbl =  0},  0,        (INT64_MAX-1) / 1000000, F },
 {"sp",           "set seekpoint (seconds)", OFFSET(seek_point_d), AV_OPT_TYPE_DOUBLE, {.dbl =  0},  0,        (INT64_MAX-1) / 1000000, F },
-{"loop",         "set loop count",          OFFSET(loop_count),   AV_OPT_TYPE_INT,    {.dbl =  1},  0,        INT_MAX, F },
+{"loop",         "set loop count",          OFFSET(loop_count),   AV_OPT_TYPE_INT,    {.i64 =  1},  0,        INT_MAX, F },
 {NULL},
 };
 
@@ -336,7 +336,7 @@ static av_cold void movie_uninit(AVFilterContext *ctx)
     av_freep(&movie->file_name);
     av_freep(&movie->st);
     av_freep(&movie->out_index);
-    av_freep(&movie->frame);
+    avcodec_free_frame(&movie->frame);
     if (movie->format_ctx)
         avformat_close_input(&movie->format_ctx);
 }
@@ -611,7 +611,7 @@ AVFilter avfilter_avsrc_movie = {
     .uninit        = movie_uninit,
     .query_formats = movie_query_formats,
 
-    .inputs    = (const AVFilterPad[]) {{ .name = NULL }},
+    .inputs    = NULL,
     .outputs   = (const AVFilterPad[]) {{ .name = NULL }},
     .priv_class = &movie_class,
 };

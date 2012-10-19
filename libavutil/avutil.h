@@ -109,43 +109,6 @@
 
 
 /**
- * @defgroup preproc_misc Preprocessor String Macros
- *
- * String manipulation macros
- *
- * @{
- */
-
-#define AV_STRINGIFY(s)         AV_TOSTRING(s)
-#define AV_TOSTRING(s) #s
-
-#define AV_GLUE(a, b) a ## b
-#define AV_JOIN(a, b) AV_GLUE(a, b)
-
-#define AV_PRAGMA(s) _Pragma(#s)
-
-/**
- * @}
- */
-
-/**
- * @defgroup version_utils Library Version Macros
- *
- * Useful to check and match library version in order to maintain
- * backward compatibility.
- *
- * @{
- */
-
-#define AV_VERSION_INT(a, b, c) (a<<16 | b<<8 | c)
-#define AV_VERSION_DOT(a, b, c) a ##.## b ##.## c
-#define AV_VERSION(a, b, c) AV_VERSION_DOT(a, b, c)
-
-/**
- * @}
- */
-
-/**
  * @addtogroup lavu_ver
  * @{
  */
@@ -223,7 +186,7 @@ const char *av_get_media_type_string(enum AVMediaType media_type);
  * either pts or dts.
  */
 
-#define AV_NOPTS_VALUE          INT64_C(0x8000000000000000)
+#define AV_NOPTS_VALUE          ((int64_t)UINT64_C(0x8000000000000000))
 
 /**
  * Internal time base represented as integer

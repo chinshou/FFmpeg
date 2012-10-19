@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 Michael Niedermayer (michaelni@gmx.at)
+ * Copyright (C) 2011-2012 Michael Niedermayer (michaelni@gmx.at)
  * Copyright (c) 2002 Fabrice Bellard
  *
  * This file is part of libswresample
@@ -231,11 +231,11 @@ int main(int argc, char **argv){
     uint8_t *amid[SWR_CH_MAX];
     int flush_i=0;
     int mode;
-    int max_tests = FF_ARRAY_ELEMS(rates) * FF_ARRAY_ELEMS(layouts) * FF_ARRAY_ELEMS(formats) * FF_ARRAY_ELEMS(layouts) * FF_ARRAY_ELEMS(formats);
     int num_tests = 10000;
     uint32_t seed = 0;
     uint32_t rand_seed = 0;
-    int remaining_tests[max_tests];
+    int remaining_tests[FF_ARRAY_ELEMS(rates) * FF_ARRAY_ELEMS(layouts) * FF_ARRAY_ELEMS(formats) * FF_ARRAY_ELEMS(layouts) * FF_ARRAY_ELEMS(formats)];
+    int max_tests = FF_ARRAY_ELEMS(remaining_tests);
     int test;
     int specific_test= -1;
 
