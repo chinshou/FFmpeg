@@ -38,15 +38,15 @@
 extern AVCodec ff_h264_decoder, ff_h264_vda_decoder;
 
 static const enum AVPixelFormat vda_pixfmts_prior_10_7[] = {
-    AV_PIX_FMT_UYVY422,
+    //AV_PIX_FMT_UYVY422,
     AV_PIX_FMT_YUV420P,
     AV_PIX_FMT_NONE
 };
 
 static const enum AVPixelFormat vda_pixfmts[] = {
-    AV_PIX_FMT_UYVY422,
-    AV_PIX_FMT_YUYV422,
-    AV_PIX_FMT_NV12,
+    //AV_PIX_FMT_UYVY422,
+    //AV_PIX_FMT_YUYV422,
+    //AV_PIX_FMT_NV12,
     AV_PIX_FMT_YUV420P,
     AV_PIX_FMT_NONE
 };
