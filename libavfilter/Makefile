@@ -87,6 +87,7 @@ OBJS-$(CONFIG_FLITE_FILTER)                  += asrc_flite.o
 OBJS-$(CONFIG_ANULLSINK_FILTER)              += asink_anullsink.o
 
 OBJS-$(CONFIG_ASS_FILTER)                    += vf_ass.o
+OBJS-$(CONFIG_ASS_OLD_FILTER)                += vf_ass_old.o
 OBJS-$(CONFIG_ALPHAEXTRACT_FILTER)           += vf_alphaextract.o
 OBJS-$(CONFIG_ALPHAMERGE_FILTER)             += vf_alphamerge.o
 OBJS-$(CONFIG_BBOX_FILTER)                   += bbox.o vf_bbox.o
@@ -209,7 +210,6 @@ OBJS-$(CONFIG_SHOWWAVES_FILTER)              += avf_showwaves.o
 OBJS-$(CONFIG_AMOVIE_FILTER)                 += src_movie.o
 OBJS-$(CONFIG_MOVIE_FILTER)                  += src_movie.o
 
-CFLAGS += -I/usr/i686-mingw32/include/ass
 EXTRALIBS += -lass -lfreetype -liconv
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats
