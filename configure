@@ -218,6 +218,7 @@ External library support:
   --enable-libschroedinger enable Dirac de/encoding via libschroedinger [no]
   --enable-libsoxr         enable Include libsoxr resampling [no]
   --enable-libspeex        enable Speex de/encoding via libspeex [no]
+  --enable-libsox          enable audio filtering via libsox [no]
   --enable-libstagefright-h264  enable H.264 decoding via libstagefright [no]
   --enable-libtheora       enable Theora encoding via libtheora [no]
   --enable-libtwolame      enable MP2 encoding via libtwolame [no]
@@ -2018,7 +2019,7 @@ caca_outdev_deps="libcaca"
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
-gdi_indev_deps="GetDeviceCaps"
+#gdi_indev_deps="GetDeviceCaps"
 gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 iec61883_indev_deps="libiec61883"
@@ -2039,7 +2040,7 @@ v4l2_indev_deps_any="linux_videodev2_h sys_videoio_h"
 vfwcap_indev_deps="capCreateCaptureWindow vfwcap_defines"
 vfwcap_indev_extralibs="-lavicap32"
 x11grab_indev_deps="x11grab"
-waveform_indev_deps="waveInOpen"
+#waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 
 # protocols
