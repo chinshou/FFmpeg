@@ -158,6 +158,8 @@ static int roq_dpcm_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
             context->input_frames++;
             return 0;
         }
+    }
+    if (context->input_frames < 8) {
         in = context->frame_buffer;
     }
 
@@ -166,7 +168,7 @@ static int roq_dpcm_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
         context->lastSample[1] &= 0xFF00;
     }
 
-    if (context->input_frames == 7 || !in)
+    if (context->input_frames == 7)
         data_size = avctx->channels * context->buffered_samples;
     else
         data_size = avctx->channels * avctx->frame_size;

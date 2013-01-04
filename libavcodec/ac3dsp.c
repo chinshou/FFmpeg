@@ -214,7 +214,7 @@ static void ac3_sum_square_butterfly_float_c(float sum[4],
     }
 }
 
-static void ac3_downmix_c(float (*samples)[256], float (*matrix)[2],
+static void ac3_downmix_c(float **samples, float (*matrix)[2],
                           int out_ch, int in_ch, int len)
 {
     int i, j;
@@ -258,4 +258,6 @@ av_cold void ff_ac3dsp_init(AC3DSPContext *c, int bit_exact)
         ff_ac3dsp_init_arm(c, bit_exact);
     if (ARCH_X86)
         ff_ac3dsp_init_x86(c, bit_exact);
+    if (ARCH_MIPS)
+        ff_ac3dsp_init_mips(c, bit_exact);
 }

@@ -51,7 +51,7 @@
      (x) == AV_PIX_FMT_RGB32_1 ||         \
      (x) == AV_PIX_FMT_YUVA420P)
 
-static uint64_t getSSD(uint8_t *src1, uint8_t *src2, int stride1,
+static uint64_t getSSD(const uint8_t *src1, const uint8_t *src2, int stride1,
                        int stride2, int w, int h)
 {
     int x, y;
@@ -346,7 +346,7 @@ int main(int argc, char **argv)
     enum AVPixelFormat srcFormat = AV_PIX_FMT_NONE;
     enum AVPixelFormat dstFormat = AV_PIX_FMT_NONE;
     uint8_t *rgb_data   = av_malloc(W * H * 4);
-    uint8_t *rgb_src[4] = { rgb_data, NULL, NULL, NULL };
+    const uint8_t * const rgb_src[4] = { rgb_data, NULL, NULL, NULL };
     int rgb_stride[4]   = { 4 * W, 0, 0, 0 };
     uint8_t *data       = av_malloc(4 * W * H);
     uint8_t *src[4]     = { data, data + W * H, data + W * H * 2, data + W * H * 3 };
@@ -356,34 +356,20 @@ int main(int argc, char **argv)
     AVLFG rand;
     int res = -1;
     int i;
+    FILE *fp = NULL;
 
     if (!rgb_data || !data)
         return -1;
-
-    sws = sws_getContext(W / 12, H / 12, AV_PIX_FMT_RGB32, W, H,
-                         AV_PIX_FMT_YUVA420P, SWS_BILINEAR, NULL, NULL, NULL);
-
-    av_lfg_init(&rand, 1);
-
-    for (y = 0; y < H; y++)
-        for (x = 0; x < W * 4; x++)
-            rgb_data[ x + y * 4 * W] = av_lfg_get(&rand);
-    sws_scale(sws, rgb_src, rgb_stride, 0, H, src, stride);
-    sws_freeContext(sws);
-    av_free(rgb_data);
 
     for (i = 1; i < argc; i += 2) {
         if (argv[i][0] != '-' || i + 1 == argc)
             goto bad_option;
         if (!strcmp(argv[i], "-ref")) {
-            FILE *fp = fopen(argv[i + 1], "r");
+            fp = fopen(argv[i + 1], "r");
             if (!fp) {
                 fprintf(stderr, "could not open '%s'\n", argv[i + 1]);
                 goto error;
             }
-            res = fileTest(src, stride, W, H, fp, srcFormat, dstFormat);
-            fclose(fp);
-            goto end;
         } else if (!strcmp(argv[i], "-src")) {
             srcFormat = av_get_pix_fmt(argv[i + 1]);
             if (srcFormat == AV_PIX_FMT_NONE) {
@@ -403,9 +389,25 @@ bad_option:
         }
     }
 
-    selfTest(src, stride, W, H, srcFormat, dstFormat);
-end:
-    res = 0;
+    sws = sws_getContext(W / 12, H / 12, AV_PIX_FMT_RGB32, W, H,
+                         AV_PIX_FMT_YUVA420P, SWS_BILINEAR, NULL, NULL, NULL);
+
+    av_lfg_init(&rand, 1);
+
+    for (y = 0; y < H; y++)
+        for (x = 0; x < W * 4; x++)
+            rgb_data[ x + y * 4 * W] = av_lfg_get(&rand);
+    sws_scale(sws, rgb_src, rgb_stride, 0, H, src, stride);
+    sws_freeContext(sws);
+    av_free(rgb_data);
+
+    if(fp) {
+        res = fileTest(src, stride, W, H, fp, srcFormat, dstFormat);
+        fclose(fp);
+    } else {
+        selfTest(src, stride, W, H, srcFormat, dstFormat);
+        res = 0;
+    }
 error:
     av_free(data);
 

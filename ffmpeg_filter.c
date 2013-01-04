@@ -24,10 +24,11 @@
 #include "libavfilter/avfiltergraph.h"
 #include "libavfilter/buffersink.h"
 
-#include "libavutil/audioconvert.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
+#include "libavutil/channel_layout.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/imgutils.h"
@@ -37,7 +38,8 @@ enum AVPixelFormat choose_pixel_fmt(AVStream *st, AVCodec *codec, enum AVPixelFo
 {
     if (codec && codec->pix_fmts) {
         const enum AVPixelFormat *p = codec->pix_fmts;
-        int has_alpha= av_pix_fmt_descriptors[target].nb_components % 2 == 0;
+        const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(target);
+        int has_alpha = desc ? desc->nb_components % 2 == 0 : 0;
         enum AVPixelFormat best= AV_PIX_FMT_NONE;
         if (st->codec->strict_std_compliance <= FF_COMPLIANCE_UNOFFICIAL) {
             if (st->codec->codec_id == AV_CODEC_ID_MJPEG) {
@@ -56,9 +58,9 @@ enum AVPixelFormat choose_pixel_fmt(AVStream *st, AVCodec *codec, enum AVPixelFo
             if (target != AV_PIX_FMT_NONE)
                 av_log(NULL, AV_LOG_WARNING,
                        "Incompatible pixel format '%s' for codec '%s', auto-selecting format '%s'\n",
-                       av_pix_fmt_descriptors[target].name,
+                       av_get_pix_fmt_name(target),
                        codec->name,
-                       av_pix_fmt_descriptors[best].name);
+                       av_get_pix_fmt_name(best));
             return best;
         }
     }
@@ -177,8 +179,7 @@ FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost)
         exit(1);
     fg->index = nb_filtergraphs;
 
-    fg->outputs = grow_array(fg->outputs, sizeof(*fg->outputs), &fg->nb_outputs,
-                             fg->nb_outputs + 1);
+    GROW_ARRAY(fg->outputs, fg->nb_outputs);
     if (!(fg->outputs[0] = av_mallocz(sizeof(*fg->outputs[0]))))
         exit(1);
     fg->outputs[0]->ost   = ost;
@@ -186,19 +187,16 @@ FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost)
 
     ost->filter = fg->outputs[0];
 
-    fg->inputs = grow_array(fg->inputs, sizeof(*fg->inputs), &fg->nb_inputs,
-                            fg->nb_inputs + 1);
+    GROW_ARRAY(fg->inputs, fg->nb_inputs);
     if (!(fg->inputs[0] = av_mallocz(sizeof(*fg->inputs[0]))))
         exit(1);
     fg->inputs[0]->ist   = ist;
     fg->inputs[0]->graph = fg;
 
-    ist->filters = grow_array(ist->filters, sizeof(*ist->filters),
-                              &ist->nb_filters, ist->nb_filters + 1);
+    GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = fg->inputs[0];
 
-    filtergraphs = grow_array(filtergraphs, sizeof(*filtergraphs),
-                              &nb_filtergraphs, nb_filtergraphs + 1);
+    GROW_ARRAY(filtergraphs, nb_filtergraphs);
     filtergraphs[nb_filtergraphs - 1] = fg;
 
     return fg;
@@ -267,15 +265,13 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
     ist->decoding_needed++;
     ist->st->discard = AVDISCARD_NONE;
 
-    fg->inputs = grow_array(fg->inputs, sizeof(*fg->inputs),
-                            &fg->nb_inputs, fg->nb_inputs + 1);
+    GROW_ARRAY(fg->inputs, fg->nb_inputs);
     if (!(fg->inputs[fg->nb_inputs - 1] = av_mallocz(sizeof(*fg->inputs[0]))))
         exit(1);
     fg->inputs[fg->nb_inputs - 1]->ist   = ist;
     fg->inputs[fg->nb_inputs - 1]->graph = fg;
 
-    ist->filters = grow_array(ist->filters, sizeof(*ist->filters),
-                              &ist->nb_filters, ist->nb_filters + 1);
+    GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = fg->inputs[fg->nb_inputs - 1];
 }
 
@@ -521,8 +517,8 @@ static int sub2video_prepare(InputStream *ist)
         }
         av_log(avf, AV_LOG_INFO, "sub2video: using %dx%d canvas\n", w, h);
     }
-    ist->sub2video.w = ist->st->codec->width  = w;
-    ist->sub2video.h = ist->st->codec->height = h;
+    ist->sub2video.w = ist->st->codec->width  = ist->resample_width  = w;
+    ist->sub2video.h = ist->st->codec->height = ist->resample_height = h;
 
     /* rectangles are AV_PIX_FMT_PAL8, but we have no guarantee that the
        palettes for all rectangles are identical or compatible */
@@ -558,6 +554,15 @@ static int configure_input_video_filter(FilterGraph *fg, InputFilter *ifilter,
     int pad_idx = in->pad_idx;
     int ret;
 
+    if (!ist->framerate.num && ist->st->codec->ticks_per_frame>1) {
+        AVRational codec_fr = av_inv_q(ist->st->codec->time_base);
+        AVRational   avg_fr = ist->st->avg_frame_rate;
+        codec_fr.den *= ist->st->codec->ticks_per_frame;
+        if (   codec_fr.num>0 && codec_fr.den>0 && av_q2d(codec_fr) < av_q2d(fr)*0.7
+            && fabs(1.0 - av_q2d(av_div_q(avg_fr, fr)))>0.1)
+            fr = codec_fr;
+    }
+
     if (ist->st->codec->codec_type == AVMEDIA_TYPE_SUBTITLE) {
         ret = sub2video_prepare(ist);
         if (ret < 0)
@@ -572,8 +577,8 @@ static int configure_input_video_filter(FilterGraph *fg, InputFilter *ifilter,
     av_bprint_init(&args, 0, 1);
     av_bprintf(&args,
              "video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:"
-             "pixel_aspect=%d/%d:sws_param=flags=%d", ist->st->codec->width,
-             ist->st->codec->height, ist->st->codec->pix_fmt,
+             "pixel_aspect=%d/%d:sws_param=flags=%d", ist->resample_width,
+             ist->resample_height, ist->resample_pix_fmt,
              tb.num, tb.den, sar.num, sar.den,
              SWS_BILINEAR + ((ist->st->codec->flags&CODEC_FLAG_BITEXACT) ? SWS_BITEXACT:0));
     if (fr.num && fr.den)
@@ -656,9 +661,9 @@ static int configure_input_audio_filter(FilterGraph *fg, InputFilter *ifilter,
     if (audio_sync_method > 0) {
         char args[256] = {0};
 
-        av_strlcatf(args, sizeof(args), "min_comp=0.001:min_hard_comp=%f", audio_drift_threshold);
-        if (audio_sync_method > 1)
-            av_strlcatf(args, sizeof(args), ":max_soft_comp=%f", audio_sync_method/(double)ist->st->codec->sample_rate);
+        av_strlcatf(args, sizeof(args), "async=%d", audio_sync_method);
+        if (audio_drift_threshold != 0.1)
+            av_strlcatf(args, sizeof(args), ":min_hard_comp=%f", audio_drift_threshold);
         AUTO_INSERT_FILTER_INPUT("-async", "aresample", args);
     }
 
@@ -677,6 +682,9 @@ static int configure_input_audio_filter(FilterGraph *fg, InputFilter *ifilter,
 
     if (audio_volume != 256) {
         char args[256];
+
+        av_log(NULL, AV_LOG_WARNING, "-vol has been deprecated. Use the volume "
+               "audio filter instead.\n");
 
         snprintf(args, sizeof(args), "%f", audio_volume / 256.);
         AUTO_INSERT_FILTER_INPUT("-vol", "volume", args);
@@ -716,6 +724,17 @@ int configure_filtergraph(FilterGraph *fg)
         char args[255];
         snprintf(args, sizeof(args), "flags=0x%X", (unsigned)ost->sws_flags);
         fg->graph->scale_sws_opts = av_strdup(args);
+
+        args[0] = 0;
+        if (ost->swr_filter_type != SWR_FILTER_TYPE_KAISER)
+            av_strlcatf(args, sizeof(args), "filter_type=%d:", (int)ost->swr_filter_type);
+        if (ost->swr_dither_method)
+            av_strlcatf(args, sizeof(args), "dither_method=%d:", (int)ost->swr_dither_method);
+        if (ost->swr_dither_scale != 1.0)
+            av_strlcatf(args, sizeof(args), "dither_scale=%f:", ost->swr_dither_scale);
+        if (strlen(args))
+            args[strlen(args)-1] = 0;
+        av_opt_set(fg->graph, "aresample_swr_opts", args, 0);
     }
 
     if ((ret = avfilter_graph_parse2(fg->graph, graph_desc, &inputs, &outputs)) < 0)
@@ -747,8 +766,7 @@ int configure_filtergraph(FilterGraph *fg)
     } else {
         /* wait until output mappings are processed */
         for (cur = outputs; cur;) {
-            fg->outputs = grow_array(fg->outputs, sizeof(*fg->outputs),
-                                     &fg->nb_outputs, fg->nb_outputs + 1);
+            GROW_ARRAY(fg->outputs, fg->nb_outputs);
             if (!(fg->outputs[fg->nb_outputs - 1] = av_mallocz(sizeof(*fg->outputs[0]))))
                 exit(1);
             fg->outputs[fg->nb_outputs - 1]->graph   = fg;
