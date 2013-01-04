@@ -71,6 +71,8 @@ typedef struct {
 } AudioChannelMap;
 
 typedef struct OptionsContext {
+    OptionGroup *g;
+
     /* input/output options */
     int64_t start_time;
     const char *format;
@@ -161,6 +163,8 @@ typedef struct OptionsContext {
     int        nb_copy_prior_start;
     SpecifierOpt *filters;
     int        nb_filters;
+    SpecifierOpt *reinit_filters;
+    int        nb_reinit_filters;
     SpecifierOpt *fix_sub_duration;
     int        nb_fix_sub_duration;
     SpecifierOpt *pass;
@@ -215,6 +219,9 @@ typedef struct InputStream {
     int64_t       next_pts;  ///< synthetic pts for the next decode frame (in AV_TIME_BASE units)
     int64_t       pts;       ///< current pts of the decoded frame  (in AV_TIME_BASE units)
     int           wrap_correction_done;
+
+    int64_t filter_in_rescale_delta_last;
+
     double ts_scale;
     int is_start;            /* is 1 at the start and after a discontinuity */
     int saw_first_ts;
@@ -241,6 +248,7 @@ typedef struct InputStream {
 
     struct sub2video {
         int64_t last_pts;
+        int64_t end_pts;
         AVFilterBufferRef *ref;
         int w, h;
     } sub2video;
@@ -253,6 +261,8 @@ typedef struct InputStream {
      * currently video and audio only */
     InputFilter **filters;
     int        nb_filters;
+
+    int reinit_filters;
 } InputStream;
 
 typedef struct InputFile {
@@ -319,6 +329,7 @@ typedef struct OutputStream {
     char *avfilter;
 
     int64_t sws_flags;
+    int64_t swr_filter_type;
     int64_t swr_dither_method;
     double swr_dither_scale;
     AVDictionary *opts;
@@ -403,5 +414,7 @@ int configure_filtergraph(FilterGraph *fg);
 int configure_output_filter(FilterGraph *fg, OutputFilter *ofilter, AVFilterInOut *out);
 int ist_in_filtergraph(FilterGraph *fg, InputStream *ist);
 FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost);
+
+int ffmpeg_parse_options(int argc, char **argv);
 
 #endif /* FFMPEG_H */

@@ -27,7 +27,7 @@
 
 #include "mpeg12data.h"
 
-const uint16_t ff_mpeg1_default_intra_matrix[64] = {
+const uint16_t ff_mpeg1_default_intra_matrix[256] = {
         8, 16, 19, 22, 26, 27, 29, 34,
         16, 16, 22, 24, 27, 29, 34, 37,
         19, 22, 26, 27, 29, 34, 34, 38,
@@ -305,7 +305,7 @@ const uint8_t ff_mpeg12_mbMotionVectorTable[17][2] = {
 { 0xc, 10 },
 };
 
-const AVRational avpriv_frame_rate_tab[16] = {
+const AVRational ff_mpeg12_frame_rate_tab[16] = {
     {    0,    0},
     {24000, 1001},
     {   24,    1},

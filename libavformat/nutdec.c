@@ -28,6 +28,7 @@
 #include "libavutil/tree.h"
 #include "avio_internal.h"
 #include "nut.h"
+#include "riff.h"
 
 #define NUT_MAX_STREAMS 256    /* arbitrary sanity check value */
 
@@ -361,15 +362,20 @@ static int decode_stream_header(NUTContext *nut)
     case 0:
         st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
         st->codec->codec_id   = av_codec_get_id((const AVCodecTag * const []) {
-                                                    ff_codec_bmp_tags,
                                                     ff_nut_video_tags,
+                                                    ff_codec_bmp_tags,
                                                     0
                                                 },
                                                 tmp);
         break;
     case 1:
         st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-        st->codec->codec_id   = ff_codec_get_id(ff_codec_wav_tags, tmp);
+        st->codec->codec_id   = av_codec_get_id((const AVCodecTag * const []) {
+                                                    ff_nut_audio_tags,
+                                                    ff_codec_wav_tags,
+                                                    0
+                                                },
+                                                tmp);
         break;
     case 2:
         st->codec->codec_type = AVMEDIA_TYPE_SUBTITLE;
@@ -377,6 +383,7 @@ static int decode_stream_header(NUTContext *nut)
         break;
     case 3:
         st->codec->codec_type = AVMEDIA_TYPE_DATA;
+        st->codec->codec_id   = ff_codec_get_id(ff_nut_data_tags, tmp);
         break;
     default:
         av_log(s, AV_LOG_ERROR, "unknown stream class (%d)\n", class);
@@ -515,6 +522,8 @@ static int decode_info_header(NUTContext *nut)
 
             if (stream_id_plus1 && !strcmp(name, "r_frame_rate")) {
                 sscanf(str_value, "%d/%d", &st->r_frame_rate.num, &st->r_frame_rate.den);
+                if (st->r_frame_rate.num >= 1000LL*st->r_frame_rate.den)
+                    st->r_frame_rate.num = st->r_frame_rate.den = 0;
                 continue;
             }
 
@@ -784,7 +793,7 @@ static int decode_frame_header(NUTContext *nut, int64_t *pts, int *stream_id,
         if (coded_pts < (1 << stc->msb_pts_shift)) {
             *pts = ff_lsb2full(stc, coded_pts);
         } else
-            *pts = coded_pts - (1 << stc->msb_pts_shift);
+            *pts = coded_pts - (1LL << stc->msb_pts_shift);
     } else
         *pts = stc->last_pts + pts_delta;
     if (flags & FLAG_SIZE_MSB)
@@ -849,7 +858,8 @@ static int decode_frame(NUTContext *nut, AVPacket *pkt, int frame_code)
         return 1;
     }
 
-    av_new_packet(pkt, size + nut->header_len[header_idx]);
+    if (av_new_packet(pkt, size + nut->header_len[header_idx]) < 0)
+        return AVERROR(ENOMEM);
     memcpy(pkt->data, nut->header[header_idx], nut->header_len[header_idx]);
     pkt->pos = avio_tell(bc); // FIXME
     avio_read(bc, pkt->data + nut->header_len[header_idx], size);
@@ -1034,8 +1044,5 @@ AVInputFormat ff_nut_demuxer = {
     .read_close     = nut_read_close,
     .read_seek      = read_seek,
     .extensions     = "nut",
-    .codec_tag      = (const AVCodecTag * const []) {
-        ff_codec_bmp_tags, ff_nut_video_tags, ff_codec_wav_tags,
-        ff_nut_subtitle_tags, 0
-    },
+    .codec_tag      = ff_nut_codec_tags,
 };

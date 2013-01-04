@@ -23,6 +23,12 @@
  * memory buffer source filter
  */
 
+#include "libavutil/channel_layout.h"
+#include "libavutil/common.h"
+#include "libavutil/fifo.h"
+#include "libavutil/imgutils.h"
+#include "libavutil/opt.h"
+#include "libavutil/samplefmt.h"
 #include "audio.h"
 #include "avfilter.h"
 #include "buffersrc.h"
@@ -30,13 +36,6 @@
 #include "internal.h"
 #include "video.h"
 #include "avcodec.h"
-
-#include "libavutil/audioconvert.h"
-#include "libavutil/common.h"
-#include "libavutil/fifo.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/opt.h"
-#include "libavutil/samplefmt.h"
 
 typedef struct {
     const AVClass    *class;
@@ -64,8 +63,7 @@ typedef struct {
 
 #define CHECK_VIDEO_PARAM_CHANGE(s, c, width, height, format)\
     if (c->w != width || c->h != height || c->pix_fmt != format) {\
-        av_log(s, AV_LOG_ERROR, "Changing frame properties on the fly is not supported.\n");\
-        return AVERROR(EINVAL);\
+        av_log(s, AV_LOG_INFO, "Changing frame properties on the fly is not supported by all filters.\n");\
     }
 
 #define CHECK_AUDIO_PARAM_CHANGE(s, c, srate, ch_layout, format)\
@@ -347,8 +345,6 @@ static int config_props(AVFilterLink *link)
         link->sample_aspect_ratio = c->pixel_aspect;
         break;
     case AVMEDIA_TYPE_AUDIO:
-        link->channel_layout = c->channel_layout;
-        link->sample_rate    = c->sample_rate;
         break;
     default:
         return AVERROR(EINVAL);
@@ -373,20 +369,7 @@ static int request_frame(AVFilterLink *link)
     }
     av_fifo_generic_read(c->fifo, &buf, sizeof(buf), NULL);
 
-    switch (link->type) {
-    case AVMEDIA_TYPE_VIDEO:
-        if ((ret = ff_start_frame(link, buf)) < 0 ||
-            (ret = ff_draw_slice(link, 0, link->h, 1)) < 0 ||
-            (ret = ff_end_frame(link)) < 0)
-            return ret;
-        break;
-    case AVMEDIA_TYPE_AUDIO:
-        ret = ff_filter_samples(link, buf);
-        break;
-    default:
-        avfilter_unref_bufferp(&buf);
-        return AVERROR(EINVAL);
-    }
+    ff_filter_frame(link, buf);
 
     return ret;
 }

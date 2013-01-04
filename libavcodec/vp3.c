@@ -38,7 +38,7 @@
 #include "internal.h"
 #include "dsputil.h"
 #include "get_bits.h"
-
+#include "videodsp.h"
 #include "vp3data.h"
 #include "vp3dsp.h"
 #include "xiph.h"
@@ -136,6 +136,7 @@ typedef struct Vp3DecodeContext {
     AVFrame current_frame;
     int keyframe;
     DSPContext dsp;
+    VideoDSPContext vdsp;
     VP3DSPContext vp3dsp;
     int flipped_image;
     int last_slice_end;
@@ -312,7 +313,7 @@ static av_cold int vp3_decode_end(AVCodecContext *avctx)
     return 0;
 }
 
-/*
+/**
  * This function sets up all of the various blocks mappings:
  * superblocks <-> fragments, macroblocks <-> fragments,
  * superblocks <-> macroblocks
@@ -1543,7 +1544,7 @@ static void render_slice(Vp3DecodeContext *s, int slice)
                             uint8_t *temp= s->edge_emu_buffer;
                             if(stride<0) temp -= 8*stride;
 
-                            s->dsp.emulated_edge_mc(temp, motion_source, stride, 9, 9, src_x, src_y, plane_width, plane_height);
+                            s->vdsp.emulated_edge_mc(temp, motion_source, stride, 9, 9, src_x, src_y, plane_width, plane_height);
                             motion_source= temp;
                         }
                     }
@@ -1671,6 +1672,7 @@ static av_cold int vp3_decode_init(AVCodecContext *avctx)
         avctx->pix_fmt = AV_PIX_FMT_YUV420P;
     avctx->chroma_sample_location = AVCHROMA_LOC_CENTER;
     ff_dsputil_init(&s->dsp, avctx);
+    ff_videodsp_init(&s->vdsp, 8);
     ff_vp3dsp_init(&s->vp3dsp, avctx->flags);
 
     ff_init_scantable_permutation(s->dsp.idct_permutation, s->vp3dsp.idct_perm);
@@ -1903,7 +1905,7 @@ static int vp3_update_thread_context(AVCodecContext *dst, const AVCodecContext *
 }
 
 static int vp3_decode_frame(AVCodecContext *avctx,
-                            void *data, int *data_size,
+                            void *data, int *got_frame,
                             AVPacket *avpkt)
 {
     const uint8_t *buf = avpkt->data;
@@ -2040,7 +2042,7 @@ static int vp3_decode_frame(AVCodecContext *avctx,
     }
     vp3_draw_horiz_band(s, s->avctx->height);
 
-    *data_size=sizeof(AVFrame);
+    *got_frame = 1;
     *(AVFrame*)data= s->current_frame;
 
     if (!HAVE_THREADS || !(s->avctx->active_thread_type&FF_THREAD_FRAME))
@@ -2175,6 +2177,10 @@ static int theora_decode_header(AVCodecContext *avctx, GetBitContext *gb)
     {
         skip_bits(gb, 5); /* keyframe frequency force */
         avctx->pix_fmt = theora_pix_fmts[get_bits(gb, 2)];
+        if (avctx->pix_fmt == AV_PIX_FMT_NONE) {
+            av_log(avctx, AV_LOG_ERROR, "Invalid pixel format\n");
+            return AVERROR_INVALIDDATA;
+        }
         skip_bits(gb, 3); /* reserved */
     }
 
@@ -2349,7 +2355,8 @@ static av_cold int theora_decode_init(AVCodecContext *avctx)
     switch(ptype)
     {
         case 0x80:
-            theora_decode_header(avctx, &gb);
+            if (theora_decode_header(avctx, &gb) < 0)
+                return -1;
                 break;
         case 0x81:
 // FIXME: is this needed? it breaks sometimes

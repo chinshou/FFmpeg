@@ -54,7 +54,7 @@ to be read big-endian.
 @end multitable
 
 <type> is S for signed integer, U for unsigned integer, F for IEEE float
-<interleaving> is D for default, as a historical artefact.
+<interleaving> is D for default, P is for planar.
 <bits> is 8/16/24/32
 
 @example
@@ -68,6 +68,12 @@ PFD[32]   would for example be signed 32 bit little-endian IEEE float
 @item SSA[0] @tab SubStation Alpha
 @item DVDS   @tab DVD subtitles
 @item DVBS   @tab DVB subtitles
+@end multitable
+
+@section Raw Data
+
+@multitable @columnfractions .4 .4
+@item UTF8   @tab Raw UTF-8
 @end multitable
 
 @section Codecs

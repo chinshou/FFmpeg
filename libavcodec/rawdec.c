@@ -108,16 +108,20 @@ static av_cold int raw_init_decoder(AVCodecContext *avctx)
         return AVERROR(EINVAL);
     }
 
-    ff_set_systematic_pal2(context->palette, avctx->pix_fmt);
+    avpriv_set_systematic_pal2(context->palette, avctx->pix_fmt);
     if((avctx->bits_per_coded_sample == 4 || avctx->bits_per_coded_sample == 2) &&
        avctx->pix_fmt==AV_PIX_FMT_PAL8 &&
        (!avctx->codec_tag || avctx->codec_tag == MKTAG('r','a','w',' '))){
         context->length = avpicture_get_size(avctx->pix_fmt, FFALIGN(avctx->width, 16), avctx->height);
+        if (context->length < 0)
+            return context->length;
         context->buffer = av_malloc(context->length);
         if (!context->buffer)
             return AVERROR(ENOMEM);
     } else {
         context->length = avpicture_get_size(avctx->pix_fmt, avctx->width, avctx->height);
+        if (context->length < 0)
+            return context->length;
     }
     context->pic.pict_type = AV_PICTURE_TYPE_I;
     context->pic.key_frame = 1;
@@ -129,6 +133,13 @@ static av_cold int raw_init_decoder(AVCodecContext *avctx)
         avctx->codec_tag == MKTAG(3, 0, 0, 0) || avctx->codec_tag == MKTAG('W','R','A','W'))
         context->flip=1;
 
+    if (avctx->field_order > AV_FIELD_PROGRESSIVE) { /*we have interlaced material flagged in container */
+        avctx->coded_frame->interlaced_frame = 1;
+        if (avctx->field_order == AV_FIELD_TT  || avctx->field_order == AV_FIELD_TB)
+            avctx->coded_frame->top_field_first = 1;
+    }
+
+
     return 0;
 }
 
@@ -138,7 +149,7 @@ static void flip(AVCodecContext *avctx, AVPicture * picture){
 }
 
 static int raw_decode(AVCodecContext *avctx,
-                            void *data, int *data_size,
+                            void *data, int *got_frame,
                             AVPacket *avpkt)
 {
     const uint8_t *buf = avpkt->data;
@@ -164,10 +175,8 @@ static int raw_decode(AVCodecContext *avctx,
         frame->top_field_first  = context->tff;
     }
 
-    if (avctx->width <= 0 || avctx->height <= 0) {
-        av_log(avctx, AV_LOG_ERROR, "w/h is invalid\n");
-        return AVERROR(EINVAL);
-    }
+    if ((res = av_image_check_size(avctx->width, avctx->height, 0, avctx)) < 0)
+        return res;
 
     //2bpp and 4bpp raw in avi and mov (yes this is ugly ...)
     if (context->buffer) {
@@ -228,6 +237,15 @@ static int raw_decode(AVCodecContext *avctx,
         FFALIGN(frame->linesize[0], linesize_align)*avctx->height <= buf_size)
         frame->linesize[0] = FFALIGN(frame->linesize[0], linesize_align);
 
+    if(avctx->pix_fmt == AV_PIX_FMT_NV12 && avctx->codec_tag == MKTAG('N', 'V', '1', '2') &&
+        FFALIGN(frame->linesize[0], linesize_align)*avctx->height +
+        FFALIGN(frame->linesize[1], linesize_align)*((avctx->height+1)/2) <= buf_size) {
+        int la0 = FFALIGN(frame->linesize[0], linesize_align);
+        frame->data[1] += (la0 - frame->linesize[0])*avctx->height;
+        frame->linesize[0] = la0;
+        frame->linesize[1] = FFALIGN(frame->linesize[1], linesize_align);
+    }
+
     if(context->flip)
         flip(avctx, picture);
 
@@ -236,6 +254,11 @@ static int raw_decode(AVCodecContext *avctx,
         || avctx->codec_tag == MKTAG('Y', 'V', '2', '4')
         || avctx->codec_tag == MKTAG('Y', 'V', 'U', '9'))
         FFSWAP(uint8_t *, picture->data[1], picture->data[2]);
+
+    if (avctx->codec_tag == AV_RL32("I420") && (avctx->width+1)*(avctx->height+1) * 3/2 == buf_size) {
+        picture->data[1] = picture->data[1] + (avctx->width+1)*(avctx->height+1) -avctx->width*avctx->height;
+        picture->data[2] = picture->data[2] + ((avctx->width+1)*(avctx->height+1) -avctx->width*avctx->height)*5/4;
+    }
 
     if(avctx->codec_tag == AV_RL32("yuv2") &&
        avctx->pix_fmt   == AV_PIX_FMT_YUYV422) {
@@ -258,7 +281,7 @@ static int raw_decode(AVCodecContext *avctx,
         }
     }
 
-    *data_size = sizeof(AVPicture);
+    *got_frame = 1;
     return buf_size;
 }
 

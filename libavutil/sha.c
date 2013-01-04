@@ -38,9 +38,7 @@ typedef struct AVSHA {
     void     (*transform)(uint32_t *state, const uint8_t buffer[64]);
 } AVSHA;
 
-#if FF_API_CONTEXT_SIZE
 const int av_sha_size = sizeof(AVSHA);
-#endif
 
 struct AVSHA *av_sha_alloc(void)
 {
@@ -334,7 +332,6 @@ void av_sha_final(AVSHA* ctx, uint8_t *digest)
 
 #ifdef TEST
 #include <stdio.h>
-#undef printf
 
 int main(void)
 {

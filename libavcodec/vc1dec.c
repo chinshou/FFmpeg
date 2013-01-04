@@ -395,6 +395,9 @@ static void vc1_mc_1mv(VC1Context *v, int dir)
         }
     }
 
+    if(!srcY)
+        return;
+
     src_x   = s->mb_x * 16 + (mx   >> 2);
     src_y   = s->mb_y * 16 + (my   >> 2);
     uvsrc_x = s->mb_x *  8 + (uvmx >> 2);
@@ -435,15 +438,15 @@ static void vc1_mc_1mv(VC1Context *v, int dir)
         uint8_t *uvbuf = s->edge_emu_buffer + 19 * s->linesize;
 
         srcY -= s->mspel * (1 + s->linesize);
-        s->dsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize,
-                                17 + s->mspel * 2, 17 + s->mspel * 2,
-                                src_x - s->mspel, src_y - s->mspel,
-                                s->h_edge_pos, v_edge_pos);
+        s->vdsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize,
+                                 17 + s->mspel * 2, 17 + s->mspel * 2,
+                                 src_x - s->mspel, src_y - s->mspel,
+                                 s->h_edge_pos, v_edge_pos);
         srcY = s->edge_emu_buffer;
-        s->dsp.emulated_edge_mc(uvbuf     , srcU, s->uvlinesize, 8 + 1, 8 + 1,
-                                uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
-        s->dsp.emulated_edge_mc(uvbuf + 16, srcV, s->uvlinesize, 8 + 1, 8 + 1,
-                                uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
+        s->vdsp.emulated_edge_mc(uvbuf     , srcU, s->uvlinesize, 8 + 1, 8 + 1,
+                                 uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
+        s->vdsp.emulated_edge_mc(uvbuf + 16, srcV, s->uvlinesize, 8 + 1, 8 + 1,
+                                 uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
         srcU = uvbuf;
         srcV = uvbuf + 16;
         /* if we deal with range reduction we need to scale source blocks */
@@ -570,6 +573,9 @@ static void vc1_mc_4mv_luma(VC1Context *v, int n, int dir)
     } else
         srcY = s->next_picture.f.data[0];
 
+    if(!srcY)
+        return;
+
     if (v->field_mode) {
         if (v->cur_field_type != v->ref_field_type[dir])
             my = my - 2 + 4 * v->cur_field_type;
@@ -602,6 +608,8 @@ static void vc1_mc_4mv_luma(VC1Context *v, int n, int dir)
             tx = (chosen_mv[f][0][0] + chosen_mv[f][1][0]) / 2;
             ty = (chosen_mv[f][0][1] + chosen_mv[f][1][1]) / 2;
             break;
+        default:
+            av_assert2(0);
         }
         s->current_picture.f.motion_val[1][s->block_index[0] + v->blocks_off][0] = tx;
         s->current_picture.f.motion_val[1][s->block_index[0] + v->blocks_off][1] = ty;
@@ -668,10 +676,10 @@ static void vc1_mc_4mv_luma(VC1Context *v, int n, int dir)
         || (unsigned)(src_y - (s->mspel << fieldmv)) > v_edge_pos - (my & 3) - ((8 + s->mspel * 2) << fieldmv)) {
         srcY -= s->mspel * (1 + (s->linesize << fieldmv));
         /* check emulate edge stride and offset */
-        s->dsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize,
-                                9 + s->mspel * 2, (9 + s->mspel * 2) << fieldmv,
-                                src_x - s->mspel, src_y - (s->mspel << fieldmv),
-                                s->h_edge_pos, v_edge_pos);
+        s->vdsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize,
+                                 9 + s->mspel * 2, (9 + s->mspel * 2) << fieldmv,
+                                 src_x - s->mspel, src_y - (s->mspel << fieldmv),
+                                 s->h_edge_pos, v_edge_pos);
         srcY = s->edge_emu_buffer;
         /* if we deal with range reduction we need to scale source blocks */
         if (v->rangeredfrm) {
@@ -842,20 +850,26 @@ static void vc1_mc_4mv_chroma(VC1Context *v, int dir)
     if (!dir) {
         if (v->field_mode) {
             if ((v->cur_field_type != chroma_ref_type) && v->cur_field_type) {
-                srcU = s->current_picture.f.data[1] + uvsrc_y * s->uvlinesize + uvsrc_x;
-                srcV = s->current_picture.f.data[2] + uvsrc_y * s->uvlinesize + uvsrc_x;
+                srcU = s->current_picture.f.data[1];
+                srcV = s->current_picture.f.data[2];
             } else {
-                srcU = s->last_picture.f.data[1] + uvsrc_y * s->uvlinesize + uvsrc_x;
-                srcV = s->last_picture.f.data[2] + uvsrc_y * s->uvlinesize + uvsrc_x;
+                srcU = s->last_picture.f.data[1];
+                srcV = s->last_picture.f.data[2];
             }
         } else {
-            srcU = s->last_picture.f.data[1] + uvsrc_y * s->uvlinesize + uvsrc_x;
-            srcV = s->last_picture.f.data[2] + uvsrc_y * s->uvlinesize + uvsrc_x;
+            srcU = s->last_picture.f.data[1];
+            srcV = s->last_picture.f.data[2];
         }
     } else {
-        srcU = s->next_picture.f.data[1] + uvsrc_y * s->uvlinesize + uvsrc_x;
-        srcV = s->next_picture.f.data[2] + uvsrc_y * s->uvlinesize + uvsrc_x;
+        srcU = s->next_picture.f.data[1];
+        srcV = s->next_picture.f.data[2];
     }
+
+    if(!srcU)
+        return;
+
+    srcU += uvsrc_y * s->uvlinesize + uvsrc_x;
+    srcV += uvsrc_y * s->uvlinesize + uvsrc_x;
 
     if (v->field_mode) {
         if (chroma_ref_type) {
@@ -869,12 +883,12 @@ static void vc1_mc_4mv_chroma(VC1Context *v, int dir)
         || s->h_edge_pos < 18 || v_edge_pos < 18
         || (unsigned)uvsrc_x > (s->h_edge_pos >> 1) - 9
         || (unsigned)uvsrc_y > (v_edge_pos    >> 1) - 9) {
-        s->dsp.emulated_edge_mc(s->edge_emu_buffer     , srcU, s->uvlinesize,
-                                8 + 1, 8 + 1, uvsrc_x, uvsrc_y,
-                                s->h_edge_pos >> 1, v_edge_pos >> 1);
-        s->dsp.emulated_edge_mc(s->edge_emu_buffer + 16, srcV, s->uvlinesize,
-                                8 + 1, 8 + 1, uvsrc_x, uvsrc_y,
-                                s->h_edge_pos >> 1, v_edge_pos >> 1);
+        s->vdsp.emulated_edge_mc(s->edge_emu_buffer     , srcU, s->uvlinesize,
+                                 8 + 1, 8 + 1, uvsrc_x, uvsrc_y,
+                                 s->h_edge_pos >> 1, v_edge_pos >> 1);
+        s->vdsp.emulated_edge_mc(s->edge_emu_buffer + 16, srcV, s->uvlinesize,
+                                 8 + 1, 8 + 1, uvsrc_x, uvsrc_y,
+                                 s->h_edge_pos >> 1, v_edge_pos >> 1);
         srcU = s->edge_emu_buffer;
         srcV = s->edge_emu_buffer + 16;
 
@@ -967,19 +981,20 @@ static void vc1_mc_4mv_chroma4(VC1Context *v)
         uvmy_field[i] = (uvmy_field[i] & 3) << 1;
 
         if (fieldmv && !(uvsrc_y & 1))
-            v_edge_pos--;
+            v_edge_pos = (s->v_edge_pos >> 1) - 1;
+
         if (fieldmv && (uvsrc_y & 1) && uvsrc_y < 2)
             uvsrc_y--;
         if ((v->mv_mode == MV_PMODE_INTENSITY_COMP)
             || s->h_edge_pos < 10 || v_edge_pos < (5 << fieldmv)
             || (unsigned)uvsrc_x > (s->h_edge_pos >> 1) - 5
             || (unsigned)uvsrc_y > v_edge_pos - (5 << fieldmv)) {
-            s->dsp.emulated_edge_mc(s->edge_emu_buffer, srcU, s->uvlinesize,
-                                    5, (5 << fieldmv), uvsrc_x, uvsrc_y,
-                                    s->h_edge_pos >> 1, v_edge_pos);
-            s->dsp.emulated_edge_mc(s->edge_emu_buffer + 16, srcV, s->uvlinesize,
-                                    5, (5 << fieldmv), uvsrc_x, uvsrc_y,
-                                    s->h_edge_pos >> 1, v_edge_pos);
+            s->vdsp.emulated_edge_mc(s->edge_emu_buffer, srcU, s->uvlinesize,
+                                     5, (5 << fieldmv), uvsrc_x, uvsrc_y,
+                                     s->h_edge_pos >> 1, v_edge_pos);
+            s->vdsp.emulated_edge_mc(s->edge_emu_buffer + 16, srcV, s->uvlinesize,
+                                     5, (5 << fieldmv), uvsrc_x, uvsrc_y,
+                                     s->h_edge_pos >> 1, v_edge_pos);
             srcU = s->edge_emu_buffer;
             srcV = s->edge_emu_buffer + 16;
 
@@ -1890,15 +1905,15 @@ static void vc1_interp_mc(VC1Context *v)
         uint8_t *uvbuf = s->edge_emu_buffer + 19 * s->linesize;
 
         srcY -= s->mspel * (1 + s->linesize);
-        s->dsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize,
-                                17 + s->mspel * 2, 17 + s->mspel * 2,
-                                src_x - s->mspel, src_y - s->mspel,
-                                s->h_edge_pos, v_edge_pos);
+        s->vdsp.emulated_edge_mc(s->edge_emu_buffer, srcY, s->linesize,
+                                 17 + s->mspel * 2, 17 + s->mspel * 2,
+                                 src_x - s->mspel, src_y - s->mspel,
+                                 s->h_edge_pos, v_edge_pos);
         srcY = s->edge_emu_buffer;
-        s->dsp.emulated_edge_mc(uvbuf     , srcU, s->uvlinesize, 8 + 1, 8 + 1,
-                                uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
-        s->dsp.emulated_edge_mc(uvbuf + 16, srcV, s->uvlinesize, 8 + 1, 8 + 1,
-                                uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
+        s->vdsp.emulated_edge_mc(uvbuf     , srcU, s->uvlinesize, 8 + 1, 8 + 1,
+                                 uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
+        s->vdsp.emulated_edge_mc(uvbuf + 16, srcV, s->uvlinesize, 8 + 1, 8 + 1,
+                                 uvsrc_x, uvsrc_y, s->h_edge_pos >> 1, v_edge_pos >> 1);
         srcU = uvbuf;
         srcV = uvbuf + 16;
         /* if we deal with range reduction we need to scale source blocks */
@@ -4731,9 +4746,11 @@ static void vc1_decode_skip_blocks(VC1Context *v)
         s->mb_x = 0;
         ff_init_block_index(s);
         ff_update_block_index(s);
-        memcpy(s->dest[0], s->last_picture.f.data[0] + s->mb_y * 16 * s->linesize,   s->linesize   * 16);
-        memcpy(s->dest[1], s->last_picture.f.data[1] + s->mb_y *  8 * s->uvlinesize, s->uvlinesize *  8);
-        memcpy(s->dest[2], s->last_picture.f.data[2] + s->mb_y *  8 * s->uvlinesize, s->uvlinesize *  8);
+        if (s->last_picture.f.data[0]) {
+            memcpy(s->dest[0], s->last_picture.f.data[0] + s->mb_y * 16 * s->linesize,   s->linesize   * 16);
+            memcpy(s->dest[1], s->last_picture.f.data[1] + s->mb_y *  8 * s->uvlinesize, s->uvlinesize *  8);
+            memcpy(s->dest[2], s->last_picture.f.data[2] + s->mb_y *  8 * s->uvlinesize, s->uvlinesize *  8);
+        }
         ff_draw_horiz_band(s, s->mb_y * 16, 16);
         s->first_slice_line = 0;
     }
@@ -5024,7 +5041,7 @@ static int vc1_decode_sprites(VC1Context *v, GetBitContext* gb)
 
     v->sprite_output_frame.buffer_hints = FF_BUFFER_HINTS_VALID;
     v->sprite_output_frame.reference = 0;
-    if (avctx->get_buffer(avctx, &v->sprite_output_frame) < 0) {
+    if (ff_get_buffer(avctx, &v->sprite_output_frame) < 0) {
         av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return -1;
     }
@@ -5166,6 +5183,15 @@ static av_cold int vc1_decode_init(AVCodecContext *avctx)
 
     if (ff_vc1_init_common(v) < 0)
         return -1;
+    // ensure static VLC tables are initialized
+    if (ff_msmpeg4_decode_init(avctx) < 0)
+        return -1;
+    if (ff_vc1_decode_init_alloc_tables(v) < 0)
+        return -1;
+    // Hack to ensure the above functions will be called
+    // again once we know all necessary settings.
+    // That this is necessary might indicate a bug.
+    ff_vc1_decode_end(avctx);
     ff_vc1dsp_init(&v->vc1dsp);
 
     if (avctx->codec_id == AV_CODEC_ID_WMV3 || avctx->codec_id == AV_CODEC_ID_WMV3IMAGE) {
@@ -5310,7 +5336,7 @@ av_cold int ff_vc1_decode_end(AVCodecContext *avctx)
  * @todo TODO: Handle VC-1 IDUs (Transport level?)
  */
 static int vc1_decode_frame(AVCodecContext *avctx, void *data,
-                            int *data_size, AVPacket *avpkt)
+                            int *got_frame, AVPacket *avpkt)
 {
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size, n_slices = 0, i;
@@ -5318,13 +5344,15 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
     MpegEncContext *s = &v->s;
     AVFrame *pict = data;
     uint8_t *buf2 = NULL;
-    const uint8_t *buf_start = buf;
+    const uint8_t *buf_start = buf, *buf_start_second_field = NULL;
     int mb_height, n_slices1=-1;
     struct {
         uint8_t *buf;
         GetBitContext gb;
         int mby_start;
     } *slices = NULL, *tmp;
+
+    v->second_field = 0;
 
     if(s->flags & CODEC_FLAG_LOW_DELAY)
         s->low_delay = 1;
@@ -5336,7 +5364,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
             *pict = s->next_picture_ptr->f;
             s->next_picture_ptr = NULL;
 
-            *data_size = sizeof(AVFrame);
+            *got_frame = 1;
         }
 
         return buf_size;
@@ -5372,6 +5400,9 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                     break;
                 case VC1_CODE_FIELD: {
                     int buf_size3;
+                    if (avctx->hwaccel ||
+                        s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU)
+                        buf_start_second_field = start;
                     tmp = av_realloc(slices, sizeof(*slices) * (n_slices+1));
                     if (!tmp)
                         goto err;
@@ -5423,6 +5454,9 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                 av_log(avctx, AV_LOG_ERROR, "Error in WVC1 interlaced frame\n");
                 goto err;
             } else { // found field marker, unescape second field
+                if (avctx->hwaccel ||
+                    s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU)
+                    buf_start_second_field = divider;
                 tmp = av_realloc(slices, sizeof(*slices) * (n_slices+1));
                 if (!tmp)
                     goto err;
@@ -5476,6 +5510,8 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
         s->low_delay = !avctx->has_b_frames || v->res_sprite;
 
         if (v->profile == PROFILE_ADVANCED) {
+            if(avctx->coded_width<=1 || avctx->coded_height<=1)
+                goto err;
             s->h_edge_pos = avctx->coded_width;
             s->v_edge_pos = avctx->coded_height;
         }
@@ -5492,6 +5528,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
 
     // do parse frame header
     v->pic_header_flag = 0;
+    v->first_pic_header_flag = 1;
     if (v->profile < PROFILE_ADVANCED) {
         if (ff_vc1_parse_frame_header(v, &s->gb) < 0) {
             goto err;
@@ -5501,6 +5538,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
             goto err;
         }
     }
+    v->first_pic_header_flag = 0;
 
     if (avctx->debug & FF_DEBUG_PICT_INFO)
         av_log(v->s.avctx, AV_LOG_DEBUG, "pict_type: %c\n", av_get_picture_type_char(s->pict_type));
@@ -5508,6 +5546,11 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
     if ((avctx->codec_id == AV_CODEC_ID_WMV3IMAGE || avctx->codec_id == AV_CODEC_ID_VC1IMAGE)
         && s->pict_type != AV_PICTURE_TYPE_I) {
         av_log(v->s.avctx, AV_LOG_ERROR, "Sprite decoder: expected I-frame\n");
+        goto err;
+    }
+
+    if ((s->mb_height >> v->field_mode) == 0) {
+        av_log(v->s.avctx, AV_LOG_ERROR, "image too short\n");
         goto err;
     }
 
@@ -5528,7 +5571,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
     s->current_picture.f.key_frame = s->pict_type == AV_PICTURE_TYPE_I;
 
     /* skip B-frames if we don't have reference frames */
-    if (s->last_picture_ptr == NULL && (s->pict_type == AV_PICTURE_TYPE_B || s->dropable)) {
+    if (s->last_picture_ptr == NULL && (s->pict_type == AV_PICTURE_TYPE_B || s->droppable)) {
         goto err;
     }
     if ((avctx->skip_frame >= AVDISCARD_NONREF && s->pict_type == AV_PICTURE_TYPE_B) ||
@@ -5558,13 +5601,46 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
         &&s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU)
         ff_vdpau_vc1_decode_picture(s, buf_start, (buf + buf_size) - buf_start);
     else if (avctx->hwaccel) {
-        if (avctx->hwaccel->start_frame(avctx, buf, buf_size) < 0)
-            goto err;
-        if (avctx->hwaccel->decode_slice(avctx, buf_start, (buf + buf_size) - buf_start) < 0)
-            goto err;
-        if (avctx->hwaccel->end_frame(avctx) < 0)
-            goto err;
+        if (v->field_mode && buf_start_second_field) {
+            // decode first field
+            s->picture_structure = PICT_BOTTOM_FIELD - v->tff;
+            if (avctx->hwaccel->start_frame(avctx, buf_start, buf_start_second_field - buf_start) < 0)
+                goto err;
+            if (avctx->hwaccel->decode_slice(avctx, buf_start, buf_start_second_field - buf_start) < 0)
+                goto err;
+            if (avctx->hwaccel->end_frame(avctx) < 0)
+                goto err;
+
+            // decode second field
+            s->gb = slices[n_slices1 + 1].gb;
+            s->picture_structure = PICT_TOP_FIELD + v->tff;
+            v->second_field = 1;
+            v->pic_header_flag = 0;
+            if (ff_vc1_parse_frame_header_adv(v, &s->gb) < 0) {
+                av_log(avctx, AV_LOG_ERROR, "parsing header for second field failed");
+                goto err;
+            }
+            v->s.current_picture_ptr->f.pict_type = v->s.pict_type;
+
+            if (avctx->hwaccel->start_frame(avctx, buf_start_second_field, (buf + buf_size) - buf_start_second_field) < 0)
+                goto err;
+            if (avctx->hwaccel->decode_slice(avctx, buf_start_second_field, (buf + buf_size) - buf_start_second_field) < 0)
+                goto err;
+            if (avctx->hwaccel->end_frame(avctx) < 0)
+                goto err;
+        } else {
+            s->picture_structure = PICT_FRAME;
+            if (avctx->hwaccel->start_frame(avctx, buf_start, (buf + buf_size) - buf_start) < 0)
+                goto err;
+            if (avctx->hwaccel->decode_slice(avctx, buf_start, (buf + buf_size) - buf_start) < 0)
+                goto err;
+            if (avctx->hwaccel->end_frame(avctx) < 0)
+                goto err;
+        }
     } else {
+        if (v->fcm == ILACE_FRAME && s->pict_type == AV_PICTURE_TYPE_B)
+            goto err; // This codepath is still incomplete thus it is disabled
+
         ff_er_frame_start(s);
 
         v->bits = buf_size * 8;
@@ -5620,8 +5696,13 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
             s->start_mb_y = (i == 0) ? 0 : FFMAX(0, slices[i-1].mby_start % mb_height);
             if (!v->field_mode || v->second_field)
                 s->end_mb_y = (i == n_slices     ) ? mb_height : FFMIN(mb_height, slices[i].mby_start % mb_height);
-            else
+            else {
+                if (i >= n_slices) {
+                    av_log(v->s.avctx, AV_LOG_ERROR, "first field slice count too large\n");
+                    continue;
+                }
                 s->end_mb_y = (i <= n_slices1 + 1) ? mb_height : FFMIN(mb_height, slices[i].mby_start % mb_height);
+            }
             if (s->end_mb_y <= s->start_mb_y) {
                 av_log(v->s.avctx, AV_LOG_ERROR, "end mb y %d %d invalid\n", s->end_mb_y, s->start_mb_y);
                 continue;
@@ -5665,7 +5746,7 @@ image:
             goto err;
 #endif
         *pict      = v->sprite_output_frame;
-        *data_size = sizeof(AVFrame);
+        *got_frame = 1;
     } else {
         if (s->pict_type == AV_PICTURE_TYPE_B || s->low_delay) {
             *pict = s->current_picture_ptr->f;
@@ -5673,7 +5754,7 @@ image:
             *pict = s->last_picture_ptr->f;
         }
         if (s->last_picture_ptr || s->low_delay) {
-            *data_size = sizeof(AVFrame);
+            *got_frame = 1;
             ff_print_debug_info(s, pict);
         }
     }

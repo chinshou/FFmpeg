@@ -94,27 +94,11 @@ static void nspaces(FILE *fd, int n)
     while(n--) putc(' ', fd);
 }
 
-static void printv(int *tab, int l)
-{
-    int i;
-    for (i = 0; i < l; i++)
-        printf("%.3d ", tab[i]);
-    printf("\n");
-}
-
-static void printu(uint8_t *tab, int l)
-{
-    int i;
-    for (i = 0; i < l; i++)
-        printf("%.3hd ", tab[i]);
-    printf("\n");
-}
-
 static void printcomp(J2kComponent *comp)
 {
     int i;
     for (i = 0; i < comp->y1 - comp->y0; i++)
-        printv(comp->data + i * (comp->x1 - comp->x0), comp->x1 - comp->x0);
+        ff_j2k_printv(comp->data + i * (comp->x1 - comp->x0), comp->x1 - comp->x0);
 }
 
 static void dump(J2kEncoderContext *s, FILE *fd)
@@ -871,7 +855,7 @@ static int encode_tile(J2kEncoderContext *s, J2kTile *tile, int tileno)
                                 for (x = xx0; x < xx1; x++){
                                     *ptr = (comp->data[(comp->coord[0][1] - comp->coord[0][0]) * y + x]);
                                     *ptr = (int64_t)*ptr * (int64_t)(8192 * 8192 / band->stepsize) >> 13 - NMSEDEC_FRACBITS;
-                                    *ptr++;
+                                    ptr++;
                                 }
                             }
                         }

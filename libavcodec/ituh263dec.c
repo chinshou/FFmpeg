@@ -102,11 +102,9 @@ static VLC cbpc_b_vlc;
 /* XXX: find a better solution to handle static init */
 void ff_h263_decode_init_vlc(MpegEncContext *s)
 {
-    static int done = 0;
+    static volatile int done = 0;
 
     if (!done) {
-        done = 1;
-
         INIT_VLC_STATIC(&ff_h263_intra_MCBPC_vlc, INTRA_MCBPC_VLC_BITS, 9,
                  ff_h263_intra_MCBPC_bits, 1, 1,
                  ff_h263_intra_MCBPC_code, 1, 1, 72);
@@ -129,6 +127,7 @@ void ff_h263_decode_init_vlc(MpegEncContext *s)
         INIT_VLC_STATIC(&cbpc_b_vlc, CBPC_B_VLC_BITS, 4,
                  &ff_cbpc_b_tab[0][1], 2, 1,
                  &ff_cbpc_b_tab[0][0], 2, 1, 8);
+        done = 1;
     }
 }
 
@@ -567,11 +566,13 @@ static int h263_skip_b_part(MpegEncContext *s, int cbp)
 {
     LOCAL_ALIGNED_16(DCTELEM, dblock, [64]);
     int i, mbi;
+    int bli[6];
 
     /* we have to set s->mb_intra to zero to decode B-part of PB-frame correctly
      * but real value should be restored in order to be used later (in OBMC condition)
      */
     mbi = s->mb_intra;
+    memcpy(bli, s->block_last_index, sizeof(bli));
     s->mb_intra = 0;
     for (i = 0; i < 6; i++) {
         if (h263_decode_block(s, dblock, i, cbp&32) < 0)
@@ -579,6 +580,7 @@ static int h263_skip_b_part(MpegEncContext *s, int cbp)
         cbp+=cbp;
     }
     s->mb_intra = mbi;
+    memcpy(s->block_last_index, bli, sizeof(bli));
     return 0;
 }
 
@@ -1076,6 +1078,10 @@ int ff_h263_decode_picture_header(MpegEncContext *s)
         s->qscale = get_bits(&s->gb, 5);
     }
 
+    if (s->width == 0 || s->height == 0) {
+        av_log(s->avctx, AV_LOG_ERROR, "dimensions 0\n");
+        return -1;
+    }
     s->mb_width = (s->width  + 15) / 16;
     s->mb_height = (s->height  + 15) / 16;
     s->mb_num = s->mb_width * s->mb_height;

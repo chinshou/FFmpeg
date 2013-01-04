@@ -34,6 +34,7 @@
 #include "tiff.h"
 #include "tiff_data.h"
 #include "faxcompr.h"
+#include "internal.h"
 #include "mathops.h"
 #include "libavutil/attributes.h"
 #include "libavutil/intreadwrite.h"
@@ -61,32 +62,35 @@ typedef struct TiffContext {
     int stripsizesoff, stripsize, stripoff, strippos;
     LZWState *lzw;
 
+    uint8_t *deinvert_buf;
+    int deinvert_buf_size;
+
     int geotag_count;
     TiffGeoTag *geotags;
 } TiffContext;
 
 static unsigned tget_short(GetByteContext *gb, int le)
 {
-    unsigned v = le ? bytestream2_get_le16u(gb) : bytestream2_get_be16u(gb);
+    unsigned v = le ? bytestream2_get_le16(gb) : bytestream2_get_be16(gb);
     return v;
 }
 
 static unsigned tget_long(GetByteContext *gb, int le)
 {
-    unsigned v = le ? bytestream2_get_le32u(gb) : bytestream2_get_be32u(gb);
+    unsigned v = le ? bytestream2_get_le32(gb) : bytestream2_get_be32(gb);
     return v;
 }
 
 static double tget_double(GetByteContext *gb, int le)
 {
-    av_alias64 i = { .u64 = le ? bytestream2_get_le64u(gb) : bytestream2_get_be64u(gb)};
+    av_alias64 i = { .u64 = le ? bytestream2_get_le64(gb) : bytestream2_get_be64(gb)};
     return i.f64;
 }
 
 static unsigned tget(GetByteContext *gb, int type, int le)
 {
     switch (type) {
-    case TIFF_BYTE : return bytestream2_get_byteu(gb);
+    case TIFF_BYTE : return bytestream2_get_byte(gb);
     case TIFF_SHORT: return tget_short(gb, le);
     case TIFF_LONG : return tget_long(gb, le);
     default        : return UINT_MAX;
@@ -208,8 +212,9 @@ static char *doubles2str(double *dp, int count, const char *sep)
 {
     int i;
     char *ap, *ap0;
-    int component_len = 15 + strlen(sep);
+    int component_len;
     if (!sep) sep = ", ";
+    component_len = 15 + strlen(sep);
     ap = av_malloc(component_len * count);
     if (!ap)
         return NULL;
@@ -253,7 +258,7 @@ static int add_doubles_metadata(int count,
     int i;
     double *dp;
 
-    if (count >= INT_MAX / sizeof(int64_t))
+    if (count >= INT_MAX / sizeof(int64_t) || count <= 0)
         return AVERROR_INVALIDDATA;
     if (bytestream2_get_bytes_left(&s->gb) < count * sizeof(int64_t))
         return AVERROR_INVALIDDATA;
@@ -279,7 +284,7 @@ static int add_shorts_metadata(int count, const char *name,
     int i;
     int16_t *sp;
 
-    if (count >= INT_MAX / sizeof(int16_t))
+    if (count >= INT_MAX / sizeof(int16_t) || count <= 0)
         return AVERROR_INVALIDDATA;
     if (bytestream2_get_bytes_left(&s->gb) < count * sizeof(int16_t))
         return AVERROR_INVALIDDATA;
@@ -403,18 +408,31 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t *dst, int stride,
 
 #if CONFIG_ZLIB
     if (s->compr == TIFF_DEFLATE || s->compr == TIFF_ADOBE_DEFLATE) {
-        uint8_t *zbuf;
+        uint8_t *src2 = NULL, *zbuf;
         unsigned long outlen;
-        int ret;
+        int i, ret;
         outlen = width * lines;
         zbuf = av_malloc(outlen);
         if (!zbuf)
             return AVERROR(ENOMEM);
+        if (s->fill_order) {
+            src2 = av_malloc((unsigned)size + FF_INPUT_BUFFER_PADDING_SIZE);
+            if (!src2) {
+                av_log(s->avctx, AV_LOG_ERROR, "Error allocating temporary buffer\n");
+                av_free(zbuf);
+                return AVERROR(ENOMEM);
+            }
+            for (i = 0; i < size; i++)
+                src2[i] = ff_reverse[src[i]];
+            memset(src2 + size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+            src = src2;
+        }
         ret = tiff_uncompress(zbuf, &outlen, src, size);
         if (ret != Z_OK) {
             av_log(s->avctx, AV_LOG_ERROR,
                    "Uncompressing failed (%lu of %lu) with error %d\n", outlen,
                    (unsigned long)width * lines, ret);
+            av_free(src2);
             av_free(zbuf);
             return -1;
         }
@@ -428,11 +446,25 @@ static int tiff_unpack_strip(TiffContext *s, uint8_t *dst, int stride,
             dst += stride;
             src += width;
         }
+        av_free(src2);
         av_free(zbuf);
         return 0;
     }
 #endif
     if (s->compr == TIFF_LZW) {
+        if (s->fill_order) {
+            int i;
+            av_fast_padded_malloc(&s->deinvert_buf, &s->deinvert_buf_size, size);
+            if (!s->deinvert_buf)
+                return AVERROR(ENOMEM);
+            for (i = 0; i < size; i++)
+                s->deinvert_buf[i] = ff_reverse[src[i]];
+            src = s->deinvert_buf;
+            ssrc = src;
+        }
+        if (size > 1 && !src[0] && (src[1]&1)) {
+            av_log(s->avctx, AV_LOG_ERROR, "Old style LZW is unsupported\n");
+        }
         if (ff_lzw_decode_init(s->lzw, 8, src, size, FF_LZW_TIFF) < 0) {
             av_log(s->avctx, AV_LOG_ERROR, "Error initializing LZW decoder\n");
             return -1;
@@ -596,7 +628,7 @@ static int init_image(TiffContext *s)
     }
     if (s->picture.data[0])
         s->avctx->release_buffer(s->avctx, &s->picture);
-    if ((ret = s->avctx->get_buffer(s->avctx, &s->picture)) < 0) {
+    if ((ret = ff_get_buffer(s->avctx, &s->picture)) < 0) {
         av_log(s->avctx, AV_LOG_ERROR, "get_buffer() failed\n");
         return ret;
     }
@@ -982,7 +1014,7 @@ static int tiff_decode_tag(TiffContext *s)
 }
 
 static int decode_frame(AVCodecContext *avctx,
-                        void *data, int *data_size, AVPacket *avpkt)
+                        void *data, int *got_frame, AVPacket *avpkt)
 {
     TiffContext *const s = avctx->priv_data;
     AVFrame *picture = data;
@@ -1017,8 +1049,9 @@ static int decode_frame(AVCodecContext *avctx,
     s->compr = TIFF_RAW;
     s->fill_order = 0;
     free_geotags(s);
-    /* free existing metadata */
-    av_dict_free(&s->picture.metadata);
+    /* metadata has been destroyed from lavc internals, that pointer is not
+     * valid anymore */
+    s->picture.metadata = NULL;
 
     // As TIFF 6.0 specification puts it "An arbitrary but carefully chosen number
     // that further identifies the file as a TIFF file"
@@ -1077,14 +1110,19 @@ static int decode_frame(AVCodecContext *avctx,
     dst = p->data[0];
 
     if (s->stripsizesoff) {
-        if (s->stripsizesoff >= avpkt->size)
+        if (s->stripsizesoff >= (unsigned)avpkt->size)
             return AVERROR_INVALIDDATA;
         bytestream2_init(&stripsizes, avpkt->data + s->stripsizesoff, avpkt->size - s->stripsizesoff);
     }
     if (s->strippos) {
-        if (s->strippos >= avpkt->size)
+        if (s->strippos >= (unsigned)avpkt->size)
             return AVERROR_INVALIDDATA;
         bytestream2_init(&stripdata, avpkt->data + s->strippos, avpkt->size - s->strippos);
+    }
+
+    if (s->rps <= 0) {
+        av_log(avctx, AV_LOG_ERROR, "rps %d invalid\n", s->rps);
+        return AVERROR_INVALIDDATA;
     }
 
     for (i = 0; i < s->height; i += s->rps) {
@@ -1143,7 +1181,7 @@ static int decode_frame(AVCodecContext *avctx,
         }
     }
     *picture   = s->picture;
-    *data_size = sizeof(AVPicture);
+    *got_frame = 1;
 
     return avpkt->size;
 }
@@ -1168,10 +1206,9 @@ static av_cold int tiff_end(AVCodecContext *avctx)
     TiffContext *const s = avctx->priv_data;
 
     free_geotags(s);
-    if (avctx->coded_frame && avctx->coded_frame->metadata)
-        av_dict_free(&avctx->coded_frame->metadata);
 
     ff_lzw_decode_close(&s->lzw);
+    av_freep(&s->deinvert_buf);
     if (s->picture.data[0])
         avctx->release_buffer(avctx, &s->picture);
     return 0;
