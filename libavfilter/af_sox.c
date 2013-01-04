@@ -177,7 +177,7 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
-static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *insamples)
 {
     SoxContext *sox = inlink->dst->priv;
     AVFilterBufferRef *outsamples;
@@ -195,7 +195,7 @@ static int filter_samples(AVFilterLink *inlink, AVFilterBufferRef *insamples)
         (int32_t *)outsamples->data[0], &nb_in_samples, &nb_out_samples);
 
     outsamples->audio->nb_samples = nb_out_samples / sox->effect->out_signal.channels;
-    return ff_filter_samples(inlink->dst->outputs[0], outsamples);
+    return ff_filter_frame(inlink->dst->outputs[0], outsamples);
 }
 
 static int request_frame(AVFilterLink *outlink)
@@ -215,7 +215,7 @@ static int request_frame(AVFilterLink *outlink)
             ret = effect->handler.drain(sox->effect,
                                         (int32_t *)outsamples->data[0], &out_nb_samples);
             outsamples->audio->nb_samples = out_nb_samples / effect->out_signal.channels;
-            ff_filter_samples(outlink, outsamples);
+            ff_filter_frame(outlink, outsamples);
             if (ret == SOX_EOF)
                 break;
         }
@@ -236,7 +236,7 @@ AVFilter avfilter_af_sox = {
         {
             .name             = "default",
             .type             = AVMEDIA_TYPE_AUDIO,
-            .filter_samples   = filter_samples,
+            .filter_frame   = filter_frame,
             .min_perms        = AV_PERM_READ,
         },
         { .name = NULL }
