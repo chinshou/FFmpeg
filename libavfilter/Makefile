@@ -95,6 +95,7 @@ OBJS-$(CONFIG_FLITE_FILTER)                  += asrc_flite.o
 OBJS-$(CONFIG_ANULLSINK_FILTER)              += asink_anullsink.o
 
 OBJS-$(CONFIG_ASS_FILTER)                    += vf_subtitles.o
+OBJS-$(CONFIG_ASS_OLD_FILTER)                += vf_ass_old.o
 OBJS-$(CONFIG_ALPHAEXTRACT_FILTER)           += vf_alphaextract.o
 OBJS-$(CONFIG_ALPHAMERGE_FILTER)             += vf_alphamerge.o
 OBJS-$(CONFIG_BBOX_FILTER)                   += bbox.o vf_bbox.o
