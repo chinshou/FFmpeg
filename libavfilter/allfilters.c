@@ -104,6 +104,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(ALPHAEXTRACT,   alphaextract,   vf);
     REGISTER_FILTER(ALPHAMERGE,     alphamerge,     vf);
     REGISTER_FILTER(ASS,            ass,            vf);
+    REGISTER_FILTER(ASS_OLD,        ass_old,            vf);
     REGISTER_FILTER(BBOX,           bbox,           vf);
     REGISTER_FILTER(BLACKDETECT,    blackdetect,    vf);
     REGISTER_FILTER(BLACKFRAME,     blackframe,     vf);
