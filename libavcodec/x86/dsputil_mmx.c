@@ -2336,6 +2336,7 @@ static void dsputil_init_mmxext(DSPContext *c, AVCodecContext *avctx,
     const int high_bit_depth = bit_depth > 8;
 
 #if HAVE_INLINE_ASM
+#if 0
     SET_QPEL_FUNCS(avg_qpel,        0, 16, mmxext, );
     SET_QPEL_FUNCS(avg_qpel,        1,  8, mmxext, );
     SET_QPEL_FUNCS(avg_2tap_qpel,   0, 16, mmxext, );
@@ -2347,6 +2348,7 @@ static void dsputil_init_mmxext(DSPContext *c, AVCodecContext *avctx,
     SET_QPEL_FUNCS(put_2tap_qpel,   1,  8, mmxext, );
     SET_QPEL_FUNCS(put_no_rnd_qpel, 0, 16, mmxext, );
     SET_QPEL_FUNCS(put_no_rnd_qpel, 1,  8, mmxext, );
+#endif
 
     if (!high_bit_depth) {
         c->put_pixels_tab[0][1] = put_pixels16_x2_mmxext;
