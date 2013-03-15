@@ -142,7 +142,7 @@ static int build_filter(ResampleContext *c, void *filter, double factor, int tap
             break;
         case AV_SAMPLE_FMT_S32P:
             for(i=0;i<tap_count;i++)
-                ((int32_t*)filter)[ph * alloc + i] = av_clip(lrintf(tab[i] * scale / norm), INT32_MIN, INT32_MAX);
+                ((int32_t*)filter)[ph * alloc + i] = av_clipl_int32(llrint(tab[i] * scale / norm));
             break;
         case AV_SAMPLE_FMT_FLTP:
             for(i=0;i<tap_count;i++)
@@ -198,7 +198,7 @@ static int build_filter(ResampleContext *c, void *filter, double factor, int tap
 static ResampleContext *resample_init(ResampleContext *c, int out_rate, int in_rate, int filter_size, int phase_shift, int linear,
                                     double cutoff0, enum AVSampleFormat format, enum SwrFilterType filter_type, int kaiser_beta,
                                     double precision, int cheby){
-    double cutoff = cutoff0? cutoff0 : 0.8;
+    double cutoff = cutoff0? cutoff0 : 0.97;
     double factor= FFMIN(out_rate * cutoff / in_rate, 1.0);
     int phase_count= 1<<phase_shift;
 
@@ -235,7 +235,7 @@ static ResampleContext *resample_init(ResampleContext *c, int out_rate, int in_r
         c->factor        = factor;
         c->filter_length = FFMAX((int)ceil(filter_size/factor), 1);
         c->filter_alloc  = FFALIGN(c->filter_length, 8);
-        c->filter_bank   = av_mallocz(c->filter_alloc*(phase_count+1)*c->felem_size);
+        c->filter_bank   = av_calloc(c->filter_alloc, (phase_count+1)*c->felem_size);
         c->filter_type   = filter_type;
         c->kaiser_beta   = kaiser_beta;
         if (!c->filter_bank)

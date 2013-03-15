@@ -395,7 +395,7 @@ int avformat_write_header(AVFormatContext *s, AVDictionary **options)
             return ret;
     }
 
-    if ((ret = init_pts(s) < 0))
+    if ((ret = init_pts(s)) < 0)
         return ret;
 
     return 0;
@@ -490,13 +490,12 @@ static int compute_pkt_fields2(AVFormatContext *s, AVStream *st, AVPacket *pkt)
  */
 static inline int split_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
-    int ret;
-    AVPacket spkt = *pkt;
+    int ret, did_split;
 
-    av_packet_split_side_data(&spkt);
-    ret = s->oformat->write_packet(s, &spkt);
-    spkt.data = NULL;
-    av_destruct_packet(&spkt);
+    did_split = av_packet_split_side_data(pkt);
+    ret = s->oformat->write_packet(s, pkt);
+    if (did_split)
+        av_packet_merge_side_data(pkt);
     return ret;
 }
 
@@ -541,7 +540,10 @@ int ff_interleave_add_packet(AVFormatContext *s, AVPacket *pkt,
     if (!this_pktl)
         return AVERROR(ENOMEM);
     this_pktl->pkt = *pkt;
+#if FF_API_DESTRUCT_PACKET
     pkt->destruct  = NULL;           // do not free original but only the copy
+#endif
+    pkt->buf       = NULL;
     av_dup_packet(&this_pktl->pkt);  // duplicate the packet if it uses non-allocated memory
 
     if (s->streams[pkt->stream_index]->last_in_packet_buffer) {
@@ -550,20 +552,26 @@ int ff_interleave_add_packet(AVFormatContext *s, AVPacket *pkt,
         next_point = &s->packet_buffer;
     }
 
-    if (*next_point) {
-        if (chunked) {
-            uint64_t max= av_rescale_q(s->max_chunk_duration, AV_TIME_BASE_Q, st->time_base);
-            if (   st->interleaver_chunk_size     + pkt->size     <= s->max_chunk_size-1U
-                && st->interleaver_chunk_duration + pkt->duration <= max-1U) {
-                st->interleaver_chunk_size     += pkt->size;
-                st->interleaver_chunk_duration += pkt->duration;
-                goto next_non_null;
-            } else {
-                st->interleaver_chunk_size     =
+    if (chunked) {
+        uint64_t max= av_rescale_q_rnd(s->max_chunk_duration, AV_TIME_BASE_Q, st->time_base, AV_ROUND_UP);
+        st->interleaver_chunk_size     += pkt->size;
+        st->interleaver_chunk_duration += pkt->duration;
+        if (   (s->max_chunk_size && st->interleaver_chunk_size > s->max_chunk_size)
+            || (max && st->interleaver_chunk_duration           > max)) {
+            st->interleaver_chunk_size      = 0;
+            this_pktl->pkt.flags |= CHUNK_START;
+            if (max && st->interleaver_chunk_duration > max) {
+                int64_t syncoffset = (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)*max/2;
+                int64_t syncto = av_rescale(pkt->dts + syncoffset, 1, max)*max - syncoffset;
+
+                st->interleaver_chunk_duration += (pkt->dts - syncto)/8 - max;
+            } else
                 st->interleaver_chunk_duration = 0;
-                this_pktl->pkt.flags |= CHUNK_START;
-            }
         }
+    }
+    if (*next_point) {
+        if (chunked && !(this_pktl->pkt.flags & CHUNK_START))
+            goto next_non_null;
 
         if (compare(s, &s->packet_buffer_end->pkt, pkt)) {
             while (   *next_point
@@ -690,15 +698,6 @@ int ff_interleave_packet_per_dts(AVFormatContext *s, AVPacket *out,
         return 0;
     }
 }
-
-#if FF_API_INTERLEAVE_PACKET
-int av_interleave_packet_per_dts(AVFormatContext *s, AVPacket *out,
-                                 AVPacket *pkt, int flush)
-{
-    return ff_interleave_packet_per_dts(s, out, pkt, flush);
-}
-
-#endif
 
 /**
  * Interleave an AVPacket correctly so it can be muxed.

@@ -55,7 +55,7 @@ fate-vsynth%-dv-50:              DECOPTS = -sws_flags neighbor
 fate-vsynth%-dv-50:              FMT     = dv
 
 FATE_VCODEC-$(call ENCDEC, FFV1, AVI)   += ffv1
-fate-vsynth%-ffv1:               ENCOPTS = -strict -2
+fate-vsynth%-ffv1:               ENCOPTS = -slices 4 -strict -2
 
 FATE_VCODEC-$(call ENCDEC, FFVHUFF, AVI) += ffvhuff
 
@@ -124,7 +124,7 @@ $(FATE_MPEG2:%=fate-vsynth\%-%): FMT    = mpeg2video
 $(FATE_MPEG2:%=fate-vsynth\%-%): CODEC  = mpeg2video
 
 fate-vsynth%-mpeg2:              ENCOPTS = -qscale 10
-fate-vsynth%-mpeg2-422:          ENCOPTS = -vb 1000k                    \
+fate-vsynth%-mpeg2-422:          ENCOPTS = -b:v 1000k                   \
                                            -bf 2                        \
                                            -trellis 1                   \
                                            -flags +mv0+ildct+ilme       \
@@ -134,7 +134,7 @@ fate-vsynth%-mpeg2-422:          ENCOPTS = -vb 1000k                    \
                                            -pix_fmt yuv422p
 fate-vsynth%-mpeg2-idct-int:     ENCOPTS = -qscale 10 -idct int -dct int
 fate-vsynth%-mpeg2-ilace:        ENCOPTS = -qscale 10 -flags +ildct+ilme
-fate-vsynth%-mpeg2-ivlc-qprd:    ENCOPTS = -vb 500k                     \
+fate-vsynth%-mpeg2-ivlc-qprd:    ENCOPTS = -b:v 500k                    \
                                            -bf 2                        \
                                            -trellis 1                   \
                                            -flags +mv0                  \
@@ -163,33 +163,33 @@ FATE_VCODEC-$(call ENCDEC, MPEG4, AVI)     += $(FATE_MPEG4_AVI)
 fate-vsynth%-mpeg4:              ENCOPTS = -qscale 10 -flags +mv4 -mbd bits
 fate-vsynth%-mpeg4:              FMT     = mp4
 
-fate-vsynth%-mpeg4-rc:           ENCOPTS = -b 400k -bf 2
-
-fate-vsynth%-mpeg4-adv:          ENCOPTS = -qscale 9 -flags +mv4+aic       \
-                                           -data_partitioning 1 -trellis 1 \
-                                           -mbd bits -ps 200
-
-fate-vsynth%-mpeg4-qprd:         ENCOPTS = -b 450k -bf 2 -trellis 1          \
-                                           -flags +mv4+mv0 -mpv_flags +qp_rd \
-                                           -cmp 2 -subcmp 2 -mbd rd
-
 fate-vsynth%-mpeg4-adap:         ENCOPTS = -b 550k -bf 2 -flags +mv4+mv0 \
                                            -trellis 1 -cmp 1 -subcmp 2   \
                                            -mbd rd -scplx_mask 0.3
 
-fate-vsynth%-mpeg4-qpel:         ENCOPTS = -qscale 7 -flags +mv4+qpel -mbd 2 \
-                                           -bf 2 -cmp 1 -subcmp 2
-
-fate-vsynth%-mpeg4-thread:       ENCOPTS = -b 500k -flags +mv4+aic         \
+fate-vsynth%-mpeg4-adv:          ENCOPTS = -qscale 9 -flags +mv4+aic       \
                                            -data_partitioning 1 -trellis 1 \
-                                           -mbd bits -ps 200 -bf 2         \
-                                           -threads 2 -slices 2
+                                           -mbd bits -ps 200
 
 fate-vsynth%-mpeg4-error:        ENCOPTS = -qscale 7 -flags +mv4+aic    \
                                            -data_partitioning 1 -mbd rd \
                                            -ps 250 -error 10
 
 fate-vsynth%-mpeg4-nr:           ENCOPTS = -qscale 8 -flags +mv4 -mbd rd -nr 200
+
+fate-vsynth%-mpeg4-qpel:         ENCOPTS = -qscale 7 -flags +mv4+qpel -mbd 2 \
+                                           -bf 2 -cmp 1 -subcmp 2
+
+fate-vsynth%-mpeg4-qprd:         ENCOPTS = -b 450k -bf 2 -trellis 1          \
+                                           -flags +mv4+mv0 -mpv_flags +qp_rd \
+                                           -cmp 2 -subcmp 2 -mbd rd
+
+fate-vsynth%-mpeg4-rc:           ENCOPTS = -b 400k -bf 2
+
+fate-vsynth%-mpeg4-thread:       ENCOPTS = -b 500k -flags +mv4+aic         \
+                                           -data_partitioning 1 -trellis 1 \
+                                           -mbd bits -ps 200 -bf 2         \
+                                           -threads 2 -slices 2
 
 FATE_VCODEC-$(call ENCDEC, MSMPEG4V3, AVI) += msmpeg4
 fate-vsynth%-msmpeg4:            ENCOPTS = -qscale 10

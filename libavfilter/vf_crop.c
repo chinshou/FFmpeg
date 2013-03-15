@@ -70,7 +70,6 @@ enum var_name {
     VAR_X,
     VAR_Y,
     VAR_N,
-    VAR_POS,
     VAR_T,
     VAR_VARS_NB
 };
@@ -102,7 +101,7 @@ static const AVOption crop_options[] = {
     { "w",           "set the width crop area expression",   OFFSET(w_expr), AV_OPT_TYPE_STRING, {.str = "iw"}, CHAR_MIN, CHAR_MAX, FLAGS },
     { "out_h",       "set the height crop area expression",  OFFSET(h_expr), AV_OPT_TYPE_STRING, {.str = "ih"}, CHAR_MIN, CHAR_MAX, FLAGS },
     { "h",           "set the height crop area expression",  OFFSET(h_expr), AV_OPT_TYPE_STRING, {.str = "ih"}, CHAR_MIN, CHAR_MAX, FLAGS },
-    { "keep_aspect", "force packed RGB in input and output", OFFSET(keep_aspect), AV_OPT_TYPE_INT, {.i64=0}, 0, 1, FLAGS },
+    { "keep_aspect", "keep aspect ratio",                    OFFSET(keep_aspect), AV_OPT_TYPE_INT, {.i64=0}, 0, 1, FLAGS },
     {NULL}
 };
 
@@ -198,7 +197,6 @@ static int config_input(AVFilterLink *link)
     crop->var_values[VAR_OUT_H] = crop->var_values[VAR_OH] = NAN;
     crop->var_values[VAR_N]     = 0;
     crop->var_values[VAR_T]     = NAN;
-    crop->var_values[VAR_POS]   = NAN;
 
     av_image_fill_max_pixsteps(crop->max_step, NULL, pix_desc);
     crop->hsub = pix_desc->log2_chroma_w;
@@ -277,19 +275,18 @@ static int config_output(AVFilterLink *link)
     return 0;
 }
 
-static int filter_frame(AVFilterLink *link, AVFilterBufferRef *frame)
+static int filter_frame(AVFilterLink *link, AVFrame *frame)
 {
     AVFilterContext *ctx = link->dst;
     CropContext *crop = ctx->priv;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(link->format);
     int i;
 
-    frame->video->w = crop->w;
-    frame->video->h = crop->h;
+    frame->width  = crop->w;
+    frame->height = crop->h;
 
     crop->var_values[VAR_T] = frame->pts == AV_NOPTS_VALUE ?
         NAN : frame->pts * av_q2d(link->time_base);
-    crop->var_values[VAR_POS] = frame->pos == -1 ? NAN : frame->pos;
     crop->var_values[VAR_X] = av_expr_eval(crop->x_pexpr, crop->var_values, NULL);
     crop->var_values[VAR_Y] = av_expr_eval(crop->y_pexpr, crop->var_values, NULL);
     crop->var_values[VAR_X] = av_expr_eval(crop->x_pexpr, crop->var_values, NULL);

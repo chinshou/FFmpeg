@@ -40,9 +40,6 @@ static av_cold int ra144_encode_close(AVCodecContext *avctx)
     RA144Context *ractx = avctx->priv_data;
     ff_lpc_end(&ractx->lpc_ctx);
     ff_af_queue_close(&ractx->afq);
-#if FF_API_OLD_ENCODE_AUDIO
-    av_freep(&avctx->coded_frame);
-#endif
     return 0;
 }
 
@@ -70,14 +67,6 @@ static av_cold int ra144_encode_init(AVCodecContext * avctx)
         goto error;
 
     ff_af_queue_init(avctx, &ractx->afq);
-
-#if FF_API_OLD_ENCODE_AUDIO
-    avctx->coded_frame = avcodec_alloc_frame();
-    if (!avctx->coded_frame) {
-        ret = AVERROR(ENOMEM);
-        goto error;
-    }
-#endif
 
     return 0;
 error:
@@ -208,8 +197,8 @@ static void create_adapt_vect(float *vect, const int16_t *cb, int lag)
 static int adaptive_cb_search(const int16_t *adapt_cb, float *work,
                               const float *coefs, float *data)
 {
-    int i, best_vect;
-    float score, gain, best_score, best_gain;
+    int i, av_uninit(best_vect);
+    float score, gain, best_score, av_uninit(best_gain);
     float exc[BLOCKSIZE];
 
     gain = best_score = 0;
@@ -458,7 +447,7 @@ static int ra144_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     if (ractx->last_frame)
         return 0;
 
-    if ((ret = ff_alloc_packet2(avctx, avpkt, FRAMESIZE)))
+    if ((ret = ff_alloc_packet2(avctx, avpkt, FRAMESIZE)) < 0)
         return ret;
 
     /**
@@ -536,7 +525,7 @@ static int ra144_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
         for (; i < frame->nb_samples; i++)
             ractx->curr_block[i] = samples[i] >> 2;
 
-        if ((ret = ff_af_queue_add(&ractx->afq, frame) < 0))
+        if ((ret = ff_af_queue_add(&ractx->afq, frame)) < 0)
             return ret;
     } else
         ractx->last_frame = 1;

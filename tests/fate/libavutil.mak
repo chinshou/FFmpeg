@@ -8,6 +8,11 @@ fate-aes: libavutil/aes-test$(EXESUF)
 fate-aes: CMD = run libavutil/aes-test
 fate-aes: REF = /dev/null
 
+FATE_LIBAVUTIL += fate-atomic
+fate-atomic: libavutil/atomic-test$(EXESUF)
+fate-atomic: CMD = run libavutil/atomic-test
+fate-atomic: REF = /dev/null
+
 FATE_LIBAVUTIL += fate-avstring
 fate-avstring: libavutil/avstring-test$(EXESUF)
 fate-avstring: CMD = run libavutil/avstring-test
@@ -40,6 +45,10 @@ fate-eval: CMD = run libavutil/eval-test
 FATE_LIBAVUTIL += fate-fifo
 fate-fifo: libavutil/fifo-test$(EXESUF)
 fate-fifo: CMD = run libavutil/fifo-test
+
+FATE_LIBAVUTIL += fate-hmac
+fate-hmac: libavutil/hmac-test$(EXESUF)
+fate-hmac: CMD = run libavutil/hmac-test
 
 FATE_LIBAVUTIL += fate-md5
 fate-md5: libavutil/md5-test$(EXESUF)

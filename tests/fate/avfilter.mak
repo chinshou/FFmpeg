@@ -11,9 +11,11 @@ FATE_LAVFI = fate-lavfi-alphaextract_rgb                                \
              fate-lavfi-fade                                            \
              fate-lavfi-field                                           \
              fate-lavfi-idet                                            \
-             fate-lavfi-life                                            \
+             fate-lavfi-il                                              \
              fate-lavfi-null                                            \
-             fate-lavfi-overlay                                         \
+             fate-lavfi-overlay_rgb                                     \
+             fate-lavfi-overlay_yuv420                                  \
+             fate-lavfi-overlay_yuv444                                  \
              fate-lavfi-pad                                             \
              fate-lavfi-pixfmts_copy                                    \
              fate-lavfi-pixfmts_crop                                    \
@@ -25,11 +27,9 @@ FATE_LAVFI = fate-lavfi-alphaextract_rgb                                \
              fate-lavfi-pixfmts_vflip                                   \
              fate-lavfi-scale200                                        \
              fate-lavfi-scale500                                        \
-             fate-lavfi-scalenorm                                       \
              fate-lavfi-select                                          \
              fate-lavfi-setdar                                          \
              fate-lavfi-setsar                                          \
-             fate-lavfi-testsrc                                         \
              fate-lavfi-thumbnail                                       \
              fate-lavfi-tile                                            \
              fate-lavfi-transpose                                       \
@@ -38,19 +38,23 @@ FATE_LAVFI = fate-lavfi-alphaextract_rgb                                \
              fate-lavfi-vflip_crop                                      \
              fate-lavfi-vflip_vflip                                     \
 
+FATE_LAVFI-$(CONFIG_AVDEVICE) += fate-lavfi-life                        \
+                                 fate-lavfi-scalenorm                   \
+                                 fate-lavfi-testsrc                     \
+
 FATE_LAVFI-$(CONFIG_GPL) += fate-lavfi-colormatrix1                     \
                             fate-lavfi-colormatrix2                     \
                             fate-lavfi-hue                              \
+                            fate-lavfi-kerndeint                        \
                             fate-lavfi-pixfmts_super2xsai               \
+                            fate-lavfi-pp                               \
+                            fate-lavfi-pp2                              \
+                            fate-lavfi-pp3                              \
+                            fate-lavfi-pp4                              \
+                            fate-lavfi-pp5                              \
+                            fate-lavfi-pp6                              \
                             fate-lavfi-tinterlace_merge                 \
                             fate-lavfi-tinterlace_pad                   \
-
-FATE_LAVFI-$(CONFIG_MP_FILTER) += fate-lavfi-pp                         \
-             fate-lavfi-pp2                                             \
-             fate-lavfi-pp3                                             \
-             fate-lavfi-pp4                                             \
-             fate-lavfi-pp5                                             \
-             fate-lavfi-pp6                                             \
 
 FATE_LAVFI += $(FATE_LAVFI-yes)
 
