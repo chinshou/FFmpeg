@@ -184,7 +184,7 @@ static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *insamples)
     size_t nb_in_samples, nb_out_samples;
 
     // FIXME not handling planar data
-    outsamples = ff_get_audio_buffer(inlink, AV_PERM_WRITE, insamples->audio->nb_samples);
+    outsamples = ff_get_audio_buffer(inlink, insamples->audio->nb_samples);
     avfilter_copy_buffer_ref_props(outsamples, insamples);
 
     nb_out_samples = nb_in_samples =
@@ -211,7 +211,7 @@ static int request_frame(AVFilterLink *outlink)
         /* drain cached samples */
         while (0) {
             outsamples =
-                ff_get_audio_buffer(outlink, AV_PERM_WRITE, out_nb_samples);
+                ff_get_audio_buffer(outlink, out_nb_samples);
             ret = effect->handler.drain(sox->effect,
                                         (int32_t *)outsamples->data[0], &out_nb_samples);
             outsamples->audio->nb_samples = out_nb_samples / effect->out_signal.channels;
