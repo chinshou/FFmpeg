@@ -146,15 +146,16 @@ static int waveform_read_close(AVFormatContext *s)
     return 0;                                                                                                                                        
 }                                                                                                                                                    
                                                                                                                                                      
-static enum CodecID bits_to_codec_id(int n)                                                                                                          
+static enum AVCodecID bits_to_codec_id(int n)                                                                                                          
 {                                                                                                                                                    
     switch (n) {                                                                                                                                     
-    case  8: return CODEC_ID_PCM_U8;                                                                                                                 
-    case 16: return CODEC_ID_PCM_S16LE;                                                                                                              
-    case 32: return CODEC_ID_PCM_S32LE;                                                                                                              
-    default: return CODEC_ID_NONE;                                                                                                                   
+    case  8: return AV_CODEC_ID_PCM_U8;                                                                                                                 
+    case 16: return AV_CODEC_ID_PCM_S16LE;                                                                                                              
+    case 32: return AV_CODEC_ID_PCM_S32LE;                                                                                                              
+    default: return AV_CODEC_ID_NONE;                                                                                                                   
     }                                                                                                                                                
-}                                                                                                                                                    
+}                                                                  
+                                                                                  
 static enum AVSampleFormat bits_to_sample_fmt(int n)                                                                                                   
 {                                                                                                                                                    
     switch (n) {                                                                                                                                     
