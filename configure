@@ -3994,10 +3994,10 @@ enabled libx264    && require  libx264 x264.h x264_encoder_encode -lx264 &&
                         die "ERROR: libx264 must be installed and version must be >= 0.118."; }
 enabled libxavs    && require  libxavs xavs.h xavs_encoder_encode -lxavs
 enabled libxvid    && require  libxvid xvid.h xvid_global -lxvidcore
-enabled openal     && { { for al_libs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32"; do
-                        check_lib 'AL/al.h' alGetError "${al_libs}" && break; done } ||
+enabled openal     && { { for al_libs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32" "-Wl,-framework,OpenAL"; do
+                        check_lib 'OpenAL/al.h' alGetError "${al_libs}" && break; done } ||
                         die "ERROR: openal not found"; } &&
-                      { check_cpp_condition "AL/al.h" "defined(AL_VERSION_1_1)" ||
+                      { check_cpp_condition "OpenAL/al.h" "defined(AL_VERSION_1_1)" ||
                         die "ERROR: openal must be installed and version must be 1.1 or compatible"; }
 enabled openssl    && { check_lib openssl/ssl.h SSL_library_init -lssl -lcrypto ||
                         check_lib openssl/ssl.h SSL_library_init -lssl32 -leay32 ||
