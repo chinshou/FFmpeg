@@ -1314,6 +1314,7 @@ static OutputStream *new_attachment_stream(OptionsContext *o, AVFormatContext *o
 {
     OutputStream *ost = new_output_stream(o, oc, AVMEDIA_TYPE_ATTACHMENT, source_index);
     ost->stream_copy = 1;
+    ost->finished    = 1;
     return ost;
 }
 
@@ -2602,6 +2603,8 @@ const OptionDef options[] = {
         "reinit filtergraph on input parameter changes", "" },
     { "filter_complex", HAS_ARG | OPT_EXPERT,                        { .func_arg = opt_filter_complex },
         "create a complex filtergraph", "graph_description" },
+    { "lavfi",          HAS_ARG | OPT_EXPERT,                        { .func_arg = opt_filter_complex },
+        "create a complex filtergraph", "graph_description" },
     { "stats",          OPT_BOOL,                                    { &print_stats },
         "print progress report during encoding", },
     { "attach",         HAS_ARG | OPT_PERFILE | OPT_EXPERT |
@@ -2732,9 +2735,9 @@ const OptionDef options[] = {
         "force subtitle codec ('copy' to copy stream)", "codec" },
     { "stag",   OPT_SUBTITLE | HAS_ARG  | OPT_EXPERT  | OPT_PERFILE | OPT_OUTPUT, { .func_arg = opt_old2new }
         , "force subtitle tag/fourcc", "fourcc/tag" },
-    { "fix_sub_duration", OPT_BOOL | OPT_EXPERT | OPT_SUBTITLE | OPT_SPEC, { .off = OFFSET(fix_sub_duration) },
+    { "fix_sub_duration", OPT_BOOL | OPT_EXPERT | OPT_SUBTITLE | OPT_SPEC | OPT_INPUT, { .off = OFFSET(fix_sub_duration) },
         "fix subtitles duration" },
-    { "canvas_size", OPT_SUBTITLE | HAS_ARG | OPT_STRING | OPT_SPEC, { .off = OFFSET(canvas_sizes) },
+    { "canvas_size", OPT_SUBTITLE | HAS_ARG | OPT_STRING | OPT_SPEC | OPT_INPUT, { .off = OFFSET(canvas_sizes) },
         "set canvas size (WxH or abbreviation)", "size" },
 
     /* grab options */

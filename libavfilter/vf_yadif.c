@@ -157,6 +157,8 @@ static void filter_edges_16bit(void *dst1, void *prev1, void *cur1, void *next1,
     int x;
     uint16_t *prev2 = parity ? prev : cur ;
     uint16_t *next2 = parity ? cur  : next;
+    mrefs /= 2;
+    prefs /= 2;
 
     FILTER(0, 3, 0)
 
@@ -462,10 +464,10 @@ static int config_props(AVFilterLink *link)
     } else {
         s->filter_line  = filter_line_c;
         s->filter_edges = filter_edges;
-
-        if (ARCH_X86)
-            ff_yadif_init_x86(s);
     }
+
+    if (ARCH_X86)
+        ff_yadif_init_x86(s);
 
     return 0;
 }

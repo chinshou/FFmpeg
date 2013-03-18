@@ -1237,21 +1237,29 @@ static enum AVPixelFormat mpeg_get_pixelformat(AVCodecContext *avctx)
     MpegEncContext *s = &s1->mpeg_enc_ctx;
 
     if(s->chroma_format < 2) {
-        enum AVPixelFormat res;
-        res = avctx->get_format(avctx,
+        return avctx->get_format(avctx,
                                 avctx->codec_id == AV_CODEC_ID_MPEG1VIDEO ?
                                 mpeg1_hwaccel_pixfmt_list_420 :
                                 mpeg2_hwaccel_pixfmt_list_420);
-        if (res != AV_PIX_FMT_XVMC_MPEG2_IDCT && res != AV_PIX_FMT_XVMC_MPEG2_MC) {
-            avctx->xvmc_acceleration = 0;
-        } else if (!avctx->xvmc_acceleration) {
-            avctx->xvmc_acceleration = 2;
-        }
-        return res;
     } else if(s->chroma_format == 2)
         return AV_PIX_FMT_YUV422P;
     else
         return AV_PIX_FMT_YUV444P;
+}
+
+static void setup_hwaccel_for_pixfmt(AVCodecContext *avctx)
+{
+    if (avctx->pix_fmt != AV_PIX_FMT_XVMC_MPEG2_IDCT && avctx->pix_fmt != AV_PIX_FMT_XVMC_MPEG2_MC) {
+        avctx->xvmc_acceleration = 0;
+    } else if (!avctx->xvmc_acceleration) {
+        avctx->xvmc_acceleration = 2;
+    }
+    avctx->hwaccel = ff_find_hwaccel(avctx->codec->id, avctx->pix_fmt);
+    // until then pix_fmt may be changed right after codec init
+    if (avctx->pix_fmt == AV_PIX_FMT_XVMC_MPEG2_IDCT ||
+        avctx->hwaccel || uses_vdpau(avctx))
+        if (avctx->idct_algo == FF_IDCT_AUTO)
+            avctx->idct_algo = FF_IDCT_SIMPLE;
 }
 
 /* Call this function when we know all parameters.
@@ -1348,12 +1356,7 @@ static int mpeg_decode_postinit(AVCodecContext *avctx)
         } // MPEG-2
 
         avctx->pix_fmt = mpeg_get_pixelformat(avctx);
-        avctx->hwaccel = ff_find_hwaccel(avctx->codec->id, avctx->pix_fmt);
-        // until then pix_fmt may be changed right after codec init
-        if (avctx->pix_fmt == AV_PIX_FMT_XVMC_MPEG2_IDCT ||
-            avctx->hwaccel || uses_vdpau(avctx))
-            if (avctx->idct_algo == FF_IDCT_AUTO)
-                avctx->idct_algo = FF_IDCT_SIMPLE;
+        setup_hwaccel_for_pixfmt(avctx);
 
         /* Quantization matrices may need reordering
          * if DCT permutation is changed. */
@@ -1990,7 +1993,7 @@ static int slice_end(AVCodecContext *avctx, AVFrame *pict)
             if (ret < 0)
                 return ret;
             ff_print_debug_info(s, s->current_picture_ptr, pict);
-            av_frame_set_qp_table(pict, av_buffer_ref(s->current_picture_ptr->qscale_table_buf), s->mb_stride, FF_QSCALE_TYPE_MPEG2);
+            ff_mpv_export_qp_table(s, pict, s->current_picture_ptr, FF_QSCALE_TYPE_MPEG2);
         } else {
             if (avctx->active_thread_type & FF_THREAD_FRAME)
                 s->picture_number++;
@@ -2001,7 +2004,7 @@ static int slice_end(AVCodecContext *avctx, AVFrame *pict)
                 if (ret < 0)
                     return ret;
                 ff_print_debug_info(s, s->last_picture_ptr, pict);
-                av_frame_set_qp_table(pict, av_buffer_ref(s->last_picture_ptr->qscale_table_buf), s->mb_stride, FF_QSCALE_TYPE_MPEG2);
+                ff_mpv_export_qp_table(s, pict, s->last_picture_ptr, FF_QSCALE_TYPE_MPEG2);
             }
         }
 
@@ -2105,11 +2108,7 @@ static int vcr2_init_sequence(AVCodecContext *avctx)
     s->low_delay = 1;
 
     avctx->pix_fmt = mpeg_get_pixelformat(avctx);
-    avctx->hwaccel = ff_find_hwaccel(avctx->codec->id, avctx->pix_fmt);
-
-    if (avctx->pix_fmt == AV_PIX_FMT_XVMC_MPEG2_IDCT || avctx->hwaccel || uses_vdpau(avctx))
-        if (avctx->idct_algo == FF_IDCT_AUTO)
-            avctx->idct_algo = FF_IDCT_SIMPLE;
+    setup_hwaccel_for_pixfmt(avctx);
 
     if (ff_MPV_common_init(s) < 0)
         return -1;
