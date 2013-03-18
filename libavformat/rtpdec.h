@@ -27,6 +27,7 @@
 #include "avformat.h"
 #include "rtp.h"
 #include "url.h"
+#include "srtp.h"
 
 typedef struct PayloadContext PayloadContext;
 typedef struct RTPDynamicProtocolHandler RTPDynamicProtocolHandler;
@@ -40,10 +41,11 @@ typedef struct RTPDynamicProtocolHandler RTPDynamicProtocolHandler;
 
 typedef struct RTPDemuxContext RTPDemuxContext;
 RTPDemuxContext *ff_rtp_parse_open(AVFormatContext *s1, AVStream *st,
-                                   URLContext *rtpc, int payload_type,
-                                   int queue_size);
+                                   int payload_type, int queue_size);
 void ff_rtp_parse_set_dynamic_protocol(RTPDemuxContext *s, PayloadContext *ctx,
                                        RTPDynamicProtocolHandler *handler);
+void ff_rtp_parse_set_crypto(RTPDemuxContext *s, const char *suite,
+                             const char *params);
 int ff_rtp_parse_packet(RTPDemuxContext *s, AVPacket *pkt,
                         uint8_t **buf, int len);
 void ff_rtp_parse_close(RTPDemuxContext *s);
@@ -69,10 +71,13 @@ void ff_rtp_send_punch_packets(URLContext* rtp_handle);
 
 /**
  * some rtp servers assume client is dead if they don't hear from them...
- * so we send a Receiver Report to the provided ByteIO context
+ * so we send a Receiver Report to the provided URLContext or AVIOContext
  * (we don't have access to the rtcp handle from here)
  */
-int ff_rtp_check_and_send_back_rr(RTPDemuxContext *s, int count);
+int ff_rtp_check_and_send_back_rr(RTPDemuxContext *s, URLContext *fd,
+                                  AVIOContext *avio, int count);
+int ff_rtp_send_rtcp_feedback(RTPDemuxContext *s, URLContext *fd,
+                              AVIOContext *avio);
 
 // these statistics are used for rtcp receiver reports...
 typedef struct RTPStatistics {
@@ -81,9 +86,9 @@ typedef struct RTPStatistics {
     uint32_t base_seq;          ///< base sequence number
     uint32_t bad_seq;           ///< last bad sequence number + 1
     int probation;              ///< sequence packets till source is valid
-    int received;               ///< packets received
-    int expected_prior;         ///< packets expected in last interval
-    int received_prior;         ///< packets received in last interval
+    uint32_t received;          ///< packets received
+    uint32_t expected_prior;    ///< packets expected in last interval
+    uint32_t received_prior;    ///< packets received in last interval
     uint32_t transit;           ///< relative transit time for previous packet
     uint32_t jitter;            ///< estimated jitter.
 } RTPStatistics;
@@ -130,6 +135,7 @@ struct RTPDynamicProtocolHandler {
     void (*free)(PayloadContext *protocol_data);
     /** Parse handler for this dynamic packet */
     DynamicPayloadPacketHandlerProc parse_packet;
+    int (*need_keyframe)(PayloadContext *context);
 
     struct RTPDynamicProtocolHandler *next;
 };
@@ -154,12 +160,11 @@ struct RTPDemuxContext {
     int64_t  unwrapped_timestamp;
     int64_t  range_start_offset;
     int max_payload_size;
-    struct MpegTSContext *ts;   /* only used for MP2T payloads */
-    int read_buf_index;
-    int read_buf_size;
     /* used to send back RTCP RR */
-    URLContext *rtp_ctx;
     char hostname[256];
+
+    int srtp_enabled;
+    struct SRTPContext srtp;
 
     /** Statistics for this stream (used by RTCP receiver reports) */
     RTPStatistics statistics;
@@ -173,6 +178,7 @@ struct RTPDemuxContext {
 
     /* rtcp sender statistics receive */
     int64_t last_rtcp_ntp_time;
+    int64_t last_rtcp_reception_time;
     int64_t first_rtcp_ntp_time;
     uint32_t last_rtcp_timestamp;
     int64_t rtcp_ts_offset;
@@ -181,11 +187,10 @@ struct RTPDemuxContext {
     unsigned int packet_count;
     unsigned int octet_count;
     unsigned int last_octet_count;
-    /* buffer for partially parsed packets */
-    uint8_t buf[RTP_MAX_PACKET_LENGTH];
+    int64_t last_feedback_time;
 
     /* dynamic payload stuff */
-    DynamicPayloadPacketHandlerProc parse_packet;
+    const RTPDynamicProtocolHandler *handler;
     PayloadContext *dynamic_protocol_context;
 };
 

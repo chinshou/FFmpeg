@@ -25,6 +25,7 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/dict.h"
 #include "avformat.h"
+#include "avio_internal.h"
 #include "internal.h"
 #include "rmsipr.h"
 #include "rm.h"
@@ -696,6 +697,10 @@ static int rm_assemble_video_frame(AVFormatContext *s, AVIOContext *pb,
 
     *pseq = seq;
     if((seq & 0x7F) == 1 || vst->curpic_num != pic_num){
+        if (len2 > ffio_limit(pb, len2)) {
+            av_log(s, AV_LOG_ERROR, "Impossibly sized packet\n");
+            return AVERROR_INVALIDDATA;
+        }
         vst->slices = ((hdr & 0x3F) << 1) + 1;
         vst->videobufsize = len2 + 8*vst->slices + 1;
         av_free_packet(&vst->pkt); //FIXME this should be output.
@@ -725,6 +730,10 @@ static int rm_assemble_video_frame(AVFormatContext *s, AVIOContext *pb,
         *pkt= vst->pkt;
         vst->pkt.data= NULL;
         vst->pkt.size= 0;
+        vst->pkt.buf = NULL;
+#if FF_API_DESTRUCT_PACKET
+        vst->pkt.destruct = NULL;
+#endif
         if(vst->slices != vst->cur_slice) //FIXME find out how to set slices correct from the begin
             memmove(pkt->data + 1 + 8*vst->cur_slice, pkt->data + 1 + 8*vst->slices,
                 vst->videobufpos - 1 - 8*vst->slices);
@@ -995,6 +1004,18 @@ static int64_t rm_read_dts(AVFormatContext *s, int stream_index,
     return dts;
 }
 
+static int rm_read_seek(AVFormatContext *s, int stream_index,
+                        int64_t pts, int flags)
+{
+    RMDemuxContext *rm = s->priv_data;
+
+    if (ff_seek_frame_binary(s, stream_index, pts, flags) < 0)
+        return -1;
+    rm->audio_pkt_cnt = 0;
+    return 0;
+}
+
+
 AVInputFormat ff_rm_demuxer = {
     .name           = "rm",
     .long_name      = NULL_IF_CONFIG_SMALL("RealMedia"),
@@ -1004,6 +1025,7 @@ AVInputFormat ff_rm_demuxer = {
     .read_packet    = rm_read_packet,
     .read_close     = rm_read_close,
     .read_timestamp = rm_read_dts,
+    .read_seek      = rm_read_seek,
 };
 
 AVInputFormat ff_rdt_demuxer = {

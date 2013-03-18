@@ -61,7 +61,7 @@ static int skeleton_header(AVFormatContext *s, int idx)
         start_num = AV_RL64(buf+12);
         start_den = AV_RL64(buf+20);
 
-        if (start_den) {
+        if (start_den > 0 && start_num > 0) {
             int base_den;
             av_reduce(&start_time, &base_den, start_num, start_den, INT_MAX);
             avpriv_set_pts_info(st, 64, 1, base_den);
@@ -75,8 +75,8 @@ static int skeleton_header(AVFormatContext *s, int idx)
         target_idx = ogg_find_stream(ogg, AV_RL32(buf+12));
         start_granule = AV_RL64(buf+36);
         if (os->start_granule != OGG_NOGRANULE_VALUE) {
-            av_log_missing_feature(s,
-                                   "Multiple fisbone for the same stream", 0);
+            avpriv_report_missing_feature(s,
+                                          "Multiple fisbone for the same stream");
             return 1;
         }
         if (target_idx >= 0 && start_granule != OGG_NOGRANULE_VALUE) {
