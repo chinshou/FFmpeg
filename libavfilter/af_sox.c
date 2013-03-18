@@ -177,33 +177,43 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
-static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *insamples)
+static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
 {
     SoxContext *sox = inlink->dst->priv;
-    AVFilterBufferRef *outsamples;
+    AVFrame *outsamples;
     size_t nb_in_samples, nb_out_samples;
 
-    // FIXME not handling planar data
-    outsamples = ff_get_audio_buffer(inlink, insamples->audio->nb_samples);
-    avfilter_copy_buffer_ref_props(outsamples, insamples);
+    if (av_frame_is_writable(insamples)) {
+        outsamples = insamples;
+    } else {
+        outsamples = ff_get_audio_buffer(inlink, insamples->nb_samples);
+        if (!outsamples)
+            return AVERROR(ENOMEM);
+        outsamples->pts = insamples->pts;
+    }
 
     nb_out_samples = nb_in_samples =
-        insamples->audio->nb_samples * sox->effect->in_signal.channels;
+        insamples->nb_samples * sox->effect->in_signal.channels;
 
     // FIXME not handling cases where not all the input is consumed
     sox->effect->handler.flow(sox->effect, (int32_t *)insamples->data[0],
         (int32_t *)outsamples->data[0], &nb_in_samples, &nb_out_samples);
 
-    outsamples->audio->nb_samples = nb_out_samples / sox->effect->out_signal.channels;
+    outsamples->nb_samples = nb_out_samples / sox->effect->out_signal.channels;
+
+    if (insamples != outsamples)
+        av_frame_free(&insamples);
+
     return ff_filter_frame(inlink->dst->outputs[0], outsamples);
 }
+
 
 static int request_frame(AVFilterLink *outlink)
 {
     SoxContext *sox = outlink->dst->priv;
     sox_effect_t *effect = sox->effect;
     size_t out_nb_samples = 1024;
-    AVFilterBufferRef *outsamples;
+    AVFrame *outsamples;
     int ret;
 
     ret = ff_request_frame(outlink->src->inputs[0]);
@@ -214,7 +224,7 @@ static int request_frame(AVFilterLink *outlink)
                 ff_get_audio_buffer(outlink, out_nb_samples);
             ret = effect->handler.drain(sox->effect,
                                         (int32_t *)outsamples->data[0], &out_nb_samples);
-            outsamples->audio->nb_samples = out_nb_samples / effect->out_signal.channels;
+            outsamples->nb_samples = out_nb_samples / effect->out_signal.channels;
             ff_filter_frame(outlink, outsamples);
             if (ret == SOX_EOF)
                 break;
