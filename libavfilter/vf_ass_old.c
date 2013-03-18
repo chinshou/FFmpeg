@@ -354,7 +354,7 @@ static av_cold void uninit(AVFilterContext *ctx)
 #define rgba2u(c)  ( ((-152*_r(c) - 298*_g(c) + 450*_b(c)) >> 10) + 128 )                                                                      
 #define rgba2v(c)  ( (( 450*_r(c) - 376*_g(c) -  73*_b(c)) >> 10) + 128 )                                                                      
 
-static void draw_ass_image(AVFilterBufferRef *pic, ASS_Image *img, AssContext *context)
+static void draw_ass_image(AVFrame *pic, ASS_Image *img, AssContext *context)
 {
   unsigned char *row[4];
   unsigned char c_y = rgba2y(img->color);
@@ -377,7 +377,7 @@ static void draw_ass_image(AVFilterBufferRef *pic, ASS_Image *img, AssContext *c
 
   for (i = 0; i < bitmap_h; ++i) {
     y = dst_y + i;
-    if ( y >= pic->video->h )
+    if ( y >= pic->height )
       break;
 
     row[0] = pic->data[0] + y * pic->linesize[0];
@@ -390,7 +390,7 @@ static void draw_ass_image(AVFilterBufferRef *pic, ASS_Image *img, AssContext *c
       unsigned k = ((unsigned)src[j]) * opacity / 255;
 
       x = dst_x + j;
-      if ( y >= pic->video->w )
+      if ( y >= pic->width )
 	break;
 
       row[0][x] = (k*c_y + (255-k)*row[0][x]) / 255;
@@ -402,7 +402,7 @@ static void draw_ass_image(AVFilterBufferRef *pic, ASS_Image *img, AssContext *c
   } 
 }
 
-static int filter_frame(AVFilterLink *inlink, AVFilterBufferRef *frame)
+static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 {
   AssContext *context = inlink->dst->priv;
   AVFilterLink* output = inlink->dst->outputs[0];
