@@ -44,6 +44,7 @@ OBJS = allfilters.o                                                     \
        graphparser.o                                                    \
        opencl_allkernels.o                                              \
        transform.o                                                      \
+       subreader.o  							\
        video.o                                                          \
 
 
@@ -106,6 +107,7 @@ OBJS-$(CONFIG_SINE_FILTER)                   += asrc_sine.o
 OBJS-$(CONFIG_ANULLSINK_FILTER)              += asink_anullsink.o
 
 OBJS-$(CONFIG_ASS_FILTER)                    += vf_subtitles.o
+OBJS-$(CONFIG_ASS_OLD_FILTER)                += vf_ass_old.o
 OBJS-$(CONFIG_ALPHAEXTRACT_FILTER)           += vf_extractplanes.o
 OBJS-$(CONFIG_ALPHAMERGE_FILTER)             += vf_alphamerge.o
 OBJS-$(CONFIG_BBOX_FILTER)                   += bbox.o vf_bbox.o
@@ -250,6 +252,9 @@ SKIPHEADERS-$(CONFIG_LIBVIDSTAB)             += vidstabutils.h
 SKIPHEADERS-$(CONFIG_OPENCL)                 += opencl_internal.h deshake_opencl_kernel.h unsharp_opencl_kernel.h
 
 OBJS-$(HAVE_THREADS)                         += pthread.o
+
+CFLAGS += -I/usr/i686-mingw32/include/ass
+EXTRALIBS += -lass -lfreetype -liconv
 
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats
