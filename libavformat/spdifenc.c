@@ -92,7 +92,7 @@ static const AVOption options[] = {
 { NULL },
 };
 
-static const AVClass class = {
+static const AVClass spdif_class = {
     .class_name     = "spdif",
     .item_name      = av_default_item_name,
     .option         = options,
@@ -538,7 +538,6 @@ static int spdif_write_packet(struct AVFormatContext *s, AVPacket *pkt)
     av_log(s, AV_LOG_DEBUG, "type=%x len=%i pkt_offset=%i\n",
            ctx->data_type, ctx->out_bytes, ctx->pkt_offset);
 
-    avio_flush(s->pb);
     return 0;
 }
 
@@ -553,5 +552,5 @@ AVOutputFormat ff_spdif_muxer = {
     .write_packet      = spdif_write_packet,
     .write_trailer     = spdif_write_trailer,
     .flags             = AVFMT_NOTIMESTAMPS,
-    .priv_class        = &class,
+    .priv_class        = &spdif_class,
 };

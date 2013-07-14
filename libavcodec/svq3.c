@@ -39,6 +39,8 @@
  * correctly decodes this file:
  *  http://samples.mplayerhq.hu/V-codecs/SVQ3/Vertical400kbit.sorenson3.mov
  */
+
+#include "libavutil/attributes.h"
 #include "internal.h"
 #include "avcodec.h"
 #include "mpegvideo.h"
@@ -792,8 +794,8 @@ static int svq3_decode_slice_header(AVCodecContext *avctx)
                     header ^ s->watermark_key);
         }
         if (length > 0) {
-            memcpy((uint8_t *) &h->gb.buffer[get_bits_count(&h->gb) >> 3],
-                   &h->gb.buffer[h->gb.size_in_bits >> 3], length - 1);
+            memmove((uint8_t *) &h->gb.buffer[get_bits_count(&h->gb) >> 3],
+                    &h->gb.buffer[h->gb.size_in_bits >> 3], length - 1);
         }
         skip_bits_long(&h->gb, 0);
     }
@@ -1310,7 +1312,7 @@ static int svq3_decode_frame(AVCodecContext *avctx, void *data,
     return buf_size;
 }
 
-static int svq3_decode_end(AVCodecContext *avctx)
+static av_cold int svq3_decode_end(AVCodecContext *avctx)
 {
     SVQ3Context *s = avctx->priv_data;
     H264Context *h = &s->h;

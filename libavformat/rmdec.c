@@ -95,13 +95,14 @@ static int rm_read_extradata(AVIOContext *pb, AVCodecContext *avctx, unsigned si
     return 0;
 }
 
-static void rm_read_metadata(AVFormatContext *s, int wide)
+static void rm_read_metadata(AVFormatContext *s, AVIOContext *pb, int wide)
 {
     char buf[1024];
     int i;
+
     for (i=0; i<FF_ARRAY_ELEMS(ff_rm_metadata); i++) {
-        int len = wide ? avio_rb16(s->pb) : avio_r8(s->pb);
-        get_strl(s->pb, buf, sizeof(buf), len);
+        int len = wide ? avio_rb16(pb) : avio_r8(pb);
+        get_strl(pb, buf, sizeof(buf), len);
         av_dict_set(&s->metadata, ff_rm_metadata[i], buf, 0);
     }
 }
@@ -134,7 +135,7 @@ static int rm_read_audio_stream_info(AVFormatContext *s, AVIOContext *pb,
         avio_skip(pb, 8);
         bytes_per_minute = avio_rb16(pb);
         avio_skip(pb, 4);
-        rm_read_metadata(s, 0);
+        rm_read_metadata(s, pb, 0);
         if ((startpos + header_size) >= avio_tell(pb) + 2) {
             // fourcc (should always be "lpcJ")
             avio_r8(pb);
@@ -293,7 +294,7 @@ static int rm_read_audio_stream_info(AVFormatContext *s, AVIOContext *pb,
             avio_r8(pb);
             avio_r8(pb);
             avio_r8(pb);
-            rm_read_metadata(s, 0);
+            rm_read_metadata(s, pb, 0);
         }
     }
     return 0;
@@ -516,7 +517,7 @@ static int rm_read_header(AVFormatContext *s)
             flags = avio_rb16(pb); /* flags */
             break;
         case MKTAG('C', 'O', 'N', 'T'):
-            rm_read_metadata(s, 1);
+            rm_read_metadata(s, pb, 1);
             break;
         case MKTAG('M', 'D', 'P', 'R'):
             st = avformat_new_stream(s, NULL);
@@ -662,6 +663,7 @@ static int rm_assemble_video_frame(AVFormatContext *s, AVIOContext *pb,
     int hdr;
     int seq = 0, pic_num = 0, len2 = 0, pos = 0; //init to silcense compiler warning
     int type;
+    int ret;
 
     hdr = avio_r8(pb); len--;
     type = hdr >> 6;
@@ -690,7 +692,10 @@ static int rm_assemble_video_frame(AVFormatContext *s, AVIOContext *pb,
         pkt->data[0] = 0;
         AV_WL32(pkt->data + 1, 1);
         AV_WL32(pkt->data + 5, 0);
-        avio_read(pb, pkt->data + 9, len);
+        if ((ret = avio_read(pb, pkt->data + 9, len)) != len) {
+            av_free_packet(pkt);
+            return ret < 0 ? ret : AVERROR(EIO);
+        }
         return 0;
     }
     //now we have to deal with single slice
@@ -706,6 +711,7 @@ static int rm_assemble_video_frame(AVFormatContext *s, AVIOContext *pb,
         av_free_packet(&vst->pkt); //FIXME this should be output.
         if(av_new_packet(&vst->pkt, vst->videobufsize) < 0)
             return AVERROR(ENOMEM);
+        memset(vst->pkt.data, 0, vst->pkt.size);
         vst->videobufpos = 8*vst->slices + 1;
         vst->cur_slice = 0;
         vst->curpic_num = pic_num;
@@ -716,6 +722,8 @@ static int rm_assemble_video_frame(AVFormatContext *s, AVIOContext *pb,
 
     if(++vst->cur_slice > vst->slices)
         return 1;
+    if(!vst->pkt.data)
+        return AVERROR(ENOMEM);
     AV_WL32(vst->pkt.data - 7 + 8*vst->cur_slice, 1);
     AV_WL32(vst->pkt.data - 3 + 8*vst->cur_slice, vst->videobufpos - 8*vst->slices - 1);
     if(vst->videobufpos + len > vst->videobufsize)

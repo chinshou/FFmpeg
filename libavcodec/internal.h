@@ -30,6 +30,7 @@
 #include "libavutil/mathematics.h"
 #include "libavutil/pixfmt.h"
 #include "avcodec.h"
+#include "config.h"
 
 #define FF_SANE_NB_CHANNELS 63U
 
@@ -81,7 +82,7 @@ typedef struct AVCodecInternal {
      * Internal sample count used by avcodec_encode_audio() to fabricate pts.
      * Can be removed along with avcodec_encode_audio().
      */
-    int sample_count;
+    int64_t sample_count;
 #endif
 
     /**
@@ -206,8 +207,6 @@ int ff_reget_buffer(AVCodecContext *avctx, AVFrame *frame);
 
 int ff_thread_can_start_frame(AVCodecContext *avctx);
 
-int ff_get_logical_cpus(AVCodecContext *avctx);
-
 int avpriv_h264_has_num_reorder_frames(AVCodecContext *avctx);
 
 /**
@@ -226,5 +225,9 @@ int ff_codec_close_recursive(AVCodecContext *avctx);
  * Finalize buf into extradata and set its size appropriately.
  */
 int avpriv_bprint_to_extradata(AVCodecContext *avctx, struct AVBPrint *buf);
+
+const uint8_t *avpriv_find_start_code(const uint8_t *p,
+                                      const uint8_t *end,
+                                      uint32_t *state);
 
 #endif /* AVCODEC_INTERNAL_H */

@@ -391,9 +391,19 @@ typedef struct RTSPState {
     int initial_timeout;
 
     /**
+     * timeout of socket i/o operations.
+     */
+    int stimeout;
+
+    /**
      * Size of RTP packet reordering queue.
      */
     int reordering_queue_size;
+
+    /**
+     * User-Agent string
+     */
+    char *user_agent;
 } RTSPState;
 
 #define RTSP_FLAG_FILTER_SRC  0x1    /**< Filter incoming UDP packets -

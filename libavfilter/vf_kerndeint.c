@@ -59,23 +59,11 @@ static const AVOption kerndeint_options[] = {
 
 AVFILTER_DEFINE_CLASS(kerndeint);
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
-{
-    KerndeintContext *kerndeint = ctx->priv;
-    const char const * shorthand[] = { "thresh", "map", "order", "sharp", "twoway", NULL };
-
-    kerndeint->class = &kerndeint_class;
-    av_opt_set_defaults(kerndeint);
-
-    return av_opt_set_from_string(kerndeint, args, shorthand, "=", ":");
-}
-
 static av_cold void uninit(AVFilterContext *ctx)
 {
     KerndeintContext *kerndeint = ctx->priv;
 
     av_free(kerndeint->tmp_data[0]);
-    av_opt_free(kerndeint);
 }
 
 static int query_formats(AVFilterContext *ctx)
@@ -101,7 +89,7 @@ static int config_props(AVFilterLink *inlink)
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
     int ret;
 
-    kerndeint->is_packed_rgb = av_pix_fmt_desc_get(inlink->format)->flags & PIX_FMT_RGB;
+    kerndeint->is_packed_rgb = av_pix_fmt_desc_get(inlink->format)->flags & AV_PIX_FMT_FLAG_RGB;
     kerndeint->vsub = desc->log2_chroma_h;
 
     ret = av_image_alloc(kerndeint->tmp_data, kerndeint->tmp_linesize,
@@ -163,7 +151,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *inpic)
     outpic->interlaced_frame = 0;
 
     for (plane = 0; inpic->data[plane] && plane < 4; plane++) {
-        h = plane == 0 ? inlink->h : inlink->h >> kerndeint->vsub;
+        h = plane == 0 ? inlink->h : FF_CEIL_RSHIFT(inlink->h, kerndeint->vsub);
         bwidth = kerndeint->tmp_bwidth[plane];
 
         srcp = srcp_saved = inpic->data[plane];
@@ -317,16 +305,16 @@ static const AVFilterPad kerndeint_outputs[] = {
     { NULL }
 };
 
+
 AVFilter avfilter_vf_kerndeint = {
     .name          = "kerndeint",
     .description   = NULL_IF_CONFIG_SMALL("Apply kernel deinterlacing to the input."),
     .priv_size     = sizeof(KerndeintContext),
-    .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
 
     .inputs        = kerndeint_inputs,
     .outputs       = kerndeint_outputs,
 
-    .priv_class = &kerndeint_class,
+    .priv_class    = &kerndeint_class,
 };

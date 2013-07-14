@@ -89,9 +89,11 @@ FATE_VCODEC-$(call ENCDEC, JPEGLS, AVI) += jpegls
 fate-vsynth%-jpegls:             ENCOPTS = -sws_flags neighbor+full_chroma_int
 fate-vsynth%-jpegls:             DECOPTS = -sws_flags area
 
-FATE_VCODEC-$(call ENCDEC, JPEG2000, AVI) += j2k
-fate-vsynth%-j2k:                ENCOPTS = -qscale 7 -strict experimental -pix_fmt rgb24
-fate-vsynth%-j2k:                DECINOPTS = -vcodec j2k -strict experimental
+FATE_VCODEC-$(call ENCDEC, JPEG2000, AVI) += jpeg2000 jpeg2000-97
+fate-vsynth%-jpeg2000:                ENCOPTS = -qscale 7 -strict experimental -pred 1 -pix_fmt rgb24
+fate-vsynth%-jpeg2000:                DECINOPTS = -vcodec jpeg2000
+fate-vsynth%-jpeg2000-97:             ENCOPTS = -qscale 7 -strict experimental -pix_fmt rgb24
+fate-vsynth%-jpeg2000-97:             DECINOPTS = -vcodec jpeg2000
 
 FATE_VCODEC-$(call ENCDEC, LJPEG MJPEG, AVI) += ljpeg
 fate-vsynth%-ljpeg:              ENCOPTS = -strict -1
@@ -202,11 +204,11 @@ fate-vsynth%-mpng:               CODEC   = png
 
 FATE_VCODEC-$(call ENCDEC, MSVIDEO1, AVI) += msvideo1
 
-FATE_VCODEC-$(call ENCDEC, PRORES, MOV) += prores prores_kostya
+FATE_VCODEC-$(call ENCDEC, PRORES, MOV) += prores prores_ks
 fate-vsynth%-prores:             FMT     = mov
 
-fate-vsynth%-prores_kostya:      ENCOPTS = -profile hq
-fate-vsynth%-prores_kostya:      FMT     = mov
+fate-vsynth%-prores_ks:          ENCOPTS = -profile hq
+fate-vsynth%-prores_ks:          FMT     = mov
 
 FATE_VCODEC-$(call ENCDEC, QTRLE, MOV)  += qtrle qtrlegray
 fate-vsynth%-qtrle:              FMT     = mov

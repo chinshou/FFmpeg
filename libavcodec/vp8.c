@@ -40,6 +40,10 @@ static void free_buffers(VP8Context *s)
     int i;
     if (s->thread_data)
         for (i = 0; i < MAX_THREADS; i++) {
+#if HAVE_THREADS
+            pthread_cond_destroy(&s->thread_data[i].cond);
+            pthread_mutex_destroy(&s->thread_data[i].lock);
+#endif
             av_freep(&s->thread_data[i].filter_strength);
             av_freep(&s->thread_data[i].edge_emu_buffer);
         }
@@ -1676,6 +1680,11 @@ static void vp8_decode_mb_row_no_filter(AVCodecContext *avctx, void *tdata,
     if (s->mb_layout == 1)
         mb = s->macroblocks_base + ((s->mb_width+1)*(mb_y + 1) + 1);
     else {
+        // Make sure the previous frame has read its segmentation map,
+        // if we re-use the same map.
+        if (prev_frame && s->segmentation.enabled &&
+            !s->segmentation.update_map)
+            ff_thread_await_progress(&prev_frame->tf, mb_y, 0);
         mb = s->macroblocks + (s->mb_height - mb_y - 1)*2;
         memset(mb - 1, 0, sizeof(*mb)); // zero left macroblock
         AV_WN32A(s->intra4x4_pred_mode_left, DC_PRED*0x01010101);
@@ -1955,13 +1964,14 @@ static int vp8_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     memset(s->ref_count, 0, sizeof(s->ref_count));
 
 
-    // Make sure the previous frame has read its segmentation map,
-    // if we re-use the same map.
-    if (prev_frame && s->segmentation.enabled && !s->segmentation.update_map)
-        ff_thread_await_progress(&prev_frame->tf, 1, 0);
-
-    if (s->mb_layout == 1)
+    if (s->mb_layout == 1) {
+        // Make sure the previous frame has read its segmentation map,
+        // if we re-use the same map.
+        if (prev_frame && s->segmentation.enabled &&
+            !s->segmentation.update_map)
+            ff_thread_await_progress(&prev_frame->tf, 1, 0);
         vp8_decode_mv_mb_modes(avctx, curframe, prev_frame);
+    }
 
     if (avctx->active_thread_type == FF_THREAD_FRAME)
         num_jobs = 1;
@@ -2094,6 +2104,52 @@ static int vp8_decode_update_thread_context(AVCodecContext *dst, const AVCodecCo
     return 0;
 }
 
+static unsigned apply_padding(unsigned size) { return size + (size & 1); }
+
+static int webp_decode_frame(AVCodecContext *avctx, void *data, int *data_size,
+                             AVPacket *avpkt)
+{
+    const uint8_t *buf = avpkt->data;
+    int buf_size       = avpkt->size;
+    AVPacket pkt       = *avpkt;
+
+    if (buf_size >= 16
+        && AV_RL32(buf   ) == AV_RL32("RIFF")
+        && AV_RL32(buf+ 8) == AV_RL32("WEBP")) {
+        unsigned riff_size = apply_padding(AV_RL32(buf+4)) + 8;
+        buf += 12;   // Skip over main header
+        buf_size -= 12;
+        if (buf_size < 8 || riff_size < 8) {
+            av_log(avctx, AV_LOG_ERROR, "Incomplete header.\n");
+            return AVERROR_INVALIDDATA;
+        }
+        if (AV_RL32(buf) == AV_RL32("VP8L")) {
+            av_log(avctx, AV_LOG_ERROR, "Unsupported WebP lossless format.\n");
+            return AVERROR_PATCHWELCOME;
+        }
+        if (AV_RL32(buf) == AV_RL32("VP8X") && AV_RL32(buf+4) < (unsigned)buf_size) {
+            unsigned size = apply_padding(AV_RL32(buf+4) + 8);
+            buf      += size;
+            buf_size -= size;
+        }
+        if (buf_size >= 8
+            && AV_RL32(buf) == AV_RL32("ALPH") && AV_RL32(buf+4) < (unsigned)buf_size) {
+            unsigned size = apply_padding(AV_RL32(buf+4) + 8);
+            buf      += size;
+            buf_size -= size;
+            av_log(avctx, AV_LOG_WARNING, "Skipping alpha plane\n");
+        }
+        if (buf_size >= 8 && AV_RL32(buf) == AV_RL32("VP8 ")) {
+            buf      += 8;
+            buf_size -= 8;
+        }
+    }
+    pkt.data = buf;
+    pkt.size = buf_size;
+
+    return vp8_decode_frame(avctx, data, data_size, &pkt);
+}
+
 AVCodec ff_vp8_decoder = {
     .name                  = "vp8",
     .type                  = AVMEDIA_TYPE_VIDEO,
@@ -2105,6 +2161,21 @@ AVCodec ff_vp8_decoder = {
     .capabilities          = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS | CODEC_CAP_SLICE_THREADS,
     .flush                 = vp8_decode_flush,
     .long_name             = NULL_IF_CONFIG_SMALL("On2 VP8"),
+    .init_thread_copy      = ONLY_IF_THREADS_ENABLED(vp8_decode_init_thread_copy),
+    .update_thread_context = ONLY_IF_THREADS_ENABLED(vp8_decode_update_thread_context),
+};
+
+AVCodec ff_webp_decoder = {
+    .name                  = "webp",
+    .type                  = AVMEDIA_TYPE_VIDEO,
+    .id                    = AV_CODEC_ID_WEBP,
+    .priv_data_size        = sizeof(VP8Context),
+    .init                  = vp8_decode_init,
+    .close                 = vp8_decode_free,
+    .decode                = webp_decode_frame,
+    .capabilities          = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS | CODEC_CAP_SLICE_THREADS,
+    .flush                 = vp8_decode_flush,
+    .long_name             = NULL_IF_CONFIG_SMALL("WebP"),
     .init_thread_copy      = ONLY_IF_THREADS_ENABLED(vp8_decode_init_thread_copy),
     .update_thread_context = ONLY_IF_THREADS_ENABLED(vp8_decode_update_thread_context),
 };

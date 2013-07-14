@@ -37,7 +37,6 @@
 #include "libavcodec/avcodec.h"
 
 #include "libavfilter/avfilter.h"
-#include "libavfilter/avfiltergraph.h"
 
 #include "libavutil/avutil.h"
 #include "libavutil/dict.h"
@@ -165,6 +164,8 @@ typedef struct OptionsContext {
     int        nb_copy_prior_start;
     SpecifierOpt *filters;
     int        nb_filters;
+    SpecifierOpt *filter_scripts;
+    int        nb_filter_scripts;
     SpecifierOpt *reinit_filters;
     int        nb_reinit_filters;
     SpecifierOpt *fix_sub_duration;
@@ -177,6 +178,8 @@ typedef struct OptionsContext {
     int        nb_passlogfiles;
     SpecifierOpt *guess_layout_max;
     int        nb_guess_layout_max;
+    SpecifierOpt *apad;
+    int        nb_apad;
 } OptionsContext;
 
 typedef struct InputFilter {
@@ -278,6 +281,7 @@ typedef struct InputFile {
     int eagain;           /* true if last read attempt returned EAGAIN */
     int ist_index;        /* index of first stream in input_streams */
     int64_t ts_offset;
+    int64_t last_ts;
     int nb_streams;       /* number of stream that ffmpeg is aware of; may be different
                              from ctx.nb_streams if new streams appear during av_read_frame() */
     int nb_streams_warn;  /* number of streams that the user was warned of */
@@ -318,6 +322,8 @@ typedef struct OutputStream {
     /* pts of the first frame encoded for this stream, used for limiting
      * recording time */
     int64_t first_pts;
+    /* dts of the last packet sent to the muxer */
+    int64_t last_mux_dts;
     AVBitStreamFilterContext *bitstream_filters;
     AVCodec *enc;
     int64_t max_frames;
@@ -328,7 +334,7 @@ typedef struct OutputStream {
     int force_fps;
     int top_field_first;
 
-    float frame_aspect_ratio;
+    AVRational frame_aspect_ratio;
 
     /* forced key frames */
     int64_t *forced_kf_pts;
@@ -352,6 +358,7 @@ typedef struct OutputStream {
     AVDictionary *opts;
     AVDictionary *swr_opts;
     AVDictionary *resample_opts;
+    char *apad;
     int finished;        /* no more packets should be written for this stream */
     int unavailable;                     /* true if the steram is unavailable (possibly temporarily) */
     int stream_copy;

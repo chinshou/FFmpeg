@@ -59,10 +59,15 @@
                             AV_PIX_FMT_YUV420P16,AV_PIX_FMT_YUV422P16,AV_PIX_FMT_YUV444P16, \
                             AV_PIX_FMT_YUVA420P16,AV_PIX_FMT_YUVA422P16,AV_PIX_FMT_YUVA444P16
 
+#define XYZ_PIXEL_FORMATS  AV_PIX_FMT_XYZ12
+
 static const enum AVPixelFormat libopenjpeg_rgb_pix_fmts[]  = {RGB_PIXEL_FORMATS};
 static const enum AVPixelFormat libopenjpeg_gray_pix_fmts[] = {GRAY_PIXEL_FORMATS};
 static const enum AVPixelFormat libopenjpeg_yuv_pix_fmts[]  = {YUV_PIXEL_FORMATS};
-static const enum AVPixelFormat libopenjpeg_all_pix_fmts[]  = {RGB_PIXEL_FORMATS,GRAY_PIXEL_FORMATS,YUV_PIXEL_FORMATS};
+static const enum AVPixelFormat libopenjpeg_all_pix_fmts[]  = {RGB_PIXEL_FORMATS,
+                                                               GRAY_PIXEL_FORMATS,
+                                                               YUV_PIXEL_FORMATS,
+                                                               XYZ_PIXEL_FORMATS};
 
 typedef struct {
     AVClass *class;
@@ -387,7 +392,7 @@ static const AVOption options[] = {
     { NULL },
 };
 
-static const AVClass class = {
+static const AVClass openjpeg_class = {
     .class_name = "libopenjpeg",
     .item_name  = av_default_item_name,
     .option     = options,
@@ -404,5 +409,5 @@ AVCodec ff_libopenjpeg_decoder = {
     .capabilities     = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS,
     .max_lowres       = 31,
     .long_name        = NULL_IF_CONFIG_SMALL("OpenJPEG JPEG 2000"),
-    .priv_class       = &class,
+    .priv_class       = &openjpeg_class,
 };

@@ -18,6 +18,7 @@
  */
 
 #include "channel_layout.h"
+#include "avassert.h"
 #include "buffer.h"
 #include "common.h"
 #include "dict.h"
@@ -39,6 +40,11 @@ MAKE_ACCESSORS(AVFrame, frame, int,     sample_rate)
 MAKE_ACCESSORS(AVFrame, frame, AVDictionary *, metadata)
 MAKE_ACCESSORS(AVFrame, frame, int,     decode_error_flags)
 MAKE_ACCESSORS(AVFrame, frame, int,     pkt_size)
+
+#define CHECK_CHANNELS_CONSISTENCY(frame) \
+    av_assert2(!(frame)->channel_layout || \
+               (frame)->channels == \
+               av_get_channel_layout_nb_channels((frame)->channel_layout))
 
 AVDictionary **avpriv_frame_get_metadatap(AVFrame *frame) {return &frame->metadata;};
 
@@ -120,10 +126,14 @@ static int get_video_buffer(AVFrame *frame, int align)
         return ret;
 
     if (!frame->linesize[0]) {
-        ret = av_image_fill_linesizes(frame->linesize, frame->format,
-                                      frame->width);
-        if (ret < 0)
-            return ret;
+        for(i=1; i<=align; i+=i) {
+            ret = av_image_fill_linesizes(frame->linesize, frame->format,
+                                          FFALIGN(frame->width, i));
+            if (ret < 0)
+                return ret;
+            if (!(frame->linesize[0] & (align-1)))
+                break;
+        }
 
         for (i = 0; i < 4 && frame->linesize[i]; i++)
             frame->linesize[i] = FFALIGN(frame->linesize[i], align);
@@ -132,7 +142,7 @@ static int get_video_buffer(AVFrame *frame, int align)
     for (i = 0; i < 4 && frame->linesize[i]; i++) {
         int h = FFALIGN(frame->height, 32);
         if (i == 1 || i == 2)
-            h = -((-h) >> desc->log2_chroma_h);
+            h = FF_CEIL_RSHIFT(h, desc->log2_chroma_h);
 
         frame->buf[i] = av_buffer_alloc(frame->linesize[i] * h + 16);
         if (!frame->buf[i])
@@ -140,7 +150,7 @@ static int get_video_buffer(AVFrame *frame, int align)
 
         frame->data[i] = frame->buf[i]->data;
     }
-    if (desc->flags & PIX_FMT_PAL || desc->flags & PIX_FMT_PSEUDOPAL) {
+    if (desc->flags & AV_PIX_FMT_FLAG_PAL || desc->flags & AV_PIX_FMT_FLAG_PSEUDOPAL) {
         av_buffer_unref(&frame->buf[1]);
         frame->buf[1] = av_buffer_alloc(1024);
         if (!frame->buf[1])
@@ -158,11 +168,12 @@ fail:
 
 static int get_audio_buffer(AVFrame *frame, int align)
 {
-    int channels = av_get_channel_layout_nb_channels(frame->channel_layout);
+    int channels = frame->channels;
     int planar   = av_sample_fmt_is_planar(frame->format);
     int planes   = planar ? channels : 1;
     int ret, i;
 
+    CHECK_CHANNELS_CONSISTENCY(frame);
     if (!frame->linesize[0]) {
         ret = av_samples_get_buffer_size(&frame->linesize[0], channels,
                                          frame->nb_samples, frame->format,
@@ -240,7 +251,8 @@ int av_frame_ref(AVFrame *dst, AVFrame *src)
             return ret;
 
         if (src->nb_samples) {
-            int ch = av_get_channel_layout_nb_channels(src->channel_layout);
+            int ch = src->channels;
+            CHECK_CHANNELS_CONSISTENCY(src);
             av_samples_copy(dst->extended_data, src->extended_data, 0, 0,
                             dst->nb_samples, ch, dst->format);
         } else {
@@ -251,7 +263,9 @@ int av_frame_ref(AVFrame *dst, AVFrame *src)
     }
 
     /* ref the buffers */
-    for (i = 0; i < FF_ARRAY_ELEMS(src->buf) && src->buf[i]; i++) {
+    for (i = 0; i < FF_ARRAY_ELEMS(src->buf); i++) {
+        if (!src->buf[i])
+            continue;
         dst->buf[i] = av_buffer_ref(src->buf[i]);
         if (!dst->buf[i]) {
             ret = AVERROR(ENOMEM);
@@ -279,12 +293,13 @@ int av_frame_ref(AVFrame *dst, AVFrame *src)
 
     /* duplicate extended data */
     if (src->extended_data != src->data) {
-        int ch = av_get_channel_layout_nb_channels(src->channel_layout);
+        int ch = src->channels;
 
         if (!ch) {
             ret = AVERROR(EINVAL);
             goto fail;
         }
+        CHECK_CHANNELS_CONSISTENCY(src);
 
         dst->extended_data = av_malloc(sizeof(*dst->extended_data) * ch);
         if (!dst->extended_data) {
@@ -357,8 +372,9 @@ int av_frame_is_writable(AVFrame *frame)
     if (!frame->buf[0])
         return 0;
 
-    for (i = 0; i < FF_ARRAY_ELEMS(frame->buf) && frame->buf[i]; i++)
-        ret &= !!av_buffer_is_writable(frame->buf[i]);
+    for (i = 0; i < FF_ARRAY_ELEMS(frame->buf); i++)
+        if (frame->buf[i])
+            ret &= !!av_buffer_is_writable(frame->buf[i]);
     for (i = 0; i < frame->nb_extended_buf; i++)
         ret &= !!av_buffer_is_writable(frame->extended_buf[i]);
 
@@ -388,7 +404,8 @@ int av_frame_make_writable(AVFrame *frame)
         return ret;
 
     if (tmp.nb_samples) {
-        int ch = av_get_channel_layout_nb_channels(tmp.channel_layout);
+        int ch = tmp.channels;
+        CHECK_CHANNELS_CONSISTENCY(&tmp);
         av_samples_copy(tmp.extended_data, frame->extended_data, 0, 0,
                         frame->nb_samples, ch, frame->format);
     } else {
@@ -419,8 +436,10 @@ int av_frame_copy_props(AVFrame *dst, const AVFrame *src)
     dst->pict_type           = src->pict_type;
     dst->sample_aspect_ratio = src->sample_aspect_ratio;
     dst->pts                 = src->pts;
+    dst->repeat_pict         = src->repeat_pict;
     dst->interlaced_frame    = src->interlaced_frame;
     dst->top_field_first     = src->top_field_first;
+    dst->palette_has_changed = src->palette_has_changed;
     dst->sample_rate         = src->sample_rate;
     dst->opaque              = src->opaque;
 #if FF_API_AVFRAME_LAVC
@@ -439,6 +458,8 @@ int av_frame_copy_props(AVFrame *dst, const AVFrame *src)
     dst->decode_error_flags  = src->decode_error_flags;
 
     av_dict_copy(&dst->metadata, src->metadata, 0);
+
+    memcpy(dst->error, src->error, sizeof(dst->error));
 
     for (i = 0; i < src->nb_side_data; i++) {
         const AVFrameSideData *sd_src = src->side_data[i];
@@ -478,9 +499,10 @@ AVBufferRef *av_frame_get_plane_buffer(AVFrame *frame, int plane)
     int planes, i;
 
     if (frame->nb_samples) {
-        int channels = av_get_channel_layout_nb_channels(frame->channel_layout);
+        int channels = frame->channels;
         if (!channels)
             return NULL;
+        CHECK_CHANNELS_CONSISTENCY(frame);
         planes = av_sample_fmt_is_planar(frame->format) ? channels : 1;
     } else
         planes = 4;

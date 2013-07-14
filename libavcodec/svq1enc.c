@@ -447,9 +447,9 @@ static int svq1_encode_plane(SVQ1Context *s, int plane,
                     dxy = (mx & 1) + 2 * (my & 1);
 
                     s->hdsp.put_pixels_tab[0][dxy](temp + 16,
-                                                  ref + (mx >> 1) +
-                                                  stride * (my >> 1),
-                                                  stride, 16);
+                                                   ref + (mx >> 1) +
+                                                   stride * (my >> 1),
+                                                   stride, 16);
 
                     score[1] += encode_block(s, src + 16 * x, temp + 16,
                                              decoded, stride, 5, 64, lambda, 0);
@@ -557,9 +557,9 @@ static int svq1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         s->scratchbuf = av_malloc(s->current_picture.linesize[0] * 16 * 2);
     }
 
-    temp               = s->current_picture;
-    s->current_picture = s->last_picture;
-    s->last_picture    = temp;
+    av_frame_move_ref(&temp, &s->current_picture);
+    av_frame_move_ref(&s->current_picture, &s->last_picture);
+    av_frame_move_ref(&s->last_picture, &temp);
 
     init_put_bits(&s->pb, pkt->data, pkt->size);
 

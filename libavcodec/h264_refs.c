@@ -123,7 +123,7 @@ int ff_h264_fill_default_ref_list(H264Context *h)
         int cur_poc, list;
         int lens[2];
 
-        if (FIELD_PICTURE)
+        if (FIELD_PICTURE(h))
             cur_poc = h->cur_pic_ptr->field_poc[h->picture_structure == PICT_BOTTOM_FIELD];
         else
             cur_poc = h->cur_pic_ptr->poc;
@@ -192,7 +192,7 @@ static void print_long_term(H264Context *h);
 static int pic_num_extract(H264Context *h, int pic_num, int *structure)
 {
     *structure = h->picture_structure;
-    if (FIELD_PICTURE) {
+    if (FIELD_PICTURE(h)) {
         if (!(pic_num & 1))
             /* opposite field */
             *structure ^= PICT_FRAME;
@@ -292,7 +292,7 @@ int ff_h264_decode_ref_pic_list_reordering(H264Context *h)
                             COPY_PICTURE(&h->ref_list[list][i], &h->ref_list[list][i - 1]);
                         }
                         COPY_PICTURE(&h->ref_list[list][index], ref);
-                        if (FIELD_PICTURE) {
+                        if (FIELD_PICTURE(h)) {
                             pic_as_field(&h->ref_list[list][index], pic_structure);
                         }
                     }
@@ -306,17 +306,18 @@ int ff_h264_decode_ref_pic_list_reordering(H264Context *h)
     for (list = 0; list < h->list_count; list++) {
         for (index = 0; index < h->ref_count[list]; index++) {
             if (   !h->ref_list[list][index].f.data[0]
-                || (!FIELD_PICTURE && (h->ref_list[list][index].reference&3) != 3)) {
+                || (!FIELD_PICTURE(h) && (h->ref_list[list][index].reference&3) != 3)) {
                 int i;
                 av_log(h->avctx, AV_LOG_ERROR, "Missing reference picture, default is %d\n", h->default_ref_list[list][0].poc);
                 for (i = 0; i < FF_ARRAY_ELEMS(h->last_pocs); i++)
                     h->last_pocs[i] = INT_MIN;
                 if (h->default_ref_list[list][0].f.data[0]
-                    && !(!FIELD_PICTURE && (h->default_ref_list[list][0].reference&3) != 3))
+                    && !(!FIELD_PICTURE(h) && (h->default_ref_list[list][0].reference&3) != 3))
                     COPY_PICTURE(&h->ref_list[list][index], &h->default_ref_list[list][0]);
                 else
                     return -1;
             }
+            av_assert0(av_buffer_get_ref_count(h->ref_list[list][index].f.buf[0]) > 0);
         }
     }
 
@@ -534,11 +535,11 @@ int ff_generate_sliding_window_mmcos(H264Context *h, int first_slice)
 
     if (h->short_ref_count &&
         h->long_ref_count + h->short_ref_count >= h->sps.ref_frame_count &&
-        !(FIELD_PICTURE && !h->first_field && h->cur_pic_ptr->reference)) {
+        !(FIELD_PICTURE(h) && !h->first_field && h->cur_pic_ptr->reference)) {
         mmco[0].opcode        = MMCO_SHORT2UNUSED;
         mmco[0].short_pic_num = h->short_ref[h->short_ref_count - 1]->frame_num;
         mmco_index            = 1;
-        if (FIELD_PICTURE) {
+        if (FIELD_PICTURE(h)) {
             mmco[0].short_pic_num *= 2;
             mmco[1].opcode         = MMCO_SHORT2UNUSED;
             mmco[1].short_pic_num  = mmco[0].short_pic_num + 1;
@@ -625,7 +626,19 @@ int ff_h264_execute_ref_pic_marking(H264Context *h, MMCO *mmco, int mmco_count)
                      */
 
             if (h->long_ref[mmco[i].long_arg] != h->cur_pic_ptr) {
+                if (h->cur_pic_ptr->long_ref) {
+                    for(j=0; j<16; j++) {
+                        if(h->long_ref[j] == h->cur_pic_ptr) {
+                            remove_long(h, j, 0);
+                            av_log(h->avctx, AV_LOG_ERROR, "mmco: cannot assign current picture to 2 long term references\n");
+                        }
+                    }
+                }
+                av_assert0(!h->cur_pic_ptr->long_ref);
                 remove_long(h, mmco[i].long_arg, 0);
+                if (remove_short(h, h->cur_pic_ptr->frame_num, 0)) {
+                    av_log(h->avctx, AV_LOG_ERROR, "mmco: cannot assign current picture to short and long at the same time\n");
+                }
 
                 h->long_ref[mmco[i].long_arg]           = h->cur_pic_ptr;
                 h->long_ref[mmco[i].long_arg]->long_ref = 1;
@@ -733,7 +746,7 @@ int ff_h264_decode_ref_pic_marking(H264Context *h, GetBitContext *gb,
                                    int first_slice)
 {
     int i, ret;
-    MMCO mmco_temp[MAX_MMCO_COUNT], *mmco = first_slice ? h->mmco : mmco_temp;
+    MMCO mmco_temp[MAX_MMCO_COUNT], *mmco = mmco_temp;
     int mmco_index = 0;
 
     if (h->nal_unit_type == NAL_IDR_SLICE) { // FIXME fields
@@ -769,7 +782,7 @@ int ff_h264_decode_ref_pic_marking(H264Context *h, GetBitContext *gb,
                     if (long_arg >= 32 ||
                         (long_arg >= 16 && !(opcode == MMCO_SET_MAX_LONG &&
                                              long_arg == 16) &&
-                         !(opcode == MMCO_LONG2UNUSED && FIELD_PICTURE))) {
+                         !(opcode == MMCO_LONG2UNUSED && FIELD_PICTURE(h)))) {
                         av_log(h->avctx, AV_LOG_ERROR,
                                "illegal long ref in memory management control "
                                "operation %d\n", opcode);
@@ -799,10 +812,11 @@ int ff_h264_decode_ref_pic_marking(H264Context *h, GetBitContext *gb,
     }
 
     if (first_slice && mmco_index != -1) {
+        memcpy(h->mmco, mmco_temp, sizeof(h->mmco));
         h->mmco_index = mmco_index;
     } else if (!first_slice && mmco_index >= 0 &&
                (mmco_index != h->mmco_index ||
-                (i = check_opcodes(h->mmco, mmco_temp, mmco_index)))) {
+                check_opcodes(h->mmco, mmco_temp, mmco_index))) {
         av_log(h->avctx, AV_LOG_ERROR,
                "Inconsistent MMCO state between slices [%d, %d]\n",
                mmco_index, h->mmco_index);

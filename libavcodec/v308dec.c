@@ -68,15 +68,8 @@ static int v308_decode_frame(AVCodecContext *avctx, void *data,
     }
 
     *got_frame = 1;
-    *(AVFrame *)data = *pic;
 
     return avpkt->size;
-}
-
-static av_cold int v308_decode_close(AVCodecContext *avctx)
-{
-
-    return 0;
 }
 
 AVCodec ff_v308_decoder = {
@@ -85,7 +78,6 @@ AVCodec ff_v308_decoder = {
     .id           = AV_CODEC_ID_V308,
     .init         = v308_decode_init,
     .decode       = v308_decode_frame,
-    .close        = v308_decode_close,
     .capabilities = CODEC_CAP_DR1,
     .long_name    = NULL_IF_CONFIG_SMALL("Uncompressed packed 4:4:4"),
 };

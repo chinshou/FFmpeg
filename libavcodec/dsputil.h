@@ -34,9 +34,6 @@
 #include "avcodec.h"
 #include "rnd_avg.h"
 
-
-//#define DEBUG
-
 /* encoding scans */
 extern const uint8_t ff_alternate_horizontal_scan[64];
 extern const uint8_t ff_alternate_vertical_scan[64];
@@ -211,8 +208,6 @@ typedef struct DSPContext {
     void (*h263_v_loop_filter)(uint8_t *src, int stride, int qscale);
     void (*h263_h_loop_filter)(uint8_t *src, int stride, int qscale);
 
-    void (*h261_loop_filter)(uint8_t *src, int stride);
-
     /* assume len is a multiple of 8, and arrays are 16-byte aligned */
     void (*vector_clipf)(float *dst /* align 16 */, const float *src /* align 16 */, float min, float max, int len /* align 16 */);
 
@@ -317,6 +312,7 @@ typedef struct DSPContext {
 
 void ff_dsputil_static_init(void);
 void ff_dsputil_init(DSPContext* p, AVCodecContext *avctx);
+void avpriv_dsputil_init(DSPContext* p, AVCodecContext *avctx);
 attribute_deprecated void dsputil_init(DSPContext* c, AVCodecContext *avctx);
 
 int ff_check_alignment(void);

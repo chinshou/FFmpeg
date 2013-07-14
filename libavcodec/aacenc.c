@@ -593,7 +593,7 @@ static int aac_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
                 coeffs[ch] = cpe->ch[ch].coeffs;
             s->psy.model->analyze(&s->psy, start_ch, coeffs, wi);
             for (ch = 0; ch < chans; ch++) {
-                s->cur_channel = start_ch * 2 + ch;
+                s->cur_channel = start_ch + ch;
                 s->coder->search_for_quantizers(avctx, s, &cpe->ch[ch], s->lambda);
             }
             cpe->common_window = 0;
@@ -609,7 +609,7 @@ static int aac_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
                     }
                 }
             }
-            s->cur_channel = start_ch * 2;
+            s->cur_channel = start_ch;
             if (s->options.stereo_mode && cpe->common_window) {
                 if (s->options.stereo_mode > 0) {
                     IndividualChannelStream *ics = &cpe->ch[0].ics;
@@ -765,6 +765,9 @@ static av_cold int aac_encode_init(AVCodecContext *avctx)
         goto fail;
     s->psypp = ff_psy_preprocess_init(avctx);
     s->coder = &ff_aac_coders[s->options.aac_coder];
+
+    if (HAVE_MIPSDSPR1)
+        ff_aac_coder_init_mips(s);
 
     s->lambda = avctx->global_quality ? avctx->global_quality : 120;
 

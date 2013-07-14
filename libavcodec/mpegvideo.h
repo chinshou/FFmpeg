@@ -119,6 +119,9 @@ typedef struct Picture{
     AVBufferRef *mc_mb_var_buf;
     uint16_t *mc_mb_var;        ///< Table for motion compensated MB variances
 
+    int alloc_mb_width;         ///< mb_width used to allocate tables
+    int alloc_mb_height;        ///< mb_height used to allocate tables
+
     AVBufferRef *mb_mean_buf;
     uint8_t *mb_mean;           ///< Table for MB luminance
 
@@ -169,12 +172,15 @@ typedef struct Picture{
     int mb_var_sum;             ///< sum of MB variance for current frame
     int mc_mb_var_sum;          ///< motion compensated MB variance for current frame
 
-    int b_frame_score;          /* */
+    int b_frame_score;
     int needs_realloc;          ///< Picture needs to be reallocated (eg due to a frame size change)
-    int period_since_free;      ///< "cycles" since this Picture has been freed
 
     int reference;
     int shared;
+
+    int crop;
+    int crop_left;
+    int crop_top;
 } Picture;
 
 /**
@@ -798,8 +804,8 @@ void ff_dct_encode_init_x86(MpegEncContext *s);
 void ff_MPV_common_init_x86(MpegEncContext *s);
 void ff_MPV_common_init_axp(MpegEncContext *s);
 void ff_MPV_common_init_arm(MpegEncContext *s);
-void ff_MPV_common_init_altivec(MpegEncContext *s);
 void ff_MPV_common_init_bfin(MpegEncContext *s);
+void ff_MPV_common_init_ppc(MpegEncContext *s);
 void ff_clean_intra_table_entries(MpegEncContext *s);
 void ff_draw_horiz_band(AVCodecContext *avctx, DSPContext *dsp, Picture *cur,
                         Picture *last, int y, int h, int picture_structure,
@@ -823,7 +829,6 @@ int ff_update_duplicate_context(MpegEncContext *dst, MpegEncContext *src);
 int ff_MPV_lowest_referenced_row(MpegEncContext *s, int dir);
 void ff_MPV_report_decode_progress(MpegEncContext *s);
 int ff_mpeg_update_thread_context(AVCodecContext *dst, const AVCodecContext *src);
-const uint8_t *avpriv_mpv_find_start_code(const uint8_t *p, const uint8_t *end, uint32_t *state);
 void ff_set_qscale(MpegEncContext * s, int qscale);
 
 void ff_mpeg_er_frame_start(MpegEncContext *s);
@@ -915,23 +920,10 @@ void ff_mpeg1_encode_mb(MpegEncContext *s,
                         int motion_x, int motion_y);
 void ff_mpeg1_encode_init(MpegEncContext *s);
 void ff_mpeg1_encode_slice_header(MpegEncContext *s);
-void ff_mpeg1_clean_buffers(MpegEncContext *s);
-int ff_mpeg1_find_frame_end(ParseContext *pc, const uint8_t *buf, int buf_size, AVCodecParserContext *s);
 
 extern const uint8_t ff_aic_dc_scale_table[32];
 extern const uint8_t ff_h263_chroma_qscale_table[32];
 extern const uint8_t ff_h263_loop_filter_strength[32];
-
-/* h261.c */
-void ff_h261_loop_filter(MpegEncContext *s);
-void ff_h261_reorder_mb_index(MpegEncContext* s);
-void ff_h261_encode_mb(MpegEncContext *s,
-                    int16_t block[6][64],
-                    int motion_x, int motion_y);
-void ff_h261_encode_picture_header(MpegEncContext * s, int picture_number);
-void ff_h261_encode_init(MpegEncContext *s);
-int ff_h261_get_picture_format(int width, int height);
-
 
 /* rv10.c */
 void ff_rv10_encode_picture_header(MpegEncContext *s, int picture_number);

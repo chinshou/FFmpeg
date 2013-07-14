@@ -51,28 +51,20 @@ typedef struct {
 static const AVOption tile_options[] = {
     { "layout", "set grid size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE,
         {.str = "6x5"}, 0, 0, FLAGS },
+    { "nb_frames", "set maximum number of frame to render", OFFSET(nb_frames),
+        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, FLAGS },
     { "margin",  "set outer border margin in pixels",    OFFSET(margin),
         AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1024, FLAGS },
     { "padding", "set inner border thickness in pixels", OFFSET(padding),
         AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1024, FLAGS },
-    { "nb_frames", "set maximum number of frame to render", OFFSET(nb_frames),
-        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, FLAGS },
     {NULL},
 };
 
 AVFILTER_DEFINE_CLASS(tile);
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
+static av_cold int init(AVFilterContext *ctx)
 {
     TileContext *tile = ctx->priv;
-    static const char *shorthand[] = { "layout", "nb_frames", "margin", "padding", NULL };
-    int ret;
-
-    tile->class = &tile_class;
-    av_opt_set_defaults(tile);
-
-    if ((ret = av_opt_set_from_string(tile, args, shorthand, "=", ":")) < 0)
-        return ret;
 
     if (tile->w > REASONABLE_SIZE || tile->h > REASONABLE_SIZE) {
         av_log(ctx, AV_LOG_ERROR, "Tile size %ux%u is insane.\n",
@@ -123,6 +115,8 @@ static int config_props(AVFilterLink *outlink)
     ff_draw_init(&tile->draw, inlink->format, 0);
     /* TODO make the color an option, or find an unified way of choosing it */
     ff_draw_color(&tile->draw, &tile->blank, (uint8_t[]){ 0, 0, 0, -1 });
+
+    outlink->flags |= FF_LINK_FLAG_REQUEST_LOOP;
 
     return 0;
 }
@@ -211,16 +205,9 @@ static int request_frame(AVFilterLink *outlink)
     AVFilterLink *inlink = ctx->inputs[0];
     int r;
 
-    while (1) {
-        r = ff_request_frame(inlink);
-        if (r < 0) {
-            if (r == AVERROR_EOF && tile->current)
-                r = end_last_frame(ctx);
-            break;
-        }
-        if (!tile->current) /* done */
-            break;
-    }
+    r = ff_request_frame(inlink);
+    if (r == AVERROR_EOF && tile->current)
+        r = end_last_frame(ctx);
     return r;
 }
 

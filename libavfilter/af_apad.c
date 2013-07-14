@@ -56,19 +56,11 @@ static const AVOption apad_options[] = {
 
 AVFILTER_DEFINE_CLASS(apad);
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
+static av_cold int init(AVFilterContext *ctx)
 {
-    int ret;
     APadContext *apad = ctx->priv;
 
-    apad->class = &apad_class;
     apad->next_pts = AV_NOPTS_VALUE;
-
-    av_opt_set_defaults(apad);
-
-    if ((ret = av_opt_set_from_string(apad, args, NULL, "=", ":")) < 0)
-        return ret;
-
     if (apad->whole_len && apad->pad_len) {
         av_log(ctx, AV_LOG_ERROR, "Both whole and pad length are set, this is not possible\n");
         return AVERROR(EINVAL);
@@ -97,7 +89,7 @@ static int request_frame(AVFilterLink *outlink)
 
     ret = ff_request_frame(ctx->inputs[0]);
 
-    if (ret == AVERROR_EOF) {
+    if (ret == AVERROR_EOF && !ctx->is_disabled) {
         int n_out = apad->packet_size;
         AVFrame *outsamplesref;
 
@@ -160,4 +152,5 @@ AVFilter avfilter_af_apad = {
     .inputs        = apad_inputs,
     .outputs       = apad_outputs,
     .priv_class    = &apad_class,
+    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL,
 };

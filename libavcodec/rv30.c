@@ -124,7 +124,7 @@ static int rv30_decode_mb_info(RV34DecContext *r)
 static inline void rv30_weak_loop_filter(uint8_t *src, const int step,
                                          const int stride, const int lim)
 {
-    uint8_t *cm = ff_cropTbl + MAX_NEG_CROP;
+    const uint8_t *cm = ff_cropTbl + MAX_NEG_CROP;
     int i, diff;
 
     for(i = 0; i < 4; i++){
@@ -248,9 +248,12 @@ static void rv30_loop_filter(RV34DecContext *r, int row)
 static av_cold int rv30_decode_init(AVCodecContext *avctx)
 {
     RV34DecContext *r = avctx->priv_data;
+    int ret;
 
     r->rv30 = 1;
-    ff_rv34_decode_init(avctx);
+    ret = ff_rv34_decode_init(avctx);
+    if (ret < 0)
+        return ret;
     if(avctx->extradata_size < 2){
         av_log(avctx, AV_LOG_ERROR, "Extradata is too small.\n");
         return -1;

@@ -26,7 +26,6 @@
 int ff_raw_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
     avio_write(s->pb, pkt->data, pkt->size);
-    avio_flush(s->pb);
     return 0;
 }
 
@@ -64,6 +63,15 @@ AVOutputFormat ff_cavsvideo_muxer = {
     .extensions        = "cavs",
     .audio_codec       = AV_CODEC_ID_NONE,
     .video_codec       = AV_CODEC_ID_CAVS,
+    .write_packet      = ff_raw_write_packet,
+    .flags             = AVFMT_NOTIMESTAMPS,
+};
+#endif
+
+#if CONFIG_DATA_MUXER
+AVOutputFormat ff_data_muxer = {
+    .name              = "data",
+    .long_name         = NULL_IF_CONFIG_SMALL("raw data"),
     .write_packet      = ff_raw_write_packet,
     .flags             = AVFMT_NOTIMESTAMPS,
 };

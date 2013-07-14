@@ -38,7 +38,6 @@ typedef struct {
     int nb_out_samples;  ///< how many samples to output
     AVAudioFifo *fifo;   ///< samples are queued here
     int64_t next_out_pts;
-    int req_fullfilled;
     int pad;
 } ASNSContext;
 
@@ -46,25 +45,18 @@ typedef struct {
 #define FLAGS AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
 
 static const AVOption asetnsamples_options[] = {
-{ "pad", "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS },
-{ "p",   "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS },
-{ "nb_out_samples", "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.i64=1024}, 1, INT_MAX, FLAGS },
-{ "n",              "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.i64=1024}, 1, INT_MAX, FLAGS },
-{ NULL }
+    { "nb_out_samples", "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.i64=1024}, 1, INT_MAX, FLAGS },
+    { "n",              "set the number of per-frame output samples", OFFSET(nb_out_samples), AV_OPT_TYPE_INT, {.i64=1024}, 1, INT_MAX, FLAGS },
+    { "pad", "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS },
+    { "p",   "pad last frame with zeros", OFFSET(pad), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS },
+    { NULL }
 };
 
 AVFILTER_DEFINE_CLASS(asetnsamples);
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
+static av_cold int init(AVFilterContext *ctx)
 {
     ASNSContext *asns = ctx->priv;
-    int err;
-
-    asns->class = &asetnsamples_class;
-    av_opt_set_defaults(asns);
-
-    if ((err = av_set_options_string(asns, args, "=", ":")) < 0)
-        return err;
 
     asns->next_out_pts = AV_NOPTS_VALUE;
     av_log(ctx, AV_LOG_VERBOSE, "nb_out_samples:%d pad:%d\n", asns->nb_out_samples, asns->pad);
@@ -86,6 +78,7 @@ static int config_props_output(AVFilterLink *outlink)
     asns->fifo = av_audio_fifo_alloc(outlink->format, nb_channels, asns->nb_out_samples);
     if (!asns->fifo)
         return AVERROR(ENOMEM);
+    outlink->flags |= FF_LINK_FLAG_REQUEST_LOOP;
 
     return 0;
 }
@@ -108,7 +101,8 @@ static int push_samples(AVFilterLink *outlink)
         return 0;
 
     outsamples = ff_get_audio_buffer(outlink, nb_out_samples);
-    av_assert0(outsamples);
+    if (!outsamples)
+        return AVERROR(ENOMEM);
 
     av_audio_fifo_read(asns->fifo,
                        (void **)outsamples->extended_data, nb_out_samples);
@@ -128,7 +122,6 @@ static int push_samples(AVFilterLink *outlink)
     ret = ff_filter_frame(outlink, outsamples);
     if (ret < 0)
         return ret;
-    asns->req_fullfilled = 1;
     return nb_out_samples;
 }
 
@@ -161,19 +154,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
 
 static int request_frame(AVFilterLink *outlink)
 {
-    ASNSContext *asns = outlink->src->priv;
     AVFilterLink *inlink = outlink->src->inputs[0];
     int ret;
 
-    asns->req_fullfilled = 0;
-    do {
-        ret = ff_request_frame(inlink);
-    } while (!asns->req_fullfilled && ret >= 0);
-
+    ret = ff_request_frame(inlink);
     if (ret == AVERROR_EOF) {
-        do {
-            ret = push_samples(outlink);
-        } while (ret > 0);
+        ret = push_samples(outlink);
+        return ret < 0 ? ret : ret > 0 ? 0 : AVERROR_EOF;
     }
 
     return ret;

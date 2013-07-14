@@ -102,6 +102,9 @@ int avcodec_get_context_defaults3(AVCodecContext *s, const AVCodec *codec)
     s->av_class = &av_codec_context_class;
 
     s->codec_type = codec ? codec->type : AVMEDIA_TYPE_UNKNOWN;
+    if (codec)
+        s->codec_id = codec->id;
+
     if(s->codec_type == AVMEDIA_TYPE_AUDIO)
         flags= AV_OPT_FLAG_AUDIO_PARAM;
     else if(s->codec_type == AVMEDIA_TYPE_VIDEO)
@@ -223,6 +226,7 @@ int avcodec_copy_context(AVCodecContext *dest, const AVCodecContext *src)
     alloc_and_copy_or_fail(intra_matrix, 64 * sizeof(int16_t), 0);
     alloc_and_copy_or_fail(inter_matrix, 64 * sizeof(int16_t), 0);
     alloc_and_copy_or_fail(rc_override,  src->rc_override_count * sizeof(*src->rc_override), 0);
+    alloc_and_copy_or_fail(subtitle_header, src->subtitle_header_size, 1);
 #undef alloc_and_copy_or_fail
 
     return 0;

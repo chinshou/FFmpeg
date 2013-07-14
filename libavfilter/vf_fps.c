@@ -45,7 +45,6 @@ typedef struct FPSContext {
     int64_t pts;            ///< pts of the first frame currently in the fifo
 
     AVRational framerate;   ///< target framerate
-    char *fps;              ///< a string describing target framerate
     int rounding;           ///< AVRounding method for timestamps
 
     /* statistics */
@@ -59,7 +58,7 @@ typedef struct FPSContext {
 #define V AV_OPT_FLAG_VIDEO_PARAM
 #define F AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption fps_options[] = {
-    { "fps", "A string describing desired output framerate", OFFSET(fps), AV_OPT_TYPE_STRING, { .str = "25" }, .flags = V|F },
+    { "fps", "A string describing desired output framerate", OFFSET(framerate), AV_OPT_TYPE_VIDEO_RATE, { .str = "25" }, .flags = V|F },
     { "round", "set rounding method for timestamps", OFFSET(rounding), AV_OPT_TYPE_INT, { .i64 = AV_ROUND_NEAR_INF }, 0, 5, V|F, "round" },
     { "zero", "round towards 0",      OFFSET(rounding), AV_OPT_TYPE_CONST, { .i64 = AV_ROUND_ZERO     }, 0, 5, V|F, "round" },
     { "inf",  "round away from 0",    OFFSET(rounding), AV_OPT_TYPE_CONST, { .i64 = AV_ROUND_INF      }, 0, 5, V|F, "round" },
@@ -71,26 +70,14 @@ static const AVOption fps_options[] = {
 
 AVFILTER_DEFINE_CLASS(fps);
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
+static av_cold int init(AVFilterContext *ctx)
 {
     FPSContext *s = ctx->priv;
-    const char *shorthand[] = { "fps", "round", NULL };
-    int ret;
-
-    s->class = &fps_class;
-    av_opt_set_defaults(s);
-
-    if ((ret = av_opt_set_from_string(s, args, shorthand, "=", ":")) < 0)
-        return ret;
-
-    if ((ret = av_parse_video_rate(&s->framerate, s->fps)) < 0) {
-        av_log(ctx, AV_LOG_ERROR, "Error parsing framerate %s.\n", s->fps);
-        return ret;
-    }
-    av_opt_free(s);
 
     if (!(s->fifo = av_fifo_alloc(2*sizeof(AVFrame*))))
         return AVERROR(ENOMEM);
+
+    s->pts          = AV_NOPTS_VALUE;
 
     av_log(ctx, AV_LOG_VERBOSE, "fps=%d/%d\n", s->framerate.num, s->framerate.den);
     return 0;
@@ -126,7 +113,6 @@ static int config_props(AVFilterLink* link)
     link->frame_rate= s->framerate;
     link->w         = link->src->inputs[0]->w;
     link->h         = link->src->inputs[0]->h;
-    s->pts          = AV_NOPTS_VALUE;
 
     return 0;
 }
@@ -290,14 +276,14 @@ static const AVFilterPad avfilter_vf_fps_outputs[] = {
 
 AVFilter avfilter_vf_fps = {
     .name        = "fps",
-    .description = NULL_IF_CONFIG_SMALL("Force constant framerate"),
+    .description = NULL_IF_CONFIG_SMALL("Force constant framerate."),
 
     .init      = init,
     .uninit    = uninit,
 
     .priv_size = sizeof(FPSContext),
+    .priv_class = &fps_class,
 
     .inputs    = avfilter_vf_fps_inputs,
     .outputs   = avfilter_vf_fps_outputs,
-    .priv_class = &fps_class,
 };

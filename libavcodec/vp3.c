@@ -381,7 +381,8 @@ static void init_dequantizer(Vp3DecodeContext *s, int qpi)
                 int qmin= 8<<(inter + !i);
                 int qscale= i ? ac_scale_factor : dc_scale_factor;
 
-                s->qmat[qpi][inter][plane][s->idct_permutation[i]]= av_clip((qscale * coeff)/100 * 4, qmin, 4096);
+                s->qmat[qpi][inter][plane][s->idct_permutation[i]] =
+                    av_clip((qscale * coeff) / 100 * 4, qmin, 4096);
             }
             // all DC coefficients use the same quant so as not to interfere with DC prediction
             s->qmat[qpi][inter][plane][0] = s->qmat[0][inter][plane][0];
@@ -1631,16 +1632,16 @@ static av_cold int allocate_tables(AVCodecContext *avctx)
     y_fragment_count = s->fragment_width[0] * s->fragment_height[0];
     c_fragment_count = s->fragment_width[1] * s->fragment_height[1];
 
-    s->superblock_coding = av_malloc(s->superblock_count);
-    s->all_fragments = av_malloc(s->fragment_count * sizeof(Vp3Fragment));
-    s->coded_fragment_list[0] = av_malloc(s->fragment_count * sizeof(int));
-    s->dct_tokens_base = av_malloc(64*s->fragment_count * sizeof(*s->dct_tokens_base));
-    s->motion_val[0] = av_malloc(y_fragment_count * sizeof(*s->motion_val[0]));
-    s->motion_val[1] = av_malloc(c_fragment_count * sizeof(*s->motion_val[1]));
+    s->superblock_coding = av_mallocz(s->superblock_count);
+    s->all_fragments = av_mallocz(s->fragment_count * sizeof(Vp3Fragment));
+    s->coded_fragment_list[0] = av_mallocz(s->fragment_count * sizeof(int));
+    s->dct_tokens_base = av_mallocz(64*s->fragment_count * sizeof(*s->dct_tokens_base));
+    s->motion_val[0] = av_mallocz(y_fragment_count * sizeof(*s->motion_val[0]));
+    s->motion_val[1] = av_mallocz(c_fragment_count * sizeof(*s->motion_val[1]));
 
     /* work out the block mapping tables */
-    s->superblock_fragments = av_malloc(s->superblock_count * 16 * sizeof(int));
-    s->macroblock_coding = av_malloc(s->macroblock_count + 1);
+    s->superblock_fragments = av_mallocz(s->superblock_count * 16 * sizeof(int));
+    s->macroblock_coding = av_mallocz(s->macroblock_count + 1);
 
     if (!s->superblock_coding || !s->all_fragments || !s->dct_tokens_base ||
         !s->coded_fragment_list[0] || !s->superblock_fragments || !s->macroblock_coding ||
@@ -2224,7 +2225,7 @@ static int theora_decode_header(AVCodecContext *avctx, GetBitContext *gb)
 
     fps.num = get_bits_long(gb, 32);
     fps.den = get_bits_long(gb, 32);
-    if (fps.num && fps.den) {
+    if (fps.num>0 && fps.den>0) {
         av_reduce(&avctx->time_base.num, &avctx->time_base.den,
                   fps.den, fps.num, 1<<30);
     }

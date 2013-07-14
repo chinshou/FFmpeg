@@ -66,6 +66,8 @@
 #    define INT_BIT (CHAR_BIT * sizeof(int))
 #endif
 
+#define FF_MEMORY_POISON 0x2a
+
 // Some broken preprocessors need a second expansion
 // to be forced to tokenize __VA_ARGS__
 #define E1(x) x
@@ -111,6 +113,11 @@
 }
 
 #include "libm.h"
+
+#if defined(_MSC_VER) && !CONFIG_SHARED
+#pragma comment(linker, "/include:"EXTERN_PREFIX"avpriv_strtod")
+#pragma comment(linker, "/include:"EXTERN_PREFIX"avpriv_snprintf")
+#endif
 
 /**
  * Return NULL if CONFIG_SMALL is true, otherwise the argument

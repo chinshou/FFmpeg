@@ -97,25 +97,12 @@ static int query_formats(AVFilterContext *ctx)
     return 0;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
-{
-    TInterlaceContext *tinterlace = ctx->priv;
-    static const char *shorthand[] = { "mode", NULL };
-
-    tinterlace->class = &tinterlace_class;
-    av_opt_set_defaults(tinterlace);
-
-    return av_opt_set_from_string(tinterlace, args, shorthand, "=", ":");
-}
-
 static av_cold void uninit(AVFilterContext *ctx)
 {
     TInterlaceContext *tinterlace = ctx->priv;
 
     av_frame_free(&tinterlace->cur );
     av_frame_free(&tinterlace->next);
-
-    av_opt_free(tinterlace);
     av_freep(&tinterlace->black_data[0]);
 }
 
@@ -127,6 +114,7 @@ static int config_out_props(AVFilterLink *outlink)
     TInterlaceContext *tinterlace = ctx->priv;
 
     tinterlace->vsub = desc->log2_chroma_h;
+    outlink->flags |= FF_LINK_FLAG_REQUEST_LOOP;
     outlink->w = inlink->w;
     outlink->h = tinterlace->mode == MODE_MERGE || tinterlace->mode == MODE_PAD ?
         inlink->h*2 : inlink->h;
@@ -143,7 +131,7 @@ static int config_out_props(AVFilterLink *outlink)
 
         /* fill black picture with black */
         for (i = 0; i < 4 && tinterlace->black_data[i]; i++) {
-            int h = i == 1 || i == 2 ? outlink->h >> desc->log2_chroma_h : outlink->h;
+            int h = i == 1 || i == 2 ? FF_CEIL_RSHIFT(outlink->h, desc->log2_chroma_h) : outlink->h;
             memset(tinterlace->black_data[i], black[i],
                    tinterlace->black_linesize[i] * h);
         }
@@ -188,7 +176,7 @@ void copy_picture_field(uint8_t *dst[4], int dst_linesize[4],
     int h, i;
 
     for (plane = 0; plane < desc->nb_components; plane++) {
-        int lines = plane == 1 || plane == 2 ? src_h >> vsub : src_h;
+        int lines = plane == 1 || plane == 2 ? FF_CEIL_RSHIFT(src_h, vsub) : src_h;
         int linesize = av_image_get_linesize(format, w, plane);
         uint8_t *dstp = dst[plane];
         const uint8_t *srcp = src[plane];
@@ -196,7 +184,7 @@ void copy_picture_field(uint8_t *dst[4], int dst_linesize[4],
         if (linesize < 0)
             return;
 
-        lines /= k;
+        lines = (lines + (src_field == FIELD_UPPER)) / k;
         if (src_field == FIELD_LOWER)
             srcp += src_linesize[plane];
         if (interleave && dst_field == FIELD_LOWER)
@@ -214,7 +202,7 @@ void copy_picture_field(uint8_t *dst[4], int dst_linesize[4],
                 if (h == 1) srcp_below = srcp;     // there is no line below
                 for (i = 0; i < linesize; i++) {
                     // this calculation is an integer representation of
-                    // '0.5 * current + 0.25 * above + 0.25 + below'
+                    // '0.5 * current + 0.25 * above + 0.25 * below'
                     // '1 +' is for rounding. */
                     dstp[i] = (1 + srcp[i] + srcp[i] + srcp_above[i] + srcp_below[i]) >> 2;
                 }
@@ -279,6 +267,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     case MODE_PAD: /* expand each frame to double height, but pad alternate
                     * lines with black; framerate unchanged */
         out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
+        if (!out)
+            return AVERROR(ENOMEM);
         av_frame_copy_props(out, cur);
         out->height = outlink->h;
 
@@ -362,21 +352,6 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     return ret;
 }
 
-static int request_frame(AVFilterLink *outlink)
-{
-    TInterlaceContext *tinterlace = outlink->src->priv;
-    AVFilterLink *inlink = outlink->src->inputs[0];
-
-    do {
-        int ret;
-
-        if ((ret = ff_request_frame(inlink)) < 0)
-            return ret;
-    } while (!tinterlace->cur);
-
-    return 0;
-}
-
 static const AVFilterPad tinterlace_inputs[] = {
     {
         .name         = "default",
@@ -391,7 +366,6 @@ static const AVFilterPad tinterlace_outputs[] = {
         .name          = "default",
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_out_props,
-        .request_frame = request_frame,
     },
     { NULL }
 };
@@ -400,7 +374,6 @@ AVFilter avfilter_vf_tinterlace = {
     .name          = "tinterlace",
     .description   = NULL_IF_CONFIG_SMALL("Perform temporal field interlacing."),
     .priv_size     = sizeof(TInterlaceContext),
-    .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
     .inputs        = tinterlace_inputs,

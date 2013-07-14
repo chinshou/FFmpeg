@@ -27,6 +27,7 @@
 #include "avfilter.h"
 #include "avfiltergraph.h"
 #include "formats.h"
+#include "thread.h"
 #include "video.h"
 
 #define POOL_SIZE 32
@@ -140,6 +141,17 @@ struct AVFilterPad {
     int needs_fifo;
 };
 #endif
+
+struct AVFilterGraphInternal {
+    void *thread;
+    int (*thread_execute)(AVFilterContext *ctx, action_func *func, void *arg,
+                          int *ret, int nb_jobs);
+};
+
+struct AVFilterInternal {
+    int (*execute)(AVFilterContext *ctx, action_func *func, void *arg,
+                   int *ret, int nb_jobs);
+};
 
 /** default handler for freeing audio/video buffer when there are no references left */
 void ff_avfilter_default_free_buffer(AVFilterBuffer *buf);
@@ -324,5 +336,34 @@ int ff_buffersink_read_samples_compat(AVFilterContext *ctx, AVFilterBufferRef **
  * is responsible for unreferencing frame in case of error.
  */
 int ff_filter_frame(AVFilterLink *link, AVFrame *frame);
+
+/**
+ * Flags for AVFilterLink.flags.
+ */
+enum {
+
+    /**
+     * Frame requests may need to loop in order to be fulfilled.
+     * A filter must set this flags on an output link if it may return 0 in
+     * request_frame() without filtering a frame.
+     */
+    FF_LINK_FLAG_REQUEST_LOOP = 1,
+
+};
+
+/**
+ * Allocate a new filter context and return it.
+ *
+ * @param filter what filter to create an instance of
+ * @param inst_name name to give to the new filter context
+ *
+ * @return newly created filter context or NULL on failure
+ */
+AVFilterContext *ff_filter_alloc(const AVFilter *filter, const char *inst_name);
+
+/**
+ * Remove a filter from a graph;
+ */
+void ff_filter_graph_remove_filter(AVFilterGraph *graph, AVFilterContext *filter);
 
 #endif /* AVFILTER_INTERNAL_H */

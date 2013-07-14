@@ -26,54 +26,18 @@
 #include "libavutil/opt.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/internal.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "avfilter.h"
 #include "formats.h"
 #include "internal.h"
 #include "video.h"
 
-enum FieldOrder {
-    ORDER_TFF,
-    ORDER_BFF,
-    ORDER_NB,
-};
-
 typedef struct {
     const AVClass *class;
-    enum FieldOrder order;
-    unsigned int dst_tff;      ///< output bff/tff
+    int dst_tff;               ///< output bff/tff
     int          line_size[4]; ///< bytes of pixel data per line for each plane
 } FieldOrderContext;
-
-#define OFFSET(x) offsetof(FieldOrderContext, x)
-#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
-
-static const AVOption fieldorder_options[] = {
-    { "order", "set output field order", OFFSET(order), AV_OPT_TYPE_INT, {.i64=ORDER_TFF}, 0, ORDER_NB-1, FLAGS, "order" },
-    { "tff",   "set top field first",    0, AV_OPT_TYPE_CONST, {.i64=ORDER_TFF}, .flags=FLAGS, .unit="order" },
-    { "bff",   "set bottom field first", 0, AV_OPT_TYPE_CONST, {.i64=ORDER_BFF}, .flags=FLAGS, .unit="order" },
-    { NULL }
-};
-
-AVFILTER_DEFINE_CLASS(fieldorder);
-
-static av_cold int init(AVFilterContext *ctx, const char *args)
-{
-    FieldOrderContext *fieldorder = ctx->priv;
-    int ret;
-    static const char *shorthand[] = { "order", NULL };
-
-    fieldorder->class = &fieldorder_class;
-    av_opt_set_defaults(fieldorder);
-
-    if ((ret = av_opt_set_from_string(fieldorder, args, shorthand, "=", ":")) < 0)
-        return ret;
-
-    fieldorder->dst_tff = fieldorder->order == ORDER_TFF;
-    av_log(ctx, AV_LOG_VERBOSE, "tff:%d\n", fieldorder->dst_tff);
-
-    return 0;
-}
 
 static int query_formats(AVFilterContext *ctx)
 {
@@ -87,8 +51,8 @@ static int query_formats(AVFilterContext *ctx)
         formats = NULL;
         for (pix_fmt = 0; pix_fmt < AV_PIX_FMT_NB; pix_fmt++) {
             const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
-            if (!(desc->flags & PIX_FMT_HWACCEL ||
-                  desc->flags & PIX_FMT_BITSTREAM) &&
+            if (!(desc->flags & AV_PIX_FMT_FLAG_HWACCEL ||
+                  desc->flags & AV_PIX_FMT_FLAG_BITSTREAM) &&
                 desc->nb_components && !desc->log2_chroma_h &&
                 (ret = ff_add_format(&formats, pix_fmt)) < 0) {
                 ff_formats_unref(&formats);
@@ -104,17 +68,15 @@ static int query_formats(AVFilterContext *ctx)
 
 static int config_input(AVFilterLink *inlink)
 {
-    AVFilterContext   *ctx        = inlink->dst;
-    FieldOrderContext *fieldorder = ctx->priv;
+    AVFilterContext   *ctx = inlink->dst;
+    FieldOrderContext *s   = ctx->priv;
     int               plane;
 
     /** full an array with the number of bytes that the video
      *  data occupies per line for each plane of the input video */
     for (plane = 0; plane < 4; plane++) {
-        fieldorder->line_size[plane] = av_image_get_linesize(
-                inlink->format,
-                inlink->w,
-                plane);
+        s->line_size[plane] = av_image_get_linesize(inlink->format, inlink->w,
+                                                    plane);
     }
 
     return 0;
@@ -184,6 +146,18 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     return ff_filter_frame(outlink, frame);
 }
 
+#define OFFSET(x) offsetof(FieldOrderContext, x)
+#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
+
+static const AVOption fieldorder_options[] = {
+    { "order", "output field order", OFFSET(dst_tff), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS, "order" },
+        { "bff", "bottom field first", 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, .flags=FLAGS, .unit = "order" },
+        { "tff", "top field first",    0, AV_OPT_TYPE_CONST, { .i64 = 1 }, .flags=FLAGS, .unit = "order" },
+    { NULL },
+};
+
+AVFILTER_DEFINE_CLASS(fieldorder);
+
 static const AVFilterPad avfilter_vf_fieldorder_inputs[] = {
     {
         .name             = "default",
@@ -207,10 +181,9 @@ static const AVFilterPad avfilter_vf_fieldorder_outputs[] = {
 AVFilter avfilter_vf_fieldorder = {
     .name          = "fieldorder",
     .description   = NULL_IF_CONFIG_SMALL("Set the field order."),
-    .init          = init,
     .priv_size     = sizeof(FieldOrderContext),
+    .priv_class    = &fieldorder_class,
     .query_formats = query_formats,
     .inputs        = avfilter_vf_fieldorder_inputs,
     .outputs       = avfilter_vf_fieldorder_outputs,
-    .priv_class    = &fieldorder_class,
 };

@@ -77,12 +77,7 @@ static const AVOption join_options[] = {
     { NULL },
 };
 
-static const AVClass join_class = {
-    .class_name = "join filter",
-    .item_name  = av_default_item_name,
-    .option     = join_options,
-    .version    = LIBAVUTIL_VERSION_INT,
-};
+AVFILTER_DEFINE_CLASS(join);
 
 static int filter_frame(AVFilterLink *link, AVFrame *frame)
 {
@@ -103,14 +98,23 @@ static int filter_frame(AVFilterLink *link, AVFrame *frame)
 static int parse_maps(AVFilterContext *ctx)
 {
     JoinContext *s = ctx->priv;
+    char separator = '|';
     char *cur      = s->map;
+
+#if FF_API_OLD_FILTER_OPTS
+    if (cur && strchr(cur, ',')) {
+        av_log(ctx, AV_LOG_WARNING, "This syntax is deprecated, use '|' to "
+               "separate the mappings.\n");
+        separator = ',';
+    }
+#endif
 
     while (cur && *cur) {
         char *sep, *next, *p;
         uint64_t in_channel = 0, out_channel = 0;
         int input_idx, out_ch_idx, in_ch_idx;
 
-        next = strchr(cur, ',');
+        next = strchr(cur, separator);
         if (next)
             *next++ = 0;
 
@@ -178,15 +182,10 @@ static int parse_maps(AVFilterContext *ctx)
     return 0;
 }
 
-static int join_init(AVFilterContext *ctx, const char *args)
+static av_cold int join_init(AVFilterContext *ctx)
 {
     JoinContext *s = ctx->priv;
     int ret, i;
-
-    s->class = &join_class;
-    av_opt_set_defaults(s);
-    if ((ret = av_set_options_string(s, args, "=", ":")) < 0)
-        return ret;
 
     if (!(s->channel_layout = av_get_channel_layout(s->channel_layout_str))) {
         av_log(ctx, AV_LOG_ERROR, "Error parsing channel layout '%s'.\n",
@@ -231,7 +230,7 @@ fail:
     return ret;
 }
 
-static void join_uninit(AVFilterContext *ctx)
+static av_cold void join_uninit(AVFilterContext *ctx)
 {
     JoinContext *s = ctx->priv;
     int i;
@@ -476,6 +475,8 @@ static int join_request_frame(AVFilterLink *outlink)
 
     frame->nb_samples     = nb_samples;
     frame->channel_layout = outlink->channel_layout;
+    av_frame_set_channels(frame, outlink->channels);
+    frame->format         = outlink->format;
     frame->sample_rate    = outlink->sample_rate;
     frame->pts            = s->input_frames[0]->pts;
     frame->linesize[0]    = linesize;
@@ -509,8 +510,9 @@ static const AVFilterPad avfilter_af_join_outputs[] = {
 AVFilter avfilter_af_join = {
     .name           = "join",
     .description    = NULL_IF_CONFIG_SMALL("Join multiple audio streams into "
-                                           "multi-channel output"),
+                                           "multi-channel output."),
     .priv_size      = sizeof(JoinContext),
+    .priv_class     = &join_class,
 
     .init           = join_init,
     .uninit         = join_uninit,
@@ -518,5 +520,6 @@ AVFilter avfilter_af_join = {
 
     .inputs  = NULL,
     .outputs = avfilter_af_join_outputs,
-    .priv_class = &join_class,
+
+    .flags   = AVFILTER_FLAG_DYNAMIC_INPUTS,
 };

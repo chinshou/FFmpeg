@@ -33,6 +33,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/dict.h"
 #include "libavutil/xga_font_data.h"
 #include "libavutil/opt.h"
 #include "libavutil/timestamp.h"
@@ -126,6 +127,7 @@ typedef struct {
 
     /* misc */
     int loglevel;                   ///< log level for frame logging
+    int metadata;                   ///< whether or not to inject loudness results in frames
 } EBUR128Context;
 
 #define OFFSET(x) offsetof(EBUR128Context, x)
@@ -139,6 +141,7 @@ static const AVOption ebur128_options[] = {
     { "framelog", "force frame logging level", OFFSET(loglevel), AV_OPT_TYPE_INT, {.i64 = -1},   INT_MIN, INT_MAX, A|V|F, "level" },
         { "info",    "information logging level", 0, AV_OPT_TYPE_CONST, {.i64 = AV_LOG_INFO},    INT_MIN, INT_MAX, A|V|F, "level" },
         { "verbose", "verbose logging level",     0, AV_OPT_TYPE_CONST, {.i64 = AV_LOG_VERBOSE}, INT_MIN, INT_MAX, A|V|F, "level" },
+    { "metadata", "inject metadata in the filtergraph", OFFSET(metadata), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, A|V|F },
     { NULL },
 };
 
@@ -313,6 +316,22 @@ static int config_video_output(AVFilterLink *outlink)
     DRAW_RECT(ebur128->graph);
     DRAW_RECT(ebur128->gauge);
 
+    outlink->flags |= FF_LINK_FLAG_REQUEST_LOOP;
+
+    return 0;
+}
+
+static int config_audio_input(AVFilterLink *inlink)
+{
+    AVFilterContext *ctx = inlink->dst;
+    EBUR128Context *ebur128 = ctx->priv;
+
+    /* force 100ms framing in case of metadata injection: the frames must have
+     * a granularity of the window overlap to be accurately exploited */
+    if (ebur128->metadata)
+        inlink->min_samples =
+        inlink->max_samples =
+        inlink->partial_buf_size = inlink->sample_rate / 10;
     return 0;
 }
 
@@ -362,6 +381,8 @@ static int config_audio_output(AVFilterLink *outlink)
             return AVERROR(ENOMEM);
     }
 
+    outlink->flags |= FF_LINK_FLAG_REQUEST_LOOP;
+
     return 0;
 }
 
@@ -382,21 +403,14 @@ static struct hist_entry *get_histogram(void)
     return h;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
+static av_cold int init(AVFilterContext *ctx)
 {
-    int ret;
     EBUR128Context *ebur128 = ctx->priv;
     AVFilterPad pad;
 
-    ebur128->class = &ebur128_class;
-    av_opt_set_defaults(ebur128);
-
-    if ((ret = av_set_options_string(ebur128, args, "=", ":")) < 0)
-        return ret;
-
     if (ebur128->loglevel != AV_LOG_INFO &&
         ebur128->loglevel != AV_LOG_VERBOSE) {
-        if (ebur128->do_video)
+        if (ebur128->do_video || ebur128->metadata)
             ebur128->loglevel = AV_LOG_VERBOSE;
         else
             ebur128->loglevel = AV_LOG_INFO;
@@ -661,6 +675,20 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
                     return ret;
             }
 
+            if (ebur128->metadata) { /* happens only once per filter_frame call */
+                char metabuf[128];
+#define SET_META(name, var) do {                                            \
+    snprintf(metabuf, sizeof(metabuf), "%.3f", var);                        \
+    av_dict_set(&insamples->metadata, "lavfi.r128." name, metabuf, 0);      \
+} while (0)
+                SET_META("M",        loudness_400);
+                SET_META("S",        loudness_3000);
+                SET_META("I",        ebur128->integrated_loudness);
+                SET_META("LRA",      ebur128->loudness_range);
+                SET_META("LRA.low",  ebur128->lra_low);
+                SET_META("LRA.high", ebur128->lra_high);
+            }
+
             av_log(ctx, ebur128->loglevel, "t: %-10s " LOG_FMT "\n",
                    av_ts2timestr(pts, &outlink->time_base),
                    loudness_400, loudness_3000,
@@ -753,6 +781,7 @@ static const AVFilterPad ebur128_inputs[] = {
         .type             = AVMEDIA_TYPE_AUDIO,
         .get_audio_buffer = ff_null_get_audio_buffer,
         .filter_frame     = filter_frame,
+        .config_props     = config_audio_input,
     },
     { NULL }
 };
@@ -767,4 +796,5 @@ AVFilter avfilter_af_ebur128 = {
     .inputs        = ebur128_inputs,
     .outputs       = NULL,
     .priv_class    = &ebur128_class,
+    .flags         = AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };
