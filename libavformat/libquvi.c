@@ -27,13 +27,16 @@
 typedef struct {
     const AVClass *class;
     char *format;
+    char *user_agent;
     AVFormatContext *fmtctx;
 } LibQuviContext;
 
 #define OFFSET(x) offsetof(LibQuviContext, x)
 #define FLAGS AV_OPT_FLAG_DECODING_PARAM
+#define DEFAULT_USER_AGENT "Lavf/" AV_STRINGIFY(LIBAVFORMAT_VERSION)
 static const AVOption libquvi_options[] = {
     { "format", "request specific format", OFFSET(format), AV_OPT_TYPE_STRING, {.str="best"}, .flags = FLAGS },
+    { "user-agent", "override User-Agent header", OFFSET(user_agent), AV_OPT_TYPE_STRING, {.str = DEFAULT_USER_AGENT}, 0, 0, FLAGS },
     { NULL }
 };
 
@@ -60,6 +63,7 @@ static int libquvi_read_header(AVFormatContext *s)
     QUVIcode rc;
     LibQuviContext *qc = s->priv_data;
     char *media_url, *pagetitle;
+    AVDictionary *format_opts = NULL;
 
     rc = quvi_init(&q);
     if (rc != QUVI_OK)
@@ -74,8 +78,10 @@ static int libquvi_read_header(AVFormatContext *s)
     rc = quvi_getprop(m, QUVIPROP_MEDIAURL, &media_url);
     if (rc != QUVI_OK)
         goto quvi_fail;
+    av_dict_set(&format_opts, "user-agent", qc->user_agent, 0);
 
-    ret = avformat_open_input(&qc->fmtctx, media_url, NULL, NULL);
+    ret = avformat_open_input(&qc->fmtctx, media_url, NULL, &format_opts);
+    av_dict_free(&format_opts);
     if (ret < 0)
         goto end;
 
