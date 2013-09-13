@@ -89,6 +89,7 @@ static int libquvi_read_header(AVFormatContext *s)
     if (rc == QUVI_OK)
         av_dict_set(&s->metadata, "title", pagetitle, 0);
 
+    s->duration = qc->fmtctx->duration;
     for (i = 0; i < qc->fmtctx->nb_streams; i++) {
         AVStream *st = avformat_new_stream(s, NULL);
         AVStream *ist = qc->fmtctx->streams[i];
