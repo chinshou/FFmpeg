@@ -239,7 +239,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     } else {
         int plane;
 
-        for (plane = 0; plane < 4 && in->data[plane]; plane++) {
+        for (plane = 0; plane < 4 && in->data[plane] && in->linesize[plane]; plane++) {
             uint8_t       *dst = out->data[plane];
             const uint8_t *src = in ->data[plane];
             const float *fmap = s->fmap;
@@ -325,7 +325,7 @@ static const AVFilterPad vignette_outputs[] = {
      { NULL }
 };
 
-AVFilter avfilter_vf_vignette = {
+AVFilter ff_vf_vignette = {
     .name          = "vignette",
     .description   = NULL_IF_CONFIG_SMALL("Make or reverse a vignette effect."),
     .priv_size     = sizeof(VignetteContext),

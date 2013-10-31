@@ -802,7 +802,7 @@ static void truncpasses(Jpeg2000EncoderContext *s, Jpeg2000Tile *tile)
                         Jpeg2000Cblk *cblk = prec->cblk + cblkno;
 
                         cblk->ninclpasses = getcut(cblk, s->lambda,
-                                (int64_t)dwt_norms[codsty->transform == FF_DWT53][bandpos][lev] * (int64_t)band->i_stepsize >> 16);
+                                (int64_t)dwt_norms[codsty->transform == FF_DWT53][bandpos][lev] * (int64_t)band->i_stepsize >> 15);
                     }
                 }
             }
@@ -863,7 +863,7 @@ static int encode_tile(Jpeg2000EncoderContext *s, Jpeg2000Tile *tile, int tileno
                                 int *ptr = t1.data[y-yy0];
                                 for (x = xx0; x < xx1; x++){
                                     *ptr = (comp->i_data[(comp->coord[0][1] - comp->coord[0][0]) * y + x]);
-                                    *ptr = (int64_t)*ptr * (int64_t)(16384 * 65536 / band->i_stepsize) >> 14 - NMSEDEC_FRACBITS;
+                                    *ptr = (int64_t)*ptr * (int64_t)(16384 * 65536 / band->i_stepsize) >> 15 - NMSEDEC_FRACBITS;
                                     ptr++;
                                 }
                             }
@@ -1016,7 +1016,7 @@ static av_cold int j2kenc_init(AVCodecContext *avctx)
     }
 
     ff_jpeg2000_init_tier1_luts();
-
+    ff_mqc_init_context_tables();
     init_luts();
 
     init_quantization(s);
@@ -1038,6 +1038,7 @@ static int j2kenc_destroy(AVCodecContext *avctx)
 
 AVCodec ff_jpeg2000_encoder = {
     .name           = "jpeg2000",
+    .long_name      = NULL_IF_CONFIG_SMALL("JPEG 2000"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_JPEG2000,
     .priv_data_size = sizeof(Jpeg2000EncoderContext),
@@ -1045,7 +1046,6 @@ AVCodec ff_jpeg2000_encoder = {
     .encode2        = encode_frame,
     .close          = j2kenc_destroy,
     .capabilities   = CODEC_CAP_EXPERIMENTAL,
-    .long_name      = NULL_IF_CONFIG_SMALL("JPEG 2000"),
     .pix_fmts       = (const enum AVPixelFormat[]) {
         AV_PIX_FMT_RGB24, AV_PIX_FMT_YUV444P, AV_PIX_FMT_GRAY8,
 /*      AV_PIX_FMT_YUV420P,

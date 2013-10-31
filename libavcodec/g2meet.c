@@ -389,7 +389,7 @@ static int kempf_decode_tile(G2MContext *c, int tile_x, int tile_y,
         return 0;
     zsize = (src[0] << 8) | src[1]; src += 2;
 
-    if (src_end - src < zsize)
+    if (src_end - src < zsize + (sub_type != 2))
         return AVERROR_INVALIDDATA;
 
     ret = uncompress(c->kempf_buf, &dlen, src, zsize);
@@ -411,6 +411,8 @@ static int kempf_decode_tile(G2MContext *c, int tile_x, int tile_y,
     for (i = 0; i < (FFALIGN(height, 16) >> 4); i++) {
         for (j = 0; j < (FFALIGN(width, 16) >> 4); j++) {
             if (!bits) {
+                if (src >= src_end)
+                    return AVERROR_INVALIDDATA;
                 bitbuf = *src++;
                 bits   = 8;
             }
@@ -441,8 +443,8 @@ static int g2m_init_buffers(G2MContext *c)
     int aligned_height;
 
     if (!c->framebuf || c->old_width < c->width || c->old_height < c->height) {
-        c->framebuf_stride = FFALIGN(c->width * 3, 16);
-        aligned_height     = FFALIGN(c->height,    16);
+        c->framebuf_stride = FFALIGN(c->width + 15, 16) * 3;
+        aligned_height     = c->height + 15;
         av_free(c->framebuf);
         c->framebuf = av_mallocz(c->framebuf_stride * aligned_height);
         if (!c->framebuf)
@@ -451,7 +453,7 @@ static int g2m_init_buffers(G2MContext *c)
     if (!c->synth_tile || !c->jpeg_tile ||
         c->old_tile_w < c->tile_width ||
         c->old_tile_h < c->tile_height) {
-        c->tile_stride = FFALIGN(c->tile_width * 3, 16);
+        c->tile_stride = FFALIGN(c->tile_width, 16) * 3;
         aligned_height = FFALIGN(c->tile_height,    16);
         av_free(c->synth_tile);
         av_free(c->jpeg_tile);
@@ -488,7 +490,7 @@ static int g2m_load_cursor(AVCodecContext *avctx, G2MContext *c,
     cursor_hot_y  = bytestream2_get_byte(gb);
     cursor_fmt    = bytestream2_get_byte(gb);
 
-    cursor_stride = cursor_w * 4;
+    cursor_stride = FFALIGN(cursor_w, c->cursor_fmt==1 ? 32 : 1) * 4;
 
     if (cursor_w < 1 || cursor_w > 256 ||
         cursor_h < 1 || cursor_h > 256) {
@@ -511,11 +513,6 @@ static int g2m_load_cursor(AVCodecContext *avctx, G2MContext *c,
     if (cursor_fmt != 1 && cursor_fmt != 32) {
         avpriv_report_missing_feature(avctx, "Cursor format %d",
                                       cursor_fmt);
-        return AVERROR_PATCHWELCOME;
-    }
-
-    if (cursor_fmt == 1 && cursor_w % 32) {
-        avpriv_report_missing_feature(avctx, "odd monochrome cursor width %d", cursor_w);
         return AVERROR_PATCHWELCOME;
     }
 
@@ -805,10 +802,8 @@ static int g2m_decode_frame(AVCodecContext *avctx, void *data,
         c->got_header = 1;
 
     if (c->width && c->height && c->framebuf) {
-        if ((ret = ff_get_buffer(avctx, pic, 0)) < 0) {
-            av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
+        if ((ret = ff_get_buffer(avctx, pic, 0)) < 0)
             return ret;
-        }
 
         pic->key_frame = got_header;
         pic->pict_type = got_header ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_P;
@@ -840,7 +835,7 @@ static av_cold int g2m_decode_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
     }
 
-    avctx->pix_fmt     = AV_PIX_FMT_RGB24;
+    avctx->pix_fmt = AV_PIX_FMT_RGB24;
 
     return 0;
 }

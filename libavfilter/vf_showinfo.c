@@ -38,7 +38,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     uint32_t plane_checksum[4] = {0}, checksum = 0;
     int i, plane, vsub = desc->log2_chroma_h;
 
-    for (plane = 0; plane < 4 && frame->data[plane]; plane++) {
+    for (plane = 0; plane < 4 && frame->data[plane] && frame->linesize[plane]; plane++) {
         int64_t linesize = av_image_get_linesize(frame->format, frame->width, plane);
         uint8_t *data = frame->data[plane];
         int h = plane == 1 || plane == 2 ? FF_CEIL_RSHIFT(inlink->h, vsub) : inlink->h;
@@ -68,7 +68,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
            av_get_picture_type_char(frame->pict_type),
            checksum, plane_checksum[0]);
 
-    for (plane = 1; plane < 4 && frame->data[plane]; plane++)
+    for (plane = 1; plane < 4 && frame->data[plane] && frame->linesize[plane]; plane++)
         av_log(ctx, AV_LOG_INFO, " %08X", plane_checksum[plane]);
     av_log(ctx, AV_LOG_INFO, "]\n");
 
@@ -77,10 +77,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
 static const AVFilterPad avfilter_vf_showinfo_inputs[] = {
     {
-        .name             = "default",
-        .type             = AVMEDIA_TYPE_VIDEO,
-        .get_video_buffer = ff_null_get_video_buffer,
-        .filter_frame     = filter_frame,
+        .name         = "default",
+        .type         = AVMEDIA_TYPE_VIDEO,
+        .filter_frame = filter_frame,
     },
     { NULL }
 };
@@ -93,11 +92,9 @@ static const AVFilterPad avfilter_vf_showinfo_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_showinfo = {
+AVFilter ff_vf_showinfo = {
     .name        = "showinfo",
     .description = NULL_IF_CONFIG_SMALL("Show textual information for each video frame."),
-
-    .inputs    = avfilter_vf_showinfo_inputs,
-
-    .outputs   = avfilter_vf_showinfo_outputs,
+    .inputs      = avfilter_vf_showinfo_inputs,
+    .outputs     = avfilter_vf_showinfo_outputs,
 };

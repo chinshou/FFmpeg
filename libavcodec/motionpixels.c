@@ -68,6 +68,12 @@ static av_cold int mp_decode_init(AVCodecContext *avctx)
     mp->offset_bits_len = av_log2(avctx->width * avctx->height) + 1;
     mp->vpt = av_mallocz(avctx->height * sizeof(YuvPixel));
     mp->hpt = av_mallocz(h4 * w4 / 16 * sizeof(YuvPixel));
+    if (!mp->changes_map || !mp->vpt || !mp->hpt) {
+        av_freep(&mp->changes_map);
+        av_freep(&mp->vpt);
+        av_freep(&mp->hpt);
+        return AVERROR(ENOMEM);
+    }
     avctx->pix_fmt = AV_PIX_FMT_RGB555;
     avcodec_get_frame_defaults(&mp->frame);
     return 0;
@@ -269,13 +275,12 @@ static int mp_decode_frame(AVCodecContext *avctx,
         return ret;
 
     /* le32 bitstream msb first */
-    av_fast_malloc(&mp->bswapbuf, &mp->bswapbuf_size, buf_size + FF_INPUT_BUFFER_PADDING_SIZE);
+    av_fast_padded_malloc(&mp->bswapbuf, &mp->bswapbuf_size, buf_size);
     if (!mp->bswapbuf)
         return AVERROR(ENOMEM);
     mp->dsp.bswap_buf((uint32_t *)mp->bswapbuf, (const uint32_t *)buf, buf_size / 4);
     if (buf_size & 3)
         memcpy(mp->bswapbuf + (buf_size & ~3), buf + (buf_size & ~3), buf_size & 3);
-    memset(mp->bswapbuf + buf_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
     init_get_bits(&gb, mp->bswapbuf, buf_size * 8);
 
     memset(mp->changes_map, 0, avctx->width * avctx->height);
@@ -332,6 +337,7 @@ static av_cold int mp_decode_end(AVCodecContext *avctx)
 
 AVCodec ff_motionpixels_decoder = {
     .name           = "motionpixels",
+    .long_name      = NULL_IF_CONFIG_SMALL("Motion Pixels video"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_MOTIONPIXELS,
     .priv_data_size = sizeof(MotionPixelsContext),
@@ -339,5 +345,4 @@ AVCodec ff_motionpixels_decoder = {
     .close          = mp_decode_end,
     .decode         = mp_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
-    .long_name      = NULL_IF_CONFIG_SMALL("Motion Pixels video"),
 };
