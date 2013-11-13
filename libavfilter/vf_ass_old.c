@@ -502,7 +502,7 @@ static int parse_args(AVFilterContext *ctx, AssContext *context, const char* arg
   return 0;
 }
 
-AVFilter avfilter_vf_ass_old = {
+AVFilter ff_vf_ass_old = {
     .name      = "ass_old",
     .description   = NULL_IF_CONFIG_SMALL("Render subtitles onto input video using the libass library."),
     .priv_size = sizeof(AssContext),

@@ -34,6 +34,7 @@
 
 #include "avcodec.h"
 #include "get_bits.h"
+#include "h263.h"
 #include "hpeldsp.h"
 #include "internal.h"
 #include "mathops.h"
@@ -41,8 +42,6 @@
 
 #undef NDEBUG
 #include <assert.h>
-
-extern const uint8_t ff_mvtab[33][2];
 
 static VLC svq1_block_type;
 static VLC svq1_motion_component;
@@ -594,8 +593,8 @@ static int svq1_decode_frame_header(AVCodecContext *avctx, AVFrame *frame)
         skip_bits1(bitbuf);
         skip_bits(bitbuf, 2);
 
-        while (get_bits1(bitbuf))
-            skip_bits(bitbuf, 8);
+        if (skip_1stop_8data_bits(bitbuf) < 0)
+            return AVERROR_INVALIDDATA;
     }
 
     s->width  = width;
@@ -807,6 +806,7 @@ static void svq1_flush(AVCodecContext *avctx)
 
 AVCodec ff_svq1_decoder = {
     .name           = "svq1",
+    .long_name      = NULL_IF_CONFIG_SMALL("Sorenson Vector Quantizer 1 / Sorenson Video 1 / SVQ1"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_SVQ1,
     .priv_data_size = sizeof(SVQ1Context),
@@ -817,5 +817,4 @@ AVCodec ff_svq1_decoder = {
     .flush          = svq1_flush,
     .pix_fmts       = (const enum AVPixelFormat[]) { AV_PIX_FMT_YUV410P,
                                                      AV_PIX_FMT_NONE },
-    .long_name      = NULL_IF_CONFIG_SMALL("Sorenson Vector Quantizer 1 / Sorenson Video 1 / SVQ1"),
 };

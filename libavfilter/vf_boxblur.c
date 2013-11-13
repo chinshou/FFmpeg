@@ -313,13 +313,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     }
     av_frame_copy_props(out, in);
 
-    for (plane = 0; in->data[plane] && plane < 4; plane++)
+    for (plane = 0; plane < 4 && in->data[plane] && in->linesize[plane]; plane++)
         hblur(out->data[plane], out->linesize[plane],
               in ->data[plane], in ->linesize[plane],
               w[plane], h[plane], s->radius[plane], s->power[plane],
               s->temp);
 
-    for (plane = 0; in->data[plane] && plane < 4; plane++)
+    for (plane = 0; plane < 4 && in->data[plane] && in->linesize[plane]; plane++)
         vblur(out->data[plane], out->linesize[plane],
               out->data[plane], out->linesize[plane],
               w[plane], h[plane], s->radius[plane], s->power[plane],
@@ -372,7 +372,7 @@ static const AVFilterPad avfilter_vf_boxblur_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_boxblur = {
+AVFilter ff_vf_boxblur = {
     .name          = "boxblur",
     .description   = NULL_IF_CONFIG_SMALL("Blur the input."),
     .priv_size     = sizeof(BoxBlurContext),
@@ -380,8 +380,7 @@ AVFilter avfilter_vf_boxblur = {
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
-
-    .inputs    = avfilter_vf_boxblur_inputs,
-    .outputs   = avfilter_vf_boxblur_outputs,
-    .flags     = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
+    .inputs        = avfilter_vf_boxblur_inputs,
+    .outputs       = avfilter_vf_boxblur_outputs,
+    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };

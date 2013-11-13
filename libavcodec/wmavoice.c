@@ -618,7 +618,7 @@ static void calc_input_response(WMAVoiceContext *s, float *lpcs,
     }
 
     /* calculate the Hilbert transform of the gains, which we do (since this
-     * is a sinus input) by doing a phase shift (in theory, H(sin())=cos()).
+     * is a sine input) by doing a phase shift (in theory, H(sin())=cos()).
      * Hilbert_Transform(RDFT(x)) = Laplace_Transform(x), which calculates the
      * "moment" of the LPCs in this filter. */
     s->dct.dct_calc(&s->dct, lpcs);
@@ -2062,6 +2062,7 @@ static av_cold void wmavoice_flush(AVCodecContext *ctx)
 
 AVCodec ff_wmavoice_decoder = {
     .name             = "wmavoice",
+    .long_name        = NULL_IF_CONFIG_SMALL("Windows Media Audio Voice"),
     .type             = AVMEDIA_TYPE_AUDIO,
     .id               = AV_CODEC_ID_WMAVOICE,
     .priv_data_size   = sizeof(WMAVoiceContext),
@@ -2071,5 +2072,4 @@ AVCodec ff_wmavoice_decoder = {
     .decode           = wmavoice_decode_packet,
     .capabilities     = CODEC_CAP_SUBFRAMES | CODEC_CAP_DR1,
     .flush            = wmavoice_flush,
-    .long_name        = NULL_IF_CONFIG_SMALL("Windows Media Audio Voice"),
 };

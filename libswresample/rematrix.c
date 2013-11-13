@@ -82,9 +82,6 @@ static int even(int64_t layout){
 }
 
 static int clean_layout(SwrContext *s, int64_t layout){
-    if((layout & AV_CH_LAYOUT_STEREO_DOWNMIX) == AV_CH_LAYOUT_STEREO_DOWNMIX)
-        return AV_CH_LAYOUT_STEREO;
-
     if(layout && layout != AV_CH_FRONT_CENTER && !(layout&(layout-1))) {
         char buf[128];
         av_get_channel_layout_string(buf, sizeof(buf), -1, layout);
@@ -120,15 +117,22 @@ av_cold static int auto_matrix(SwrContext *s)
     double maxcoef=0;
     char buf[128];
     const int matrix_encoding = s->matrix_encoding;
+    float maxval;
 
     in_ch_layout = clean_layout(s, s->in_ch_layout);
+    out_ch_layout = clean_layout(s, s->out_ch_layout);
+
+    if(   out_ch_layout == AV_CH_LAYOUT_STEREO_DOWNMIX
+       && (in_ch_layout & AV_CH_LAYOUT_STEREO_DOWNMIX) == 0
+    )
+        out_ch_layout = AV_CH_LAYOUT_STEREO;
+
     if(!sane_layout(in_ch_layout)){
         av_get_channel_layout_string(buf, sizeof(buf), -1, s->in_ch_layout);
         av_log(s, AV_LOG_ERROR, "Input channel layout '%s' is not supported\n", buf);
         return AVERROR(EINVAL);
     }
 
-    out_ch_layout = clean_layout(s, s->out_ch_layout);
     if(!sane_layout(out_ch_layout)){
         av_get_channel_layout_string(buf, sizeof(buf), -1, s->out_ch_layout);
         av_log(s, AV_LOG_ERROR, "Output channel layout '%s' is not supported\n", buf);
@@ -304,8 +308,16 @@ av_cold static int auto_matrix(SwrContext *s)
     if(s->rematrix_volume  < 0)
         maxcoef = -s->rematrix_volume;
 
-    if((   av_get_packed_sample_fmt(s->out_sample_fmt) < AV_SAMPLE_FMT_FLT
-        || av_get_packed_sample_fmt(s->int_sample_fmt) < AV_SAMPLE_FMT_FLT) && maxcoef > 1.0){
+    if (s->rematrix_maxval > 0) {
+        maxval = s->rematrix_maxval;
+    } else if (   av_get_packed_sample_fmt(s->out_sample_fmt) < AV_SAMPLE_FMT_FLT
+               || av_get_packed_sample_fmt(s->int_sample_fmt) < AV_SAMPLE_FMT_FLT) {
+        maxval = 1.0;
+    } else
+        maxval = INT_MAX;
+
+    if(maxcoef > maxval || s->rematrix_volume  < 0){
+        maxcoef /= maxval;
         for(i=0; i<SWR_CH_MAX; i++)
             for(j=0; j<SWR_CH_MAX; j++){
                 s->matrix[i][j] /= maxcoef;
