@@ -257,6 +257,7 @@ static av_cold int Stagefright_init(AVCodecContext *avctx)
 {
     StagefrightContext *s = (StagefrightContext*)avctx->priv_data;
     sp<MetaData> meta, outFormat;
+    sp<ANativeWindow> mNativeWindow;
     int32_t colorFormat = 0;
     int ret;
 
@@ -289,6 +290,7 @@ static av_cold int Stagefright_init(AVCodecContext *avctx)
     meta->setInt32(kKeyHeight, avctx->height);
     meta->setData(kKeyAVCC, kTypeAVCC, avctx->extradata, avctx->extradata_size);
 
+    av_log(avctx, AV_LOG_ERROR, "start Thread Pool\n");
     android::ProcessState::self()->startThreadPool();
 
     s->source    = new sp<MediaSource>();
@@ -304,22 +306,28 @@ static av_cold int Stagefright_init(AVCodecContext *avctx)
         goto fail;
     }
 
+    av_log(avctx, AV_LOG_ERROR, "Cannot connect OMX client\n");
+
     if (s->client->connect() !=  OK) {
         av_log(avctx, AV_LOG_ERROR, "Cannot connect OMX client\n");
         ret = -1;
         goto fail;
     }
 
+    mNativeWindow = getNativeWindowFromSurface();
     s->decoder  = new sp<MediaSource>();
     *s->decoder = OMXCodec::Create(s->client->interface(), meta,
                                   false, *s->source, NULL,
-                                  OMXCodec::kClientNeedsFramebuffer);
+                                  OMXCodec::kClientNeedsFramebuffer,
+				  NULL);
+    av_log(avctx, AV_LOG_ERROR, "Cannot start decoder \n");
     if ((*s->decoder)->start() !=  OK) {
         av_log(avctx, AV_LOG_ERROR, "Cannot start decoder\n");
         ret = -1;
         s->client->disconnect();
         goto fail;
     }
+    av_log(avctx, AV_LOG_ERROR, "Set Format\n");
 
     outFormat = (*s->decoder)->getFormat();
     outFormat->findInt32(kKeyColorFormat, &colorFormat);

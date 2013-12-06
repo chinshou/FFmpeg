@@ -20,6 +20,7 @@ EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfloat-abi=softfp -mfpu=neon"
 EXTRA_LDFLAGS=""
 EXTRA_LDFLAGS="-Wl,--fix-cortex-a8 -L$ANDROID_LIBS -Wl,-rpath-link,$ANDROID_LIBS -L$NDK/sources/cxx-stl/gnu-libstdc++/4.8/libs/$ABI"
 EXTRA_CXXFLAGS="-Wno-multichar -fno-exceptions -fno-rtti"
+#    --disable-decoder=h264  \
 
 function build_one
 {
@@ -37,7 +38,6 @@ function build_one
     --disable-muxers \
     --disable-doc \
     --disable-symver \
-    --disable-decoder=h264  \
     --disable-decoder=h264_vdpau \
     --enable-libstagefright-h264  \
     --cross-prefix=$TOOLCHAIN/bin/arm-linux-androideabi- \

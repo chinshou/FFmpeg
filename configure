@@ -2080,7 +2080,7 @@ caca_outdev_deps="libcaca"
 dshow_indev_deps="IBaseFilter"
 dshow_indev_extralibs="-lpsapi -lole32 -lstrmiids -luuid"
 dv1394_indev_deps="dv1394 dv_demuxer"
-#gdi_indev_deps="GetDeviceCaps"
+gdi_indev_deps="GetDeviceCaps"
 gdi_indev_extralibs="-lgdi32"
 fbdev_indev_deps="linux_fb_h"
 iec61883_indev_deps="libiec61883"
@@ -2104,7 +2104,7 @@ vfwcap_indev_extralibs="-lavicap32"
 xv_outdev_deps="X11_extensions_Xvlib_h XvGetPortAttribute"
 xv_outdev_extralibs="-lXv -lX11 -lXext"
 x11grab_indev_deps="x11grab"
-#waveform_indev_deps="waveInOpen"
+waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 
 # protocols
@@ -2298,10 +2298,10 @@ SLIBPREF="lib"
 SLIBSUF=".so"
 SLIBNAME='$(SLIBPREF)$(FULLNAME)$(SLIBSUF)'
 SLIBNAME_WITH_VERSION='$(SLIBNAME).$(LIBVERSION)'
-SLIBNAME_WITH_MAJOR='$(SLIBNAME).$(LIBMAJOR)'
+SLIBNAME_WITH_MAJOR='$(SLIBPREF)$(FULLNAME)-$(LIBMAJOR)$(SLIBSUF)'
 LIB_INSTALL_EXTRA_CMD='$$(RANLIB) "$(LIBDIR)/$(LIBNAME)"'
-SLIB_INSTALL_NAME='$(SLIBNAME_WITH_VERSION)'
-SLIB_INSTALL_LINKS='$(SLIBNAME_WITH_MAJOR) $(SLIBNAME)'
+SLIB_INSTALL_NAME='$(SLIBNAME_WITH_MAJOR)'
+SLIB_INSTALL_LINKS='$(SLIBNAME)'
 
 asflags_filter=echo
 cflags_filter=echo
@@ -4026,7 +4026,7 @@ check_func  ${malloc_prefix}memalign            && enable memalign
 check_func  mkstemp
 check_func  mmap
 check_func  mprotect
-check_func  ${malloc_prefix}posix_memalign      && enable posix_memalign
+#check_func  ${malloc_prefix}posix_memalign      && enable posix_memalign
 check_func_headers malloc.h _aligned_malloc     && enable aligned_malloc
 check_func  setrlimit
 check_struct "sys/stat.h" "struct stat" st_mtim.tv_nsec -D_BSD_SOURCE
