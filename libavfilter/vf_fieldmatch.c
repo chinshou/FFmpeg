@@ -608,7 +608,7 @@ static void copy_fields(const FieldMatchContext *fm, AVFrame *dst,
                         const AVFrame *src, int field)
 {
     int plane;
-    for (plane = 0; plane < 4 && src->data[plane]; plane++)
+    for (plane = 0; plane < 4 && src->data[plane] && src->linesize[plane]; plane++)
         av_image_copy_plane(dst->data[plane] + field*dst->linesize[plane], dst->linesize[plane] << 1,
                             src->data[plane] + field*src->linesize[plane], src->linesize[plane] << 1,
                             get_width(fm, src, plane), get_height(fm, src, plane) / 2);
@@ -970,7 +970,7 @@ static const AVFilterPad fieldmatch_outputs[] = {
     { NULL }
 };
 
-AVFilter avfilter_vf_fieldmatch = {
+AVFilter ff_vf_fieldmatch = {
     .name           = "fieldmatch",
     .description    = NULL_IF_CONFIG_SMALL("Field matching for inverse telecine."),
     .query_formats  = query_formats,

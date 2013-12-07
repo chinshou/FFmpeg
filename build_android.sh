@@ -38,6 +38,11 @@ function build_one
     --disable-muxers \
     --disable-doc \
     --disable-symver \
+    --disable-indev=dv1394 \
+    --disable-indev=v4l2 \
+    --disable-indev=fbdev \
+    --disable-protocol=libssh \
+    --disable-outdevs \
     --disable-decoder=h264_vdpau \
     --cross-prefix=$TOOLCHAIN/bin/arm-linux-androideabi- \
     --target-os=linux \

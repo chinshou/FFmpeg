@@ -234,7 +234,7 @@ static int request_frame(AVFilterLink *outlink)
     return ret;
 }
 
-AVFilter avfilter_af_sox = {
+AVFilter ff_af_sox = {
     .name          = "sox",
     .description   = NULL_IF_CONFIG_SMALL("Apply SoX library effect."),
     .priv_size     = sizeof(SoxContext),
