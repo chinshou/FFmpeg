@@ -29,6 +29,7 @@
 #include "libavutil/avstring.h"
 #include "libavutil/audioconvert.h"
 #include "libavutil/mem.h"
+#include "libavutil/opt.h"
 #include "avfilter.h"
 #include "internal.h"
 #include "audio.h"
@@ -40,7 +41,18 @@ static int soxinit = -1;
 
 typedef struct {
     sox_effect_t *effect;
+    char *filter;
 } SoxContext;
+
+#define OFFSET(x) offsetof(SoxContext, x)
+#define A AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_FILTERING_PARAM
+
+static const AVOption sox_options[] = {
+    { "filter", "set filters for sox", OFFSET(filter), AV_OPT_TYPE_STRING, {.str=NULL}, 0, 0, A },
+    { NULL }
+};
+
+AVFILTER_DEFINE_CLASS(sox);
 
 static inline int realloc_argv(char ***argv, int *numargs)
 {
@@ -52,11 +64,11 @@ static inline int realloc_argv(char ***argv, int *numargs)
         return *numargs;
 }
 
-static av_cold int init(AVFilterContext *ctx, const char *args)
+static av_cold int init(AVFilterContext *ctx)
 {
     SoxContext *sox = ctx->priv;
     char **argv = NULL;
-    char *args1 = av_strdup(args);
+    char *args1 = av_strdup(sox->filter);
     int argc = 0, numargs = 0, ret = 0;
     sox_encodinginfo_t *encoding;
     const sox_effect_handler_t *handler;
@@ -238,6 +250,7 @@ AVFilter ff_af_sox = {
     .name          = "sox",
     .description   = NULL_IF_CONFIG_SMALL("Apply SoX library effect."),
     .priv_size     = sizeof(SoxContext),
+    .priv_class    = &sox_class,
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
