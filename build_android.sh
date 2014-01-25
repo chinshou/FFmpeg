@@ -6,10 +6,12 @@ TOOLCHAIN=$NDK/toolchains/arm-linux-androideabi-4.8/prebuilt/linux-x86_64
 # Expand the prebuilt/* path into the correct one
 #TOOLCHAIN=`echo $NDK/toolchains/arm-linux-androideabi-4.4.3/prebuilt/*-x86`
 export PATH=$TOOLCHAIN/bin:$PATH
+CPU=arm
+PREFIX=../android/$CPU 
 ANDROID_SOURCE=./android-source
 ANDROID_LIBS=./android-libs
 ABI="armeabi-v7a"
-EXTRA_CFLAGS=""
+EXTRA_CFLAGS=" -I$PREFIX/include "
 #EXTRA_CFLAGS="-I$ANDROID_SOURCE/frameworks/base/include -I$ANDROID_SOURCE/system/core/include"
 #EXTRA_CFLAGS="$EXTRA_CFLAGS -I$ANDROID_SOURCE/hardware/include"
 #EXTRA_CFLAGS="$EXTRA_CFLAGS -I$ANDROID_SOURCE/frameworks/base/media/libstagefright"
@@ -17,13 +19,14 @@ EXTRA_CFLAGS=""
 #EXTRA_CFLAGS="$EXTRA_CFLAGS -I$NDK/sources/cxx-stl/gnu-libstdc++/4.8/include -I$NDK/sources/cxx-stl/gnu-libstdc++/4.8/libs/$ABI/include"
 
 EXTRA_CFLAGS="$EXTRA_CFLAGS -march=armv7-a -mfloat-abi=softfp -mfpu=neon"
-EXTRA_LDFLAGS=""
+EXTRA_LDFLAGS=" -L$PREFIX/lib "
 #EXTRA_LDFLAGS="-Wl,--fix-cortex-a8 -L$ANDROID_LIBS -Wl,-rpath-link,$ANDROID_LIBS -L$NDK/sources/cxx-stl/gnu-libstdc++/4.8/libs/$ABI"
 #EXTRA_CXXFLAGS="-Wno-multichar -fno-exceptions -fno-rtti"
 #    --disable-decoder=h264  \
 
 function build_one
 {
+export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
 ./configure \
     --prefix=$PREFIX \
     --enable-shared \
@@ -34,6 +37,8 @@ function build_one
     --disable-ffprobe \
     --disable-ffserver \
     --enable-avdevice \
+    --enable-libx264 \
+    --enable-gpl \
     --disable-doc \
     --disable-symver \
     --disable-indev=dv1394 \
@@ -59,8 +64,6 @@ function build_one
 #make install
 }
 
-CPU=arm
-PREFIX=$(pwd)/android/$CPU 
 ADDI_CFLAGS="-marm -march=armv7-a -mfpu=neon -mfloat-abi=softfp -mtune=cortex-a8"
 #ADDI_CFLAGS="-marm -march=armv7-a -mfpu=vfp -mfloat-abi=softfp "
 #ADDI_CFLAGS="-marm -march=armv7-a -mfpu=vfpv3-d16 -mfloat-abi=softfp "
