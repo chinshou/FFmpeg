@@ -38,6 +38,8 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --disable-ffserver \
     --enable-avdevice \
     --enable-libx264 \
+    --enable-libvpx \
+    --disable-decoder=libvpx \
     --enable-gpl \
     --disable-doc \
     --disable-symver \
