@@ -34,8 +34,6 @@ function build_one
     --disable-ffprobe \
     --disable-ffserver \
     --enable-avdevice \
-    --disable-encoders \
-    --disable-muxers \
     --disable-doc \
     --disable-symver \
     --disable-indev=dv1394 \
