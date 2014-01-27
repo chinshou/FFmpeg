@@ -37,8 +37,10 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --disable-ffprobe \
     --disable-ffserver \
     --enable-avdevice \
+    --enable-nonfree \
     --enable-libx264 \
     --enable-libvpx \
+    --enable-libfaac \
     --disable-decoder=libvpx \
     --enable-gpl \
     --disable-doc \
