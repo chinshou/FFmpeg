@@ -41,6 +41,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-libx264 \
     --enable-libvpx \
     --enable-libfaac \
+    --enable-libvorbis \
     --disable-decoder=libvpx \
     --enable-gpl \
     --disable-doc \
