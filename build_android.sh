@@ -44,6 +44,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-libvorbis \
     --enable-libfreetype \
     --enable-openssl \
+    --enable-libgsm \
     --disable-decoder=libvpx \
     --enable-gpl \
     --disable-doc \
