@@ -45,6 +45,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-libfreetype \
     --enable-openssl \
     --enable-libgsm \
+    --enable-libmp3lame \
     --disable-decoder=libvpx \
     --enable-gpl \
     --disable-doc \
