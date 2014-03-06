@@ -23,11 +23,11 @@
 .macro  call_2x_pixels  type, subp
 function ff_\type\()_pixels16\subp\()_armv6, export=1
         push            {r0-r3, lr}
-        bl              ff_\type\()_pixels8\subp\()_armv6
+        bl              X(ff_\type\()_pixels8\subp\()_armv6)
         pop             {r0-r3, lr}
         add             r0,  r0,  #8
         add             r1,  r1,  #8
-        b               ff_\type\()_pixels8\subp\()_armv6
+        b               X(ff_\type\()_pixels8\subp\()_armv6)
 endfunc
 .endm
 
@@ -132,11 +132,12 @@ function ff_put_pixels8_y2_armv6, export=1
         uhadd8          r9,  r5,  r7
         eor             r11, r5,  r7
         and             r10, r10, r12
-        ldr_pre         r4,  r1,  r2
+        ldrc_pre        ne,  r4,  r1,  r2
         uadd8           r8,  r8,  r10
         and             r11, r11, r12
         uadd8           r9,  r9,  r11
-        ldr             r5,  [r1, #4]
+        it              ne
+        ldrne           r5,  [r1, #4]
         uhadd8          r10, r4,  r6
         eor             r6,  r4,  r6
         uhadd8          r11, r5,  r7
@@ -144,10 +145,11 @@ function ff_put_pixels8_y2_armv6, export=1
         eor             r7,  r5,  r7
         uadd8           r10, r10, r6
         and             r7,  r7,  r12
-        ldr_pre         r6,  r1,  r2
+        ldrc_pre        ne,  r6,  r1,  r2
         uadd8           r11, r11, r7
         strd_post       r8,  r9,  r0,  r2
-        ldr             r7,  [r1, #4]
+        it              ne
+        ldrne           r7,  [r1, #4]
         strd_post       r10, r11, r0,  r2
         bne             1b
 
@@ -192,13 +194,15 @@ function ff_put_pixels8_y2_no_rnd_armv6, export=1
 1:
         subs            r3,  r3,  #2
         uhadd8          r8,  r4,  r6
-        ldr_pre         r4,  r1,  r2
+        ldrc_pre        ne,  r4,  r1,  r2
         uhadd8          r9,  r5,  r7
-        ldr             r5,  [r1, #4]
+        it              ne
+        ldrne           r5,  [r1, #4]
         uhadd8          r12, r4,  r6
-        ldr_pre         r6,  r1,  r2
+        ldrc_pre        ne,  r6,  r1,  r2
         uhadd8          r14, r5,  r7
-        ldr             r7,  [r1, #4]
+        it              ne
+        ldrne           r7,  [r1, #4]
         stm             r0,  {r8,r9}
         add             r0,  r0,  r2
         stm             r0,  {r12,r14}

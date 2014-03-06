@@ -28,6 +28,7 @@
 
 #define BITSTREAM_READER_LE
 #include "libavutil/attributes.h"
+#include "libavutil/timer.h"
 #include "avcodec.h"
 #include "get_bits.h"
 #include "internal.h"
@@ -363,7 +364,7 @@ static int ivi_init_tiles(IVIBandDesc *band, IVITile *ref_tile,
                                               band->mb_size);
 
             av_freep(&tile->mbs);
-            tile->mbs = av_malloc(tile->num_MBs * sizeof(IVIMbInfo));
+            tile->mbs = av_mallocz(tile->num_MBs * sizeof(IVIMbInfo));
             if (!tile->mbs)
                 return AVERROR(ENOMEM);
 
@@ -1056,7 +1057,10 @@ int ff_ivi_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     if (!ctx->is_nonnull_frame(ctx))
         return buf_size;
 
-    avcodec_set_dimensions(avctx, ctx->planes[0].width, ctx->planes[0].height);
+    result = ff_set_dimensions(avctx, ctx->planes[0].width, ctx->planes[0].height);
+    if (result < 0)
+        return result;
+
     if ((result = ff_get_buffer(avctx, frame, 0)) < 0)
         return result;
 
