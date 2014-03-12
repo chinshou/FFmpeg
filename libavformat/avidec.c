@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <stdint.h>
+
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/bswap.h"
@@ -111,8 +113,8 @@ static int avi_load_index(AVFormatContext *s);
 static int guess_ni_flag(AVFormatContext *s);
 
 #define print_tag(str, tag, size)                        \
-    av_dlog(NULL, "%s: tag=%c%c%c%c size=0x%x\n",        \
-            str, tag & 0xff,                             \
+    av_dlog(NULL, "pos:%"PRIX64" %s: tag=%c%c%c%c size=0x%x\n", \
+            avio_tell(pb), str, tag & 0xff,              \
             (tag >> 8) & 0xff,                           \
             (tag >> 16) & 0xff,                          \
             (tag >> 24) & 0xff,                          \
@@ -348,6 +350,7 @@ static void avi_read_nikon(AVFormatContext *s, uint64_t end)
                 uint16_t size    = avio_rl16(s->pb);
                 const char *name = NULL;
                 char buffer[64]  = { 0 };
+                size = FFMIN(size, tag_end - avio_tell(s->pb));
                 size -= avio_read(s->pb, buffer,
                                   FFMIN(size, sizeof(buffer) - 1));
                 switch (tag) {
@@ -623,6 +626,10 @@ static int avi_read_header(AVFormatContext *s)
                 if (cur_pos < list_end)
                     size = FFMIN(size, list_end - cur_pos);
                 st = s->streams[stream_index];
+                if (st->codec->codec_type != AVMEDIA_TYPE_UNKNOWN) {
+                    avio_skip(pb, size);
+                    break;
+                }
                 switch (codec_type) {
                 case AVMEDIA_TYPE_VIDEO:
                     if (amv_file_format) {
@@ -648,11 +655,8 @@ static int avi_read_header(AVFormatContext *s)
                             st->codec->extradata_size = esize - 10 * 4;
                         } else
                             st->codec->extradata_size =  size - 10 * 4;
-                        if (ff_alloc_extradata(st->codec, st->codec->extradata_size))
+                        if (ff_get_extradata(st->codec, pb, st->codec->extradata_size) < 0)
                             return AVERROR(ENOMEM);
-                        avio_read(pb,
-                                  st->codec->extradata,
-                                  st->codec->extradata_size);
                     }
 
                     // FIXME: check if the encoder really did this correctly
@@ -685,6 +689,8 @@ static int avi_read_header(AVFormatContext *s)
                     /* This is needed to get the pict type which is necessary
                      * for generating correct pts. */
                     st->need_parsing = AVSTREAM_PARSE_HEADERS;
+                    if (st->codec->codec_tag == MKTAG('V', 'S', 'S', 'H'))
+                        st->need_parsing = AVSTREAM_PARSE_FULL;
 
                     if (st->codec->codec_tag == 0 && st->codec->height > 0 &&
                         st->codec->extradata_size < 1U << 30) {
@@ -777,9 +783,8 @@ static int avi_read_header(AVFormatContext *s)
                 st = s->streams[stream_index];
 
                 if (size<(1<<30)) {
-                    if (ff_alloc_extradata(st->codec, size))
+                    if (ff_get_extradata(st->codec, pb, size) < 0)
                         return AVERROR(ENOMEM);
-                    avio_read(pb, st->codec->extradata, st->codec->extradata_size);
                 }
 
                 if (st->codec->extradata_size & 1) //FIXME check if the encoder really did this correctly
@@ -899,12 +904,14 @@ fail:
 static int read_gab2_sub(AVStream *st, AVPacket *pkt)
 {
     if (pkt->size >= 7 &&
+        pkt->size < INT_MAX - AVPROBE_PADDING_SIZE &&
         !strcmp(pkt->data, "GAB2") && AV_RL16(pkt->data + 5) == 2) {
         uint8_t desc[256];
         int score      = AVPROBE_SCORE_EXTENSION, ret;
         AVIStream *ast = st->priv_data;
         AVInputFormat *sub_demuxer;
         AVRational time_base;
+        int size;
         AVIOContext *pb = avio_alloc_context(pkt->data + 7,
                                              pkt->size - 7,
                                              0, NULL, NULL, NULL, NULL);
@@ -922,9 +929,15 @@ static int read_gab2_sub(AVStream *st, AVPacket *pkt)
         avio_rl16(pb);   /* flags? */
         avio_rl32(pb);   /* data size */
 
-        pd = (AVProbeData) { .buf      = pb->buf_ptr,
-                             .buf_size = pb->buf_end - pb->buf_ptr };
-        if (!(sub_demuxer = av_probe_input_format2(&pd, 1, &score)))
+        size = pb->buf_end - pb->buf_ptr;
+        pd = (AVProbeData) { .buf      = av_mallocz(size + AVPROBE_PADDING_SIZE),
+                             .buf_size = size };
+        if (!pd.buf)
+            goto error;
+        memcpy(pd.buf, pb->buf_ptr, size);
+        sub_demuxer = av_probe_input_format2(&pd, 1, &score);
+        av_freep(&pd.buf);
+        if (!sub_demuxer)
             goto error;
 
         if (!(ast->sub_ctx = avformat_alloc_context()))
@@ -1306,10 +1319,9 @@ FF_ENABLE_DEPRECATION_WARNINGS
                     size);
             pkt->stream_index = avi->stream_index;
 
-            if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
+            if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO && st->index_entries) {
                 AVIndexEntry *e;
                 int index;
-                av_assert0(st->index_entries);
 
                 index = av_index_search_timestamp(st, ast->frame_offset, 0);
                 e     = &st->index_entries[index];

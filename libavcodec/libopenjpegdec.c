@@ -32,6 +32,7 @@
 #include "libavutil/pixfmt.h"
 #include "libavutil/opt.h"
 #include "avcodec.h"
+#include "internal.h"
 #include "thread.h"
 
 #if HAVE_OPENJPEG_1_5_OPENJPEG_H
@@ -161,7 +162,7 @@ static inline void libopenjpeg_copy_to_packed8(AVFrame *picture, opj_image_t *im
         img_ptr = picture->data[0] + y*picture->linesize[0];
         for (x = 0; x < picture->width; x++, index++) {
             for (c = 0; c < image->numcomps; c++) {
-                *img_ptr++ = image->comps[c].data[index];
+                *img_ptr++ = 0x80 * image->comps[c].sgnd + image->comps[c].data[index];
             }
         }
     }
@@ -172,14 +173,15 @@ static inline void libopenjpeg_copy_to_packed16(AVFrame *picture, opj_image_t *i
     int index, x, y, c;
     int adjust[4];
     for (x = 0; x < image->numcomps; x++)
-        adjust[x] = FFMAX(FFMIN(16 - image->comps[x].prec, 8), 0);
+        adjust[x] = FFMAX(FFMIN(av_pix_fmt_desc_get(picture->format)->comp[x].depth_minus1 + 1 - image->comps[x].prec, 8), 0);
 
     for (y = 0; y < picture->height; y++) {
         index = y*picture->width;
         img_ptr = (uint16_t*) (picture->data[0] + y*picture->linesize[0]);
         for (x = 0; x < picture->width; x++, index++) {
             for (c = 0; c < image->numcomps; c++) {
-                *img_ptr++ = image->comps[c].data[index] << adjust[c];
+                *img_ptr++ = (1 << image->comps[c].prec - 1) * image->comps[c].sgnd +
+                             (unsigned)image->comps[c].data[index] << adjust[c];
             }
         }
     }
@@ -195,7 +197,7 @@ static inline void libopenjpeg_copyto8(AVFrame *picture, opj_image_t *image) {
         for (y = 0; y < image->comps[index].h; y++) {
             img_ptr = picture->data[index] + y * picture->linesize[index];
             for (x = 0; x < image->comps[index].w; x++) {
-                *img_ptr = (uint8_t) *comp_data;
+                *img_ptr = 0x80 * image->comps[index].sgnd + *comp_data;
                 img_ptr++;
                 comp_data++;
             }
@@ -209,14 +211,15 @@ static inline void libopenjpeg_copyto16(AVFrame *picture, opj_image_t *image) {
     int index, x, y;
     int adjust[4];
     for (x = 0; x < image->numcomps; x++)
-        adjust[x] = FFMAX(FFMIN(16 - image->comps[x].prec, 8), 0);
+        adjust[x] = FFMAX(FFMIN(av_pix_fmt_desc_get(picture->format)->comp[x].depth_minus1 + 1 - image->comps[x].prec, 8), 0);
 
     for (index = 0; index < image->numcomps; index++) {
         comp_data = image->comps[index].data;
         for (y = 0; y < image->comps[index].h; y++) {
             img_ptr = (uint16_t*) (picture->data[index] + y * picture->linesize[index]);
             for (x = 0; x < image->comps[index].w; x++) {
-                *img_ptr = *comp_data << adjust[index];
+                *img_ptr = (1 << image->comps[index].prec - 1) * image->comps[index].sgnd +
+                           (unsigned)*comp_data << adjust[index];
                 img_ptr++;
                 comp_data++;
             }
@@ -296,13 +299,9 @@ static int libopenjpeg_decode_frame(AVCodecContext *avctx,
     width  = image->x1 - image->x0;
     height = image->y1 - image->y0;
 
-    if ((ret = av_image_check_size(width, height, 0, avctx)) < 0) {
-        av_log(avctx, AV_LOG_ERROR,
-               "%dx%d dimension invalid.\n", width, height);
+    ret = ff_set_dimensions(avctx, width, height);
+    if (ret < 0)
         goto done;
-    }
-
-    avcodec_set_dimensions(avctx, width, height);
 
     if (avctx->pix_fmt != AV_PIX_FMT_NONE)
         if (!libopenjpeg_matches_pix_fmt(image, avctx->pix_fmt))

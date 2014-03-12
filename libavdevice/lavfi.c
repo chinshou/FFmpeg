@@ -248,6 +248,10 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx)
                 ret = av_opt_set_int_list(sink, "sample_fmts", sample_fmts,  AV_SAMPLE_FMT_NONE, AV_OPT_SEARCH_CHILDREN);
             if (ret < 0)
                 goto end;
+            ret = av_opt_set_int(sink, "all_channel_counts", 1,
+                                 AV_OPT_SEARCH_CHILDREN);
+            if (ret < 0)
+                goto end;
         }
 
         lavfi->sinks[i] = sink;
@@ -421,6 +425,7 @@ static const AVClass lavfi_class = {
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
+    .category   = AV_CLASS_CATEGORY_DEVICE_INPUT,
 };
 
 AVInputFormat ff_lavfi_demuxer = {

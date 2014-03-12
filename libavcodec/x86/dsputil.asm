@@ -61,6 +61,9 @@ cglobal scalarproduct_int16, 3,3,3, v1, v2, order
 %endif
     paddd   m2, m0
     movd   eax, m2
+%if mmsize == 8
+    emms
+%endif
     RET
 
 ; int scalarproduct_and_madd_int16(int16_t *v1, int16_t *v2, int16_t *v3, int order, int mul)
@@ -464,6 +467,7 @@ cglobal add_hfyu_left_prediction, 3,3,7, dst, src, w, left
     ADD_HFYU_LEFT_LOOP 0, 1
 .src_unaligned:
     ADD_HFYU_LEFT_LOOP 0, 0
+
 
 ;-----------------------------------------------------------------------------
 ; void ff_vector_clip_int32(int32_t *dst, const int32_t *src, int32_t min,
