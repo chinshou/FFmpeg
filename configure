@@ -4414,6 +4414,13 @@ check_header windows.h
 check_header X11/extensions/XvMClib.h
 check_header asm/types.h
 
+# check for VDA header
+if ! disabled vda && ! enabled ppc; then
+    if check_header VideoDecodeAcceleration/VDADecoder.h; then
+        enable vda
+        add_extralibs -framework CoreFoundation -framework VideoDecodeAcceleration -framework QuartzCore -framework IOKit
+    fi
+fi
 if ! disabled w32threads && ! enabled pthreads; then
     check_func_headers "windows.h process.h" _beginthreadex &&
         enable w32threads || disable w32threads
