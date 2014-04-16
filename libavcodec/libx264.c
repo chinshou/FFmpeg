@@ -330,6 +330,9 @@ static av_cold int X264_init(AVCodecContext *avctx)
     X264Context *x4 = avctx->priv_data;
     int sw,sh;
 
+    if (avctx->global_quality > 0)
+        av_log(avctx, AV_LOG_WARNING, "-qscale is ignored, -crf is recommended.\n");
+
     x264_param_default(&x4->params);
 
     x4->params.b_deblocking_filter         = avctx->flags & CODEC_FLAG_LOOP_FILTER;
@@ -390,19 +393,6 @@ static av_cold int X264_init(AVCodecContext *avctx)
     }
 
     OPT_STR("level", x4->level);
-
-    if(x4->x264opts){
-        const char *p= x4->x264opts;
-        while(p){
-            char param[256]={0}, val[256]={0};
-            if(sscanf(p, "%255[^:=]=%255[^:]", param, val) == 1){
-                OPT_STR(param, "1");
-            }else
-                OPT_STR(param, val);
-            p= strchr(p, ':');
-            p+=!!p;
-        }
-    }
 
     if (avctx->i_quant_factor > 0)
         x4->params.rc.f_ip_factor         = 1 / fabs(avctx->i_quant_factor);
@@ -588,6 +578,19 @@ static av_cold int X264_init(AVCodecContext *avctx)
 
     if (avctx->flags & CODEC_FLAG_GLOBAL_HEADER)
         x4->params.b_repeat_headers = 0;
+
+    if(x4->x264opts){
+        const char *p= x4->x264opts;
+        while(p){
+            char param[256]={0}, val[256]={0};
+            if(sscanf(p, "%255[^:=]=%255[^:]", param, val) == 1){
+                OPT_STR(param, "1");
+            }else
+                OPT_STR(param, val);
+            p= strchr(p, ':');
+            p+=!!p;
+        }
+    }
 
     if (x4->x264_params) {
         AVDictionary *dict    = NULL;

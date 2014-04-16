@@ -66,6 +66,8 @@ typedef enum SwsDither {
     SWS_DITHER_AUTO,
     SWS_DITHER_BAYER,
     SWS_DITHER_ED,
+    SWS_DITHER_A_DITHER,
+    SWS_DITHER_X_DITHER,
     NB_SWS_DITHER,
 } SwsDither;
 
@@ -415,18 +417,18 @@ typedef struct SwsContext {
 #define U_OFFSET              "9*8"
 #define V_OFFSET              "10*8"
 #define LUM_MMX_FILTER_OFFSET "11*8"
-#define CHR_MMX_FILTER_OFFSET "11*8+4*4*256"
-#define DSTW_OFFSET           "11*8+4*4*256*2" //do not change, it is hardcoded in the ASM
-#define ESP_OFFSET            "11*8+4*4*256*2+8"
-#define VROUNDER_OFFSET       "11*8+4*4*256*2+16"
-#define U_TEMP                "11*8+4*4*256*2+24"
-#define V_TEMP                "11*8+4*4*256*2+32"
-#define Y_TEMP                "11*8+4*4*256*2+40"
-#define ALP_MMX_FILTER_OFFSET "11*8+4*4*256*2+48"
-#define UV_OFF_PX             "11*8+4*4*256*3+48"
-#define UV_OFF_BYTE           "11*8+4*4*256*3+56"
-#define DITHER16              "11*8+4*4*256*3+64"
-#define DITHER32              "11*8+4*4*256*3+80"
+#define CHR_MMX_FILTER_OFFSET "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)
+#define DSTW_OFFSET           "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2"
+#define ESP_OFFSET            "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2+8"
+#define VROUNDER_OFFSET       "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2+16"
+#define U_TEMP                "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2+24"
+#define V_TEMP                "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2+32"
+#define Y_TEMP                "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2+40"
+#define ALP_MMX_FILTER_OFFSET "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*2+48"
+#define UV_OFF_PX             "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+48"
+#define UV_OFF_BYTE           "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+56"
+#define DITHER16              "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+64"
+#define DITHER32              "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+80"
 
     DECLARE_ALIGNED(8, uint64_t, redDither);
     DECLARE_ALIGNED(8, uint64_t, greenDither);
@@ -484,9 +486,6 @@ typedef struct SwsContext {
     DECLARE_ALIGNED(4, uint32_t, gmask);
 #endif
 
-#if HAVE_VIS
-    DECLARE_ALIGNED(8, uint64_t, sparc_coeffs)[10];
-#endif
     int use_mmx_vfilter;
 
 /* pre defined color-spaces gamma */
@@ -618,8 +617,9 @@ void ff_yuv2rgb_init_tables_ppc(SwsContext *c, const int inv_table[4],
 void updateMMXDitherTables(SwsContext *c, int dstY, int lumBufIndex, int chrBufIndex,
                            int lastInLumBuf, int lastInChrBuf);
 
+av_cold void ff_sws_init_range_convert(SwsContext *c);
+
 SwsFunc ff_yuv2rgb_init_x86(SwsContext *c);
-SwsFunc ff_yuv2rgb_init_vis(SwsContext *c);
 SwsFunc ff_yuv2rgb_init_ppc(SwsContext *c);
 SwsFunc ff_yuv2rgb_init_bfin(SwsContext *c);
 
@@ -691,8 +691,6 @@ static av_always_inline int isRGB(enum AVPixelFormat pix_fmt)
     (           \
      (x) == AV_PIX_FMT_RGB48BE     ||  \
      (x) == AV_PIX_FMT_RGB48LE     ||  \
-     (x) == AV_PIX_FMT_RGBA64BE    ||  \
-     (x) == AV_PIX_FMT_RGBA64LE    ||  \
      (x) == AV_PIX_FMT_RGB32       ||  \
      (x) == AV_PIX_FMT_RGB32_1     ||  \
      (x) == AV_PIX_FMT_RGB24       ||  \
@@ -705,6 +703,8 @@ static av_always_inline int isRGB(enum AVPixelFormat pix_fmt)
      (x) == AV_PIX_FMT_RGB8        ||  \
      (x) == AV_PIX_FMT_RGB4        ||  \
      (x) == AV_PIX_FMT_RGB4_BYTE   ||  \
+     (x) == AV_PIX_FMT_RGBA64BE    ||  \
+     (x) == AV_PIX_FMT_RGBA64LE    ||  \
      (x) == AV_PIX_FMT_MONOBLACK   ||  \
      (x) == AV_PIX_FMT_MONOWHITE   \
     )
@@ -712,8 +712,6 @@ static av_always_inline int isRGB(enum AVPixelFormat pix_fmt)
     (           \
      (x) == AV_PIX_FMT_BGR48BE     ||  \
      (x) == AV_PIX_FMT_BGR48LE     ||  \
-     (x) == AV_PIX_FMT_BGRA64BE    ||  \
-     (x) == AV_PIX_FMT_BGRA64LE    ||  \
      (x) == AV_PIX_FMT_BGR32       ||  \
      (x) == AV_PIX_FMT_BGR32_1     ||  \
      (x) == AV_PIX_FMT_BGR24       ||  \
@@ -726,6 +724,8 @@ static av_always_inline int isRGB(enum AVPixelFormat pix_fmt)
      (x) == AV_PIX_FMT_BGR8        ||  \
      (x) == AV_PIX_FMT_BGR4        ||  \
      (x) == AV_PIX_FMT_BGR4_BYTE   ||  \
+     (x) == AV_PIX_FMT_BGRA64BE    ||  \
+     (x) == AV_PIX_FMT_BGRA64LE    ||  \
      (x) == AV_PIX_FMT_MONOBLACK   ||  \
      (x) == AV_PIX_FMT_MONOWHITE   \
     )
@@ -785,6 +785,7 @@ static av_always_inline int isALPHA(enum AVPixelFormat pix_fmt)
 #define isPacked(x)         (       \
            (x)==AV_PIX_FMT_PAL8        \
         || (x)==AV_PIX_FMT_YUYV422     \
+        || (x)==AV_PIX_FMT_YVYU422     \
         || (x)==AV_PIX_FMT_UYVY422     \
         || (x)==AV_PIX_FMT_Y400A       \
         ||  isRGBinInt(x)           \

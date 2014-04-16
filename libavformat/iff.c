@@ -28,6 +28,8 @@
  * http://wiki.multimedia.cx/index.php?title=IFF
  */
 
+#include <inttypes.h>
+
 #include "libavutil/avassert.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
@@ -251,7 +253,7 @@ static int iff_read_header(AVFormatContext *s)
 
         case ID_CMAP:
             if (data_size < 3 || data_size > 768 || data_size % 3) {
-                 av_log(s, AV_LOG_ERROR, "Invalid CMAP chunk size %d\n",
+                 av_log(s, AV_LOG_ERROR, "Invalid CMAP chunk size %"PRIu32"\n",
                         data_size);
                  return AVERROR_INVALIDDATA;
             }
@@ -370,28 +372,22 @@ static int iff_read_header(AVFormatContext *s)
                 avpriv_request_sample(s, "compression %d and bit depth %d", iff->maud_compression, iff->maud_bits);
                 return AVERROR_PATCHWELCOME;
             }
-
-            st->codec->bits_per_coded_sample =
-                av_get_bits_per_sample(st->codec->codec_id);
-
-            st->codec->block_align =
-                st->codec->bits_per_coded_sample * st->codec->channels / 8;
         } else {
-        switch (iff->svx8_compression) {
-        case COMP_NONE:
-            st->codec->codec_id = AV_CODEC_ID_PCM_S8_PLANAR;
-            break;
-        case COMP_FIB:
-            st->codec->codec_id = AV_CODEC_ID_8SVX_FIB;
-            break;
-        case COMP_EXP:
-            st->codec->codec_id = AV_CODEC_ID_8SVX_EXP;
-            break;
-        default:
-            av_log(s, AV_LOG_ERROR,
-                   "Unknown SVX8 compression method '%d'\n", iff->svx8_compression);
-            return -1;
-        }
+            switch (iff->svx8_compression) {
+            case COMP_NONE:
+                st->codec->codec_id = AV_CODEC_ID_PCM_S8_PLANAR;
+                break;
+            case COMP_FIB:
+                st->codec->codec_id = AV_CODEC_ID_8SVX_FIB;
+                break;
+            case COMP_EXP:
+                st->codec->codec_id = AV_CODEC_ID_8SVX_EXP;
+                break;
+            default:
+                av_log(s, AV_LOG_ERROR,
+                       "Unknown SVX8 compression method '%d'\n", iff->svx8_compression);
+                return -1;
+            }
         }
 
         st->codec->bits_per_coded_sample = av_get_bits_per_sample(st->codec->codec_id);
