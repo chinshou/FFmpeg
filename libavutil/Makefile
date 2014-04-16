@@ -44,6 +44,7 @@ HEADERS = adler32.h                                                     \
           pixdesc.h                                                     \
           pixfmt.h                                                      \
           random_seed.h                                                 \
+          replaygain.h                                                  \
           rational.h                                                    \
           ripemd.h                                                      \
           samplefmt.h                                                   \
@@ -88,6 +89,7 @@ OBJS = adler32.o                                                        \
        file.o                                                           \
        file_open.o                                                      \
        float_dsp.o                                                      \
+       fixed_dsp.o                                                      \
        frame.o                                                          \
        hash.o                                                           \
        hmac.o                                                           \
@@ -151,10 +153,12 @@ TESTPROGS = adler32                                                     \
             eval                                                        \
             file                                                        \
             fifo                                                        \
+            float_dsp                                                   \
             hmac                                                        \
             lfg                                                         \
             lls1                                                        \
             lls2                                                        \
+            log                                                         \
             md5                                                         \
             murmur3                                                     \
             opt                                                         \

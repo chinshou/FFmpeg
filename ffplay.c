@@ -2752,6 +2752,8 @@ static int read_thread(void *arg)
     if (genpts)
         ic->flags |= AVFMT_FLAG_GENPTS;
 
+    av_format_inject_global_side_data(ic);
+
     opts = setup_find_stream_info_opts(ic, codec_opts);
     orig_nb_streams = ic->nb_streams;
 
@@ -3120,6 +3122,11 @@ static void stream_cycle_channel(VideoState *is, int codec_type)
  the_end:
     if (p && stream_index != -1)
         stream_index = p->stream_index[stream_index];
+    av_log(NULL, AV_LOG_INFO, "Switch %s stream from #%d to #%d\n",
+           av_get_media_type_string(codec_type),
+           old_index,
+           stream_index);
+
     stream_component_close(is, old_index);
     stream_component_open(is, stream_index);
 }

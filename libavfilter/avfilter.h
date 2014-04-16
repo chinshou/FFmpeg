@@ -199,7 +199,7 @@ typedef struct AVFilterBufferRef {
  * Copy properties of src to dst, without copying the actual data
  */
 attribute_deprecated
-void avfilter_copy_buffer_ref_props(AVFilterBufferRef *dst, AVFilterBufferRef *src);
+void avfilter_copy_buffer_ref_props(AVFilterBufferRef *dst, const AVFilterBufferRef *src);
 
 /**
  * Add a new reference to a buffer.
@@ -1272,7 +1272,7 @@ AVFilterContext *avfilter_graph_alloc_filter(AVFilterGraph *graph,
  * @return the pointer to the found filter instance or NULL if it
  * cannot be found.
  */
-AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, char *name);
+AVFilterContext *avfilter_graph_get_filter(AVFilterGraph *graph, const char *name);
 
 #if FF_API_AVFILTER_OPEN
 /**
