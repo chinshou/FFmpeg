@@ -7,9 +7,9 @@ export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
 --enable-libnut --enable-libgsm --enable-libfreetype --enable-libvorbis --enable-libspeex \
 --enable-zlib --enable-libtheora --enable-bzlib \
 --enable-libopenjpeg --enable-libschroedinger --enable-librtmp  --enable-libass \
---enable-libbluray --enable-openssl --enable-libflite  --enable-libsox \
+--enable-libbluray --enable-openssl --enable-libsox \
 --disable-ffplay --enable-libcdio  --enable-libcelt \
 --enable-libxavs  --disable-outdev=sdl \
 --extra-cflags="-I/usr/i686-mingw32/include" --extra-ldflags="-L/usr/i686-mingw32/lib"    \
 --extra-libs="-lx264 -lpthread -lwinmm -llua -liconv -lcurl -lws2_32 -lssl -lcrypto  -lwldap32 -lgdi32 -lwsock32" 
-#--enable-libutvideo --enable-frei0r --enable-libmodplug --enable-libilbc
+#--enable-libutvideo --enable-frei0r --enable-libmodplug --enable-libilbc --enable-libflite
