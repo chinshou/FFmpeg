@@ -2409,7 +2409,7 @@ vfwcap_indev_extralibs="-lavicap32"
 xv_outdev_deps="X11_extensions_Xvlib_h XvGetPortAttribute"
 xv_outdev_extralibs="-lXv -lX11 -lXext"
 x11grab_indev_deps="x11grab"
-#waveform_indev_deps="waveInOpen"
+waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 
 # protocols
