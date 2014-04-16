@@ -25,9 +25,9 @@
  */
 
 #include "avcodec.h"
-#include "dsputil.h"
 #include "bytestream.h"
 #include "internal.h"
+#include "mathops.h"
 
 #include "libavutil/colorspace.h"
 #include "libavutil/imgutils.h"
@@ -260,7 +260,7 @@ static void parse_palette_segment(AVCodecContext *avctx,
     PGSSubContext *ctx = avctx->priv_data;
 
     const uint8_t *buf_end = buf + buf_size;
-    const uint8_t *cm      = ff_cropTbl + MAX_NEG_CROP;
+    const uint8_t *cm      = ff_crop_tab + MAX_NEG_CROP;
     int color_id;
     int y, cb, cr, alpha;
     int r, g, b, r_add, g_add, b_add;

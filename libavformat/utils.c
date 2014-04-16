@@ -110,6 +110,16 @@ MAKE_ACCESSORS(AVFormatContext, format, int, metadata_header_padding)
 MAKE_ACCESSORS(AVFormatContext, format, void *, opaque)
 MAKE_ACCESSORS(AVFormatContext, format, av_format_control_message, control_message_cb)
 
+void av_format_inject_global_side_data(AVFormatContext *s)
+{
+    int i;
+    s->internal->inject_global_side_data = 1;
+    for (i = 0; i < s->nb_streams; i++) {
+        AVStream *st = s->streams[i];
+        st->inject_global_side_data = 1;
+    }
+}
+
 static AVCodec *find_decoder(AVFormatContext *s, AVStream *st, enum AVCodecID codec_id)
 {
     if (st->codec->codec)
@@ -1526,10 +1536,29 @@ static int read_frame_internal(AVFormatContext *s, AVPacket *pkt)
             }
             st->skip_samples = 0;
         }
-    }
 
-    if (ret >= 0 && !(s->flags & AVFMT_FLAG_KEEP_SIDE_DATA))
-        av_packet_merge_side_data(pkt);
+        if (st->inject_global_side_data) {
+            for (i = 0; i < st->nb_side_data; i++) {
+                AVPacketSideData *src_sd = &st->side_data[i];
+                uint8_t *dst_data;
+
+                if (av_packet_get_side_data(pkt, src_sd->type, NULL))
+                    continue;
+
+                dst_data = av_packet_new_side_data(pkt, src_sd->type, src_sd->size);
+                if (!dst_data) {
+                    av_log(s, AV_LOG_WARNING, "Could not inject global side data\n");
+                    continue;
+                }
+
+                memcpy(dst_data, src_sd->data, src_sd->size);
+            }
+            st->inject_global_side_data = 0;
+        }
+
+        if (!(s->flags & AVFMT_FLAG_KEEP_SIDE_DATA))
+            av_packet_merge_side_data(pkt);
+    }
 
     if (s->debug & FF_FDEBUG_TS)
         av_log(s, AV_LOG_DEBUG,
@@ -1697,6 +1726,9 @@ void ff_read_frame_flush(AVFormatContext *s)
 
         for (j = 0; j < MAX_REORDER_DELAY + 1; j++)
             st->pts_buffer[j] = AV_NOPTS_VALUE;
+
+        if (s->internal->inject_global_side_data)
+            st->inject_global_side_data = 1;
     }
 }
 
@@ -2451,7 +2483,7 @@ static void estimate_timings_from_pts(AVFormatContext *ic, int64_t old_offset)
             st->first_dts == AV_NOPTS_VALUE &&
             st->codec->codec_type != AVMEDIA_TYPE_UNKNOWN)
             av_log(st->codec, AV_LOG_WARNING,
-                   "start time is not set in estimate_timings_from_pts\n");
+                   "start time for stream %d is not set in estimate_timings_from_pts\n", i);
 
         if (st->parser) {
             av_parser_close(st->parser);
@@ -3223,7 +3255,9 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 t = FFMAX(t, av_rescale_q(st->info->fps_last_dts - st->info->fps_first_dts, st->time_base, AV_TIME_BASE_Q));
 
             if (t >= ic->max_analyze_duration) {
-                av_log(ic, AV_LOG_VERBOSE, "max_analyze_duration %d reached at %"PRId64" microseconds\n", ic->max_analyze_duration, t);
+                av_log(ic, AV_LOG_VERBOSE, "max_analyze_duration %d reached at %"PRId64" microseconds\n",
+                       ic->max_analyze_duration,
+                       t);
                 break;
             }
             if (pkt->duration) {
@@ -3507,8 +3541,14 @@ int av_read_pause(AVFormatContext *s)
 }
 
 void ff_free_stream(AVFormatContext *s, AVStream *st) {
+    int j;
     av_assert0(s->nb_streams>0);
     av_assert0(s->streams[ s->nb_streams - 1 ] == st);
+
+    for (j = 0; j < st->nb_side_data; j++)
+        av_freep(&st->side_data[j].data);
+    av_freep(&st->side_data);
+    st->nb_side_data = 0;
 
     if (st->parser) {
         av_parser_close(st->parser);
@@ -3537,6 +3577,8 @@ void avformat_free_context(AVFormatContext *s)
 
     av_opt_free(s);
     if (s->iformat && s->iformat->priv_class && s->priv_data)
+        av_opt_free(s->priv_data);
+    if (s->oformat && s->oformat->priv_class && s->priv_data)
         av_opt_free(s->priv_data);
 
     for (i = s->nb_streams - 1; i >= 0; i--) {
@@ -3658,6 +3700,8 @@ AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)
 #endif
     st->info->fps_first_dts = AV_NOPTS_VALUE;
     st->info->fps_last_dts  = AV_NOPTS_VALUE;
+
+    st->inject_global_side_data = s->internal->inject_global_side_data;
 
     s->streams[s->nb_streams++] = st;
     return st;
@@ -4031,7 +4075,7 @@ void av_hex_dump_log(void *avcl, int level, const uint8_t *buf, int size)
     hex_dump_internal(avcl, NULL, level, buf, size);
 }
 
-static void pkt_dump_internal(void *avcl, FILE *f, int level, AVPacket *pkt,
+static void pkt_dump_internal(void *avcl, FILE *f, int level, const AVPacket *pkt,
                               int dump_payload, AVRational time_base)
 {
     HEXDUMP_PRINT("stream #%d:\n", pkt->stream_index);
@@ -4055,13 +4099,13 @@ static void pkt_dump_internal(void *avcl, FILE *f, int level, AVPacket *pkt,
         av_hex_dump(f, pkt->data, pkt->size);
 }
 
-void av_pkt_dump2(FILE *f, AVPacket *pkt, int dump_payload, AVStream *st)
+void av_pkt_dump2(FILE *f, const AVPacket *pkt, int dump_payload, const AVStream *st)
 {
     pkt_dump_internal(NULL, f, 0, pkt, dump_payload, st->time_base);
 }
 
-void av_pkt_dump_log2(void *avcl, int level, AVPacket *pkt, int dump_payload,
-                      AVStream *st)
+void av_pkt_dump_log2(void *avcl, int level, const AVPacket *pkt, int dump_payload,
+                      const AVStream *st)
 {
     pkt_dump_internal(avcl, NULL, level, pkt, dump_payload, st->time_base);
 }
@@ -4466,12 +4510,14 @@ int avformat_match_stream_specifier(AVFormatContext *s, AVStream *st,
                     return 1;
         }
         return 0;
-    } else if (*spec == '#') {
-        int sid;
+    } else if (*spec == '#' ||
+               (*spec == 'i' && *(spec + 1) == ':')) {
+        int stream_id;
         char *endptr;
-        sid = strtol(spec + 1, &endptr, 0);
+        spec += 1 + (*spec == 'i');
+        stream_id = strtol(spec, &endptr, 0);
         if (!*endptr)
-            return st->id == sid;
+            return stream_id == st->id;
     } else if (!*spec) /* empty specifier, matches everything */
         return 1;
 

@@ -98,6 +98,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(CAVSVIDEO,        cavsvideo);
     REGISTER_DEMUXER (CDG,              cdg);
     REGISTER_DEMUXER (CDXL,             cdxl);
+    REGISTER_DEMUXER (CINE,             cine);
     REGISTER_DEMUXER (CONCAT,           concat);
     REGISTER_MUXER   (CRC,              crc);
     REGISTER_MUXDEMUX(DATA,             data);
@@ -145,6 +146,8 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(ILBC,             ilbc);
     REGISTER_MUXDEMUX(IMAGE2,           image2);
     REGISTER_MUXDEMUX(IMAGE2PIPE,       image2pipe);
+    REGISTER_DEMUXER (IMAGE2_ALIAS_PIX, image2_alias_pix);
+    REGISTER_DEMUXER (IMAGE2_BRENDER_PIX, image2_brender_pix);
     REGISTER_DEMUXER (INGENIENT,        ingenient);
     REGISTER_DEMUXER (IPMOVIE,          ipmovie);
     REGISTER_MUXER   (IPOD,             ipod);
@@ -203,6 +206,7 @@ void av_register_all(void)
     REGISTER_MUXER   (NULL,             null);
     REGISTER_MUXDEMUX(NUT,              nut);
     REGISTER_DEMUXER (NUV,              nuv);
+    REGISTER_MUXER   (OGA,              oga);
     REGISTER_MUXDEMUX(OGG,              ogg);
     REGISTER_MUXDEMUX(OMA,              oma);
     REGISTER_MUXER   (OPUS,             opus);
@@ -338,6 +342,7 @@ void av_register_all(void)
     REGISTER_PROTOCOL(RTP,              rtp);
     REGISTER_PROTOCOL(SCTP,             sctp);
     REGISTER_PROTOCOL(SRTP,             srtp);
+    REGISTER_PROTOCOL(SUBFILE,          subfile);
     REGISTER_PROTOCOL(TCP,              tcp);
     REGISTER_PROTOCOL(TLS,              tls);
     REGISTER_PROTOCOL(UDP,              udp);

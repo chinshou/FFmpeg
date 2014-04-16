@@ -53,7 +53,7 @@ OBJS-$(CONFIG_RTPDEC)                    += rdt.o                       \
                                             rtpdec_xiph.o               \
                                             srtp.o
 OBJS-$(CONFIG_RTPENC_CHAIN)              += rtpenc_chain.o rtp.o
-OBJS-$(CONFIG_SHARED)                    += log2_tab.o
+OBJS-$(CONFIG_SHARED)                    += log2_tab.o golomb_tab.o
 
 # muxers/demuxers
 OBJS-$(CONFIG_A64_MUXER)                 += a64.o rawenc.o
@@ -109,6 +109,7 @@ OBJS-$(CONFIG_CAVSVIDEO_DEMUXER)         += cavsvideodec.o rawdec.o
 OBJS-$(CONFIG_CAVSVIDEO_MUXER)           += rawenc.o
 OBJS-$(CONFIG_CDG_DEMUXER)               += cdg.o
 OBJS-$(CONFIG_CDXL_DEMUXER)              += cdxl.o
+OBJS-$(CONFIG_CINE_DEMUXER)              += cinedec.o
 OBJS-$(CONFIG_CONCAT_DEMUXER)            += concatdec.o
 OBJS-$(CONFIG_CRC_MUXER)                 += crcenc.o
 OBJS-$(CONFIG_DATA_DEMUXER)              += rawdec.o
@@ -141,6 +142,7 @@ OBJS-$(CONFIG_FILMSTRIP_MUXER)           += filmstripenc.o
 OBJS-$(CONFIG_FLAC_DEMUXER)              += flacdec.o rawdec.o \
                                             flac_picture.o   \
                                             oggparsevorbis.o \
+                                            replaygain.o     \
                                             vorbiscomment.o
 OBJS-$(CONFIG_FLAC_MUXER)                += flacenc.o flacenc_header.o \
                                             vorbiscomment.o
@@ -184,6 +186,8 @@ OBJS-$(CONFIG_IMAGE2_DEMUXER)            += img2dec.o img2.o
 OBJS-$(CONFIG_IMAGE2_MUXER)              += img2enc.o img2.o
 OBJS-$(CONFIG_IMAGE2PIPE_DEMUXER)        += img2dec.o img2.o
 OBJS-$(CONFIG_IMAGE2PIPE_MUXER)          += img2enc.o img2.o
+OBJS-$(CONFIG_IMAGE2_ALIAS_PIX_DEMUXER)  += img2_alias_pix.o
+OBJS-$(CONFIG_IMAGE2_BRENDER_PIX_DEMUXER) += img2_brender_pix.o
 OBJS-$(CONFIG_INGENIENT_DEMUXER)         += ingenientdec.o rawdec.o
 OBJS-$(CONFIG_IPMOVIE_DEMUXER)           += ipmovie.o
 OBJS-$(CONFIG_IRCAM_DEMUXER)             += ircamdec.o ircam.o pcm.o
@@ -206,7 +210,7 @@ OBJS-$(CONFIG_M4V_MUXER)                 += rawenc.o
 OBJS-$(CONFIG_MATROSKA_DEMUXER)          += matroskadec.o matroska.o  \
                                             isom.o rmsipr.o
 OBJS-$(CONFIG_MATROSKA_MUXER)            += matroskaenc.o matroska.o \
-                                            isom.o avc.o \
+                                            isom.o avc.o hevc.o \
                                             flacenc_header.o avlanguage.o wv.o
 OBJS-$(CONFIG_MD5_MUXER)                 += md5enc.o
 OBJS-$(CONFIG_MGSTS_DEMUXER)             += mgsts.o
@@ -219,11 +223,11 @@ OBJS-$(CONFIG_MLP_MUXER)                 += rawenc.o
 OBJS-$(CONFIG_MM_DEMUXER)                += mm.o
 OBJS-$(CONFIG_MMF_DEMUXER)               += mmf.o
 OBJS-$(CONFIG_MMF_MUXER)                 += mmf.o rawenc.o
-OBJS-$(CONFIG_MOV_DEMUXER)               += mov.o isom.o mov_chan.o
-OBJS-$(CONFIG_MOV_MUXER)                 += movenc.o isom.o avc.o \
+OBJS-$(CONFIG_MOV_DEMUXER)               += mov.o isom.o mov_chan.o replaygain.o
+OBJS-$(CONFIG_MOV_MUXER)                 += movenc.o isom.o avc.o hevc.o \
                                             movenchint.o mov_chan.o rtp.o
 OBJS-$(CONFIG_MP2_MUXER)                 += mp3enc.o rawenc.o id3v2enc.o
-OBJS-$(CONFIG_MP3_DEMUXER)               += mp3dec.o
+OBJS-$(CONFIG_MP3_DEMUXER)               += mp3dec.o replaygain.o
 OBJS-$(CONFIG_MP3_MUXER)                 += mp3enc.o rawenc.o id3v2enc.o
 OBJS-$(CONFIG_MPC_DEMUXER)               += mpc.o apetag.o img2.o
 OBJS-$(CONFIG_MPC8_DEMUXER)              += mpc8.o apetag.o img2.o
@@ -266,6 +270,7 @@ OBJS-$(CONFIG_OGG_DEMUXER)               += oggdec.o         \
                                             oggparsetheora.o \
                                             oggparsevorbis.o \
                                             oggparsevp8.o    \
+                                            replaygain.o     \
                                             vorbiscomment.o  \
                                             flac_picture.o
 OBJS-$(CONFIG_OGG_MUXER)                 += oggenc.o \
@@ -418,7 +423,7 @@ OBJS-$(CONFIG_WSAUD_DEMUXER)             += westwood_aud.o
 OBJS-$(CONFIG_WSVQA_DEMUXER)             += westwood_vqa.o
 OBJS-$(CONFIG_WTV_DEMUXER)               += wtvdec.o wtv_common.o asfdec.o asf.o asfcrypt.o \
                                             avlanguage.o mpegts.o isom.o
-OBJS-$(CONFIG_WTV_MUXER)                 += wtvenc.o wtv_common.o
+OBJS-$(CONFIG_WTV_MUXER)                 += wtvenc.o wtv_common.o mpegtsenc.o
 OBJS-$(CONFIG_WV_DEMUXER)                += wvdec.o wv.o apetag.o img2.o
 OBJS-$(CONFIG_WV_MUXER)                  += wvenc.o wv.o apetag.o img2.o
 OBJS-$(CONFIG_XA_DEMUXER)                += xa.o
@@ -467,6 +472,7 @@ OBJS-$(CONFIG_RTMPTS_PROTOCOL)           += rtmpproto.o rtmppkt.o
 OBJS-$(CONFIG_RTP_PROTOCOL)              += rtpproto.o
 OBJS-$(CONFIG_SCTP_PROTOCOL)             += sctp.o
 OBJS-$(CONFIG_SRTP_PROTOCOL)             += srtpproto.o srtp.o
+OBJS-$(CONFIG_SUBFILE_PROTOCOL)          += subfile.o
 OBJS-$(CONFIG_TCP_PROTOCOL)              += tcp.o
 OBJS-$(CONFIG_TLS_PROTOCOL)              += tls.o
 OBJS-$(CONFIG_UDP_PROTOCOL)              += udp.o

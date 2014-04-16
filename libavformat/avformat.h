@@ -262,6 +262,7 @@
 struct AVFormatContext;
 
 struct AVDeviceInfoList;
+struct AVDeviceCapabilitiesQuery;
 
 /**
  * @defgroup metadata_api Public Metadata API
@@ -531,6 +532,16 @@ typedef struct AVOutputFormat {
      * @see avdevice_list_devices() for more details.
      */
     int (*get_device_list)(struct AVFormatContext *s, struct AVDeviceInfoList *device_list);
+    /**
+     * Initialize device capabilities submodule.
+     * @see avdevice_capabilities_create() for more details.
+     */
+    int (*create_device_capabilities)(struct AVFormatContext *s, struct AVDeviceCapabilitiesQuery *caps);
+    /**
+     * Free device capabilities submodule.
+     * @see avdevice_capabilities_free() for more details.
+     */
+    int (*free_device_capabilities)(struct AVFormatContext *s, struct AVDeviceCapabilitiesQuery *caps);
 } AVOutputFormat;
 /**
  * @}
@@ -665,6 +676,18 @@ typedef struct AVInputFormat {
      * @see avdevice_list_devices() for more details.
      */
     int (*get_device_list)(struct AVFormatContext *s, struct AVDeviceInfoList *device_list);
+
+    /**
+     * Initialize device capabilities submodule.
+     * @see avdevice_capabilities_create() for more details.
+     */
+    int (*create_device_capabilities)(struct AVFormatContext *s, struct AVDeviceCapabilitiesQuery *caps);
+
+    /**
+     * Free device capabilities submodule.
+     * @see avdevice_capabilities_free() for more details.
+     */
+    int (*free_device_capabilities)(struct AVFormatContext *s, struct AVDeviceCapabilitiesQuery *caps);
 } AVInputFormat;
 /**
  * @}
@@ -823,6 +846,30 @@ typedef struct AVStream {
      * encoding: unused
      */
     AVPacket attached_pic;
+
+    /**
+     * An array of side data that applies to the whole stream (i.e. the
+     * container does not allow it to change between packets).
+     *
+     * There may be no overlap between the side data in this array and side data
+     * in the packets. I.e. a given side data is either exported by the muxer
+     * (demuxing) / set by the caller (muxing) in this array, then it never
+     * appears in the packets, or the side data is exported / sent through
+     * the packets (always in the first packet where the value becomes known or
+     * changes), then it does not appear in this array.
+     *
+     * - demuxing: Set by libavformat when the stream is created.
+     * - muxing: May be set by the caller before avformat_write_header().
+     *
+     * Freed by libavformat in avformat_free_context().
+     *
+     * @see av_format_inject_global_side_data()
+     */
+    AVPacketSideData *side_data;
+    /**
+     * The number of elements in the AVStream.side_data array.
+     */
+    int            nb_side_data;
 
     /*****************************************************************
      * All fields below this line are not part of the public API. They
@@ -994,6 +1041,11 @@ typedef struct AVStream {
     int64_t last_dts_for_order_check;
     uint8_t dts_ordered;
     uint8_t dts_misordered;
+
+    /**
+     * Internal data to inject global side data
+     */
+    int inject_global_side_data;
 
 } AVStream;
 
@@ -1275,7 +1327,12 @@ typedef struct AVFormatContext {
      * Start time of the stream in real world time, in microseconds
      * since the Unix epoch (00:00 1st January 1970). That is, pts=0 in the
      * stream was captured at this real world time.
-     * Muxing only, set by the caller before avformat_write_header().
+     * - muxing: Set by the caller before avformat_write_header(). If set to
+     *           either 0 or AV_NOPTS_VALUE, then the current wall-time will
+     *           be used.
+     * - demuxing: Set by libavformat. AV_NOPTS_VALUE if unknown. Note that
+     *             the value may become known after some number of frames
+     *             have been received.
      */
     int64_t start_time_realtime;
 
@@ -1556,6 +1613,12 @@ void *    av_format_get_opaque(const AVFormatContext *s);
 void      av_format_set_opaque(AVFormatContext *s, void *opaque);
 av_format_control_message av_format_get_control_message_cb(const AVFormatContext *s);
 void      av_format_set_control_message_cb(AVFormatContext *s, av_format_control_message callback);
+
+/**
+ * This function will cause global side data to be injected in the next packet
+ * of each stream as well as after any subsequent seek.
+ */
+void av_format_inject_global_side_data(AVFormatContext *s);
 
 /**
  * Returns the method used to set ctx->duration.
@@ -2271,7 +2334,7 @@ void av_hex_dump_log(void *avcl, int level, const uint8_t *buf, int size);
  * @param dump_payload True if the payload must be displayed, too.
  * @param st AVStream that the packet belongs to
  */
-void av_pkt_dump2(FILE *f, AVPacket *pkt, int dump_payload, AVStream *st);
+void av_pkt_dump2(FILE *f, const AVPacket *pkt, int dump_payload, const AVStream *st);
 
 
 /**
@@ -2285,8 +2348,8 @@ void av_pkt_dump2(FILE *f, AVPacket *pkt, int dump_payload, AVStream *st);
  * @param dump_payload True if the payload must be displayed, too.
  * @param st AVStream that the packet belongs to
  */
-void av_pkt_dump_log2(void *avcl, int level, AVPacket *pkt, int dump_payload,
-                      AVStream *st);
+void av_pkt_dump_log2(void *avcl, int level, const AVPacket *pkt, int dump_payload,
+                      const AVStream *st);
 
 /**
  * Get the AVCodecID for the given codec tag tag.
@@ -2371,7 +2434,13 @@ void av_url_split(char *proto,         int proto_size,
                   char *path,          int path_size,
                   const char *url);
 
-
+/**
+ * log a nice Dump of input format context or output format context
+ * @param ic already initialized Format Context, must not be NULL.
+ * @param index index of the stream to dump information about
+ * @param url name of file or URL of stream to print information about
+ * @param is_output Select whether specified context is of input(0) or output(1)
+ */
 void av_dump_format(AVFormatContext *ic,
                     int index,
                     const char *url,
