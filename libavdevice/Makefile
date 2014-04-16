@@ -23,7 +23,6 @@ OBJS-$(CONFIG_DSHOW_INDEV)               += dshow.o dshow_enummediatypes.o \
                                             dshow_enumpins.o dshow_filter.o \
                                             dshow_pin.o dshow_common.o
 OBJS-$(CONFIG_DV1394_INDEV)              += dv1394.o
-OBJS-$(CONFIG_GDI_INDEV)               += gdi.o
 
 OBJS-$(CONFIG_FBDEV_INDEV)               += fbdev_dec.o \
                                             fbdev_common.o
