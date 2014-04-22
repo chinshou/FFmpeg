@@ -39,7 +39,6 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-avdevice \
     --enable-nonfree \
     --enable-libx264 \
-    --enable-libvpx \
     --enable-libfaac \
     --enable-libvorbis \
     --enable-libfreetype \
@@ -72,6 +71,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --extra-cxxflags="$EXTRA_CXXFLAGS" \
     $ADDITIONAL_CONFIGURE_FLAG
 
+#--enable-libvpx \
 #make clean
 #make
 #make install
