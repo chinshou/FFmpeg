@@ -59,6 +59,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --disable-outdevs \
     --disable-postproc \
     --disable-decoder=h264_vdpau \
+    --disable-indev=waveform  \
     --cross-prefix=$TOOLCHAIN/bin/arm-linux-androideabi- \
     --target-os=linux \
     --pkg-config=pkg-config \
