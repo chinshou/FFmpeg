@@ -276,9 +276,24 @@ void av_freep(void *ptr);
  * @param tab_ptr pointer to the array to grow
  * @param nb_ptr  pointer to the number of elements in the array
  * @param elem    element to add
- * @see av_dynarray2_add()
+ * @see av_dynarray_add_nofree(), av_dynarray2_add()
  */
 void av_dynarray_add(void *tab_ptr, int *nb_ptr, void *elem);
+
+/**
+ * Add an element to a dynamic array.
+ *
+ * Function has the same functionality as av_dynarray_add(),
+ * but it doesn't free memory on fails. It returns error code
+ * instead and leave current buffer untouched.
+ *
+ * @param tab_ptr pointer to the array to grow
+ * @param nb_ptr  pointer to the number of elements in the array
+ * @param elem    element to add
+ * @return >=0 on success, negative otherwise.
+ * @see av_dynarray_add(), av_dynarray2_add()
+ */
+int av_dynarray_add_nofree(void *tab_ptr, int *nb_ptr, void *elem);
 
 /**
  * Add an element of size elem_size to a dynamic array.
@@ -299,7 +314,7 @@ void av_dynarray_add(void *tab_ptr, int *nb_ptr, void *elem);
  *                  the new added element is not filled.
  * @return          pointer to the data of the element to copy in the new allocated space.
  *                  If NULL, the new allocated space is left uninitialized."
- * @see av_dynarray_add()
+ * @see av_dynarray_add(), av_dynarray_add_nofree()
  */
 void *av_dynarray2_add(void **tab_ptr, int *nb_ptr, size_t elem_size,
                        const uint8_t *elem_data);
@@ -334,6 +349,27 @@ void av_max_alloc(size_t max);
  * thus creating a repeating pattern with a period length of back.
  */
 void av_memcpy_backptr(uint8_t *dst, int back, int cnt);
+
+/**
+ * Reallocate the given block if it is not large enough, otherwise do nothing.
+ *
+ * @see av_realloc
+ */
+void *av_fast_realloc(void *ptr, unsigned int *size, size_t min_size);
+
+/**
+ * Allocate a buffer, reusing the given one if large enough.
+ *
+ * Contrary to av_fast_realloc the current buffer contents might not be
+ * preserved and on error the old buffer is freed, thus no special
+ * handling to avoid memleaks is necessary.
+ *
+ * @param ptr pointer to pointer to already allocated buffer, overwritten with pointer to new buffer
+ * @param size size of the buffer *ptr points to
+ * @param min_size minimum size of *ptr buffer after returning, *ptr will be NULL and
+ *                 *size 0 if an error occurred.
+ */
+void av_fast_malloc(void *ptr, unsigned int *size, size_t min_size);
 
 /**
  * @}

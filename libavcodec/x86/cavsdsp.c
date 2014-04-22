@@ -30,6 +30,7 @@
 #include "libavcodec/cavsdsp.h"
 #include "constants.h"
 #include "dsputil_x86.h"
+#include "fpel.h"
 #include "config.h"
 
 #if HAVE_MMX_INLINE
@@ -309,6 +310,7 @@ static void cavs_idct8_add_mmx(uint8_t *dst, int16_t *block, int stride)
         \
         : "+a"(src), "+c"(dst)\
         : "S"((x86_reg)srcStride), "r"((x86_reg)dstStride), "m"(ADD), "m"(MUL1)\
+          NAMED_CONSTRAINTS_ADD(MUL2)\
         : "memory"\
      );\
      if(h==16){\
@@ -324,6 +326,7 @@ static void cavs_idct8_add_mmx(uint8_t *dst, int16_t *block, int stride)
             \
            : "+a"(src), "+c"(dst)\
            : "S"((x86_reg)srcStride), "r"((x86_reg)dstStride), "m"(ADD),  "m"(MUL1)\
+             NAMED_CONSTRAINTS_ADD(MUL2)\
            : "memory"\
         );\
      }\
@@ -547,12 +550,12 @@ av_cold void ff_cavsdsp_init_x86(CAVSDSPContext *c, AVCodecContext *avctx)
     if (INLINE_MMX(cpu_flags))
         cavsdsp_init_mmx(c, avctx);
 #endif /* HAVE_MMX_INLINE */
-#if HAVE_MMXEXT_INLINE
-    if (INLINE_MMXEXT(cpu_flags))
-        cavsdsp_init_mmxext(c, avctx);
-#endif /* HAVE_MMXEXT_INLINE */
 #if HAVE_AMD3DNOW_INLINE
     if (INLINE_AMD3DNOW(cpu_flags))
         cavsdsp_init_3dnow(c, avctx);
 #endif /* HAVE_AMD3DNOW_INLINE */
+#if HAVE_MMXEXT_INLINE
+    if (INLINE_MMXEXT(cpu_flags))
+        cavsdsp_init_mmxext(c, avctx);
+#endif /* HAVE_MMXEXT_INLINE */
 }

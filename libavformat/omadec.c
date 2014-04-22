@@ -37,7 +37,10 @@
  * - Sound data organized in packets follow the EA3 header
  *   (can be encrypted using the Sony DRM!).
  *
+ * Supported decoders: ATRAC3, ATRAC3+, MP3, LPCM
  */
+
+#include <inttypes.h>
 
 #include "libavutil/channel_layout.h"
 #include "avformat.h"
@@ -214,7 +217,7 @@ static int decrypt_init(AVFormatContext *s, ID3v2ExtraMeta *em, uint8_t *header)
 
     if (geob->datasize < 64) {
         av_log(s, AV_LOG_ERROR,
-               "Invalid GEOB data size: %u\n", geob->datasize);
+               "Invalid GEOB data size: %"PRIu32"\n", geob->datasize);
         return AVERROR_INVALIDDATA;
     }
 
@@ -232,14 +235,13 @@ static int decrypt_init(AVFormatContext *s, ID3v2ExtraMeta *em, uint8_t *header)
         av_log(s, AV_LOG_ERROR, "Invalid encryption header\n");
         return AVERROR_INVALIDDATA;
     }
-    if (   OMA_ENC_HEADER_SIZE + oc->k_size + oc->e_size + oc->i_size + 8 > geob->datasize
-        || OMA_ENC_HEADER_SIZE + 48 > geob->datasize
-    ) {
+    if (OMA_ENC_HEADER_SIZE + oc->k_size + oc->e_size + oc->i_size + 8 > geob->datasize ||
+        OMA_ENC_HEADER_SIZE + 48 > geob->datasize) {
         av_log(s, AV_LOG_ERROR, "Too little GEOB data\n");
         return AVERROR_INVALIDDATA;
     }
     oc->rid = AV_RB32(&gdata[OMA_ENC_HEADER_SIZE + 28]);
-    av_log(s, AV_LOG_DEBUG, "RID: %.8x\n", oc->rid);
+    av_log(s, AV_LOG_DEBUG, "RID: %.8"PRIx32"\n", oc->rid);
 
     memcpy(oc->iv, &header[0x58], 8);
     hex_log(s, AV_LOG_DEBUG, "IV", oc->iv, 8);
@@ -366,7 +368,7 @@ static int oma_read_header(AVFormatContext *s)
         channel_id = (codec_params >> 10) & 7;
         if (!channel_id) {
             av_log(s, AV_LOG_ERROR,
-                   "Invalid ATRAC-X channel id: %d\n", channel_id);
+                   "Invalid ATRAC-X channel id: %"PRIu32"\n", channel_id);
             return AVERROR_INVALIDDATA;
         }
         st->codec->channel_layout = ff_oma_chid_to_native_layout[channel_id - 1];
@@ -380,7 +382,6 @@ static int oma_read_header(AVFormatContext *s)
         st->codec->sample_rate = samplerate;
         st->codec->bit_rate    = samplerate * framesize * 8 / 2048;
         avpriv_set_pts_info(st, 64, 1, samplerate);
-        av_log(s, AV_LOG_ERROR, "Unsupported codec ATRAC3+!\n");
         break;
     case OMA_CODECID_MP3:
         st->need_parsing = AVSTREAM_PARSE_FULL_RAW;
@@ -440,23 +441,16 @@ static int oma_read_packet(AVFormatContext *s, AVPacket *pkt)
 
 static int oma_read_probe(AVProbeData *p)
 {
-    const uint8_t *buf;
+    const uint8_t *buf = p->buf;
     unsigned tag_len = 0;
 
-    buf = p->buf;
-
-    if (p->buf_size < ID3v2_HEADER_SIZE ||
-        !ff_id3v2_match(buf, ID3v2_EA3_MAGIC) ||
-        buf[3] != 3 || // version must be 3
-        buf[4]) // flags byte zero
-        return 0;
-
-    tag_len = ff_id3v2_tag_len(buf);
+    if (p->buf_size >= ID3v2_HEADER_SIZE && ff_id3v2_match(buf, ID3v2_EA3_MAGIC))
+        tag_len = ff_id3v2_tag_len(buf);
 
     /* This check cannot overflow as tag_len has at most 28 bits */
     if (p->buf_size < tag_len + 5)
         /* EA3 header comes late, might be outside of the probe buffer */
-        return AVPROBE_SCORE_EXTENSION;
+        return tag_len ? AVPROBE_SCORE_EXTENSION/2 : 0;
 
     buf += tag_len;
 

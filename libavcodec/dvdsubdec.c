@@ -18,9 +18,11 @@
  * License along with FFmpeg; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
+
 #include "avcodec.h"
 #include "get_bits.h"
-#include "dsputil.h"
+#include "internal.h"
+
 #include "libavutil/attributes.h"
 #include "libavutil/colorspace.h"
 #include "libavutil/opt.h"
@@ -44,7 +46,7 @@ typedef struct DVDSubContext
 
 static void yuv_a_to_rgba(const uint8_t *ycbcr, const uint8_t *alpha, uint32_t *rgba, int num_values)
 {
-    const uint8_t *cm = ff_cropTbl + MAX_NEG_CROP;
+    const uint8_t *cm = ff_crop_tab + MAX_NEG_CROP;
     uint8_t r, g, b;
     int i, y, cb, cr;
     int r_add, g_add, b_add;
@@ -460,9 +462,6 @@ static int find_smallest_bounding_rectangle(AVSubtitle *s)
 }
 
 #ifdef DEBUG
-#undef fprintf
-#undef perror
-#undef exit
 static void ppm_save(const char *filename, uint8_t *bitmap, int w, int h,
                      uint32_t *rgba_palette)
 {
@@ -472,7 +471,7 @@ static void ppm_save(const char *filename, uint8_t *bitmap, int w, int h,
     f = fopen(filename, "w");
     if (!f) {
         perror(filename);
-        exit(1);
+        return;
     }
     fprintf(f, "P6\n"
             "%d %d\n"
@@ -598,9 +597,13 @@ static int dvdsub_parse_extradata(AVCodecContext *avctx)
             parse_palette(ctx, data + 8);
         } else if (strncmp("size:", data, 5) == 0) {
             int w, h;
-            if (sscanf(data + 5, "%dx%d", &w, &h) == 2 &&
-                av_image_check_size(w, h, 0, avctx) >= 0)
-                avcodec_set_dimensions(avctx, w, h);
+            if (sscanf(data + 5, "%dx%d", &w, &h) == 2) {
+               int ret = ff_set_dimensions(avctx, w, h);
+               if (ret < 0) {
+                   av_free(dataorig);
+                   return ret;
+               }
+            }
         }
 
         data += pos;

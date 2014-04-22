@@ -69,7 +69,19 @@ static int film_probe(AVProbeData *p)
     if (AV_RB32(&p->buf[0]) != FILM_TAG)
         return 0;
 
+    if (AV_RB32(&p->buf[16]) != FDSC_TAG)
+        return 0;
+
     return AVPROBE_SCORE_MAX;
+}
+
+static int film_read_close(AVFormatContext *s)
+{
+    FilmDemuxContext *film = s->priv_data;
+
+    av_freep(&film->sample_table);
+
+    return 0;
 }
 
 static int film_read_header(AVFormatContext *s)
@@ -78,7 +90,7 @@ static int film_read_header(AVFormatContext *s)
     AVIOContext *pb = s->pb;
     AVStream *st;
     unsigned char scratch[256];
-    int i;
+    int i, ret;
     unsigned int data_offset;
     unsigned int audio_frame_counter;
 
@@ -203,14 +215,16 @@ static int film_read_header(AVFormatContext *s)
     for (i = 0; i < film->sample_count; i++) {
         /* load the next sample record and transfer it to an internal struct */
         if (avio_read(pb, scratch, 16) != 16) {
-            av_freep(&film->sample_table);
-            return AVERROR(EIO);
+            ret = AVERROR(EIO);
+            goto fail;
         }
         film->sample_table[i].sample_offset =
             data_offset + AV_RB32(&scratch[0]);
         film->sample_table[i].sample_size = AV_RB32(&scratch[4]);
-        if (film->sample_table[i].sample_size > INT_MAX / 4)
-            return AVERROR_INVALIDDATA;
+        if (film->sample_table[i].sample_size > INT_MAX / 4) {
+            ret = AVERROR_INVALIDDATA;
+            goto fail;
+        }
         if (AV_RB32(&scratch[8]) == 0xFFFFFFFF) {
             film->sample_table[i].stream = film->audio_stream_index;
             film->sample_table[i].pts = audio_frame_counter;
@@ -231,6 +245,9 @@ static int film_read_header(AVFormatContext *s)
     film->current_sample = 0;
 
     return 0;
+fail:
+    film_read_close(s);
+    return ret;
 }
 
 static int film_read_packet(AVFormatContext *s,
@@ -249,18 +266,10 @@ static int film_read_packet(AVFormatContext *s,
     /* position the stream (will probably be there anyway) */
     avio_seek(pb, sample->sample_offset, SEEK_SET);
 
-    /* do a special song and dance when loading FILM Cinepak chunks */
-    if ((sample->stream == film->video_stream_index) &&
-        (film->video_type == AV_CODEC_ID_CINEPAK)) {
-        pkt->pos= avio_tell(pb);
-        if (av_new_packet(pkt, sample->sample_size))
-            return AVERROR(ENOMEM);
-        avio_read(pb, pkt->data, sample->sample_size);
-    } else {
-        ret= av_get_packet(pb, pkt, sample->sample_size);
-        if (ret != sample->sample_size)
-            ret = AVERROR(EIO);
-    }
+
+    ret= av_get_packet(pb, pkt, sample->sample_size);
+    if (ret != sample->sample_size)
+        ret = AVERROR(EIO);
 
     pkt->stream_index = sample->stream;
     pkt->pts = sample->pts;
@@ -268,15 +277,6 @@ static int film_read_packet(AVFormatContext *s,
     film->current_sample++;
 
     return ret;
-}
-
-static int film_read_close(AVFormatContext *s)
-{
-    FilmDemuxContext *film = s->priv_data;
-
-    av_freep(&film->sample_table);
-
-    return 0;
 }
 
 AVInputFormat ff_segafilm_demuxer = {

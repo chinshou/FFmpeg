@@ -48,6 +48,7 @@
  * This stores all the private context for the codec.
  */
 struct xvid_context {
+    AVClass *class;
     void *encoder_handle;          /**< Handle for Xvid encoder */
     int xsize;                     /**< Frame x size */
     int ysize;                     /**< Frame y size */
@@ -56,7 +57,6 @@ struct xvid_context {
     int me_flags;                  /**< Motion Estimation flags */
     int qscale;                    /**< Do we use constant scale? */
     int quicktime_format;          /**< Are we in a QT-based format? */
-    AVFrame encoded_picture;       /**< Encoded frame information */
     char *twopassbuffer;           /**< Character buffer for two-pass */
     char *old_twopassbuffer;       /**< Old character buffer (two-pass) */
     char *twopassfile;             /**< second pass temp file name */
@@ -531,25 +531,26 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
         xvid_enc_create.num_plugins++;
     }
 
-    if ( avctx->lumi_masking != 0.0)
+    if (avctx->lumi_masking != 0.0)
         x->lumi_aq = 1;
 
     /* Luminance Masking */
-    if( x->lumi_aq ) {
+    if (x->lumi_aq) {
         masking_l.method = 0;
         plugins[xvid_enc_create.num_plugins].func = xvid_plugin_lumimasking;
 
         /* The old behavior is that when avctx->lumi_masking is specified,
          * plugins[...].param = NULL. Trying to keep the old behavior here. */
-        plugins[xvid_enc_create.num_plugins].param = avctx->lumi_masking ? NULL : &masking_l ;
-        xvid_enc_create.num_plugins++;
+        plugins[xvid_enc_create.num_plugins].param = avctx->lumi_masking ? NULL
+                                                                         : &masking_l;
+                xvid_enc_create.num_plugins++;
     }
 
     /* Variance AQ */
-    if( x->variance_aq ) {
+    if (x->variance_aq) {
         masking_v.method = 1;
         plugins[xvid_enc_create.num_plugins].func  = xvid_plugin_lumimasking;
-        plugins[xvid_enc_create.num_plugins].param = &masking_v ;
+        plugins[xvid_enc_create.num_plugins].param = &masking_v;
         xvid_enc_create.num_plugins++;
     }
 
@@ -559,9 +560,9 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
                "will be the worse one of the two effects made by the AQ.\n");
 
     /* SSIM */
-    if( x->ssim ) {
+    if (x->ssim) {
         plugins[xvid_enc_create.num_plugins].func = xvid_plugin_ssim;
-        ssim.b_printstat = ( x->ssim == 2 );
+        ssim.b_printstat = x->ssim == 2;
         ssim.acc         = x->ssim_acc;
         ssim.cpu_flags   = xvid_gbl_init.cpu_flags;
         ssim.b_visualize = 0;
@@ -651,7 +652,9 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
     }
 
     x->encoder_handle = xvid_enc_create.handle;
-    avctx->coded_frame = &x->encoded_picture;
+    avctx->coded_frame = av_frame_alloc();
+    if (!avctx->coded_frame)
+        return AVERROR(ENOMEM);
 
     return 0;
 fail:
@@ -665,7 +668,7 @@ static int xvid_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     int xerr, i, ret, user_packet = !!pkt->data;
     char *tmp;
     struct xvid_context *x = avctx->priv_data;
-    AVFrame *p = &x->encoded_picture;
+    AVFrame *p = avctx->coded_frame;
     int mb_width   = (avctx->width  + 15) / 16;
     int mb_height  = (avctx->height + 15) / 16;
 
@@ -678,7 +681,6 @@ static int xvid_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     /* Start setting up the frame */
     xvid_enc_frame.version = XVID_VERSION;
     xvid_enc_stats.version = XVID_VERSION;
-    *p = *picture;
 
     /* Let Xvid know where to put the frame. */
     xvid_enc_frame.bitstream = pkt->data;

@@ -27,9 +27,11 @@
 
 #include "libavutil/avassert.h"
 #include "avcodec.h"
+#include "mpegutils.h"
 #include "mpegvideo.h"
 #include "h263.h"
 #include "h261.h"
+#include "internal.h"
 
 #define H261_MBA_VLC_BITS 9
 #define H261_MTYPE_VLC_BITS 6
@@ -430,6 +432,13 @@ static int h261_decode_mb(H261Context *h)
     s->mv[0][0][0]                 = h->current_mv_x * 2; // gets divided by 2 in motion compensation
     s->mv[0][0][1]                 = h->current_mv_y * 2;
 
+    if (s->current_picture.motion_val[0]) {
+        int b_stride = 2*s->mb_width + 1;
+        int b_xy     = 2 * s->mb_x + (2 * s->mb_y) * b_stride;
+        s->current_picture.motion_val[0][b_xy][0] = s->mv[0][0][0];
+        s->current_picture.motion_val[0][b_xy][1] = s->mv[0][0][1];
+    }
+
 intra:
     /* decode each block */
     if (s->mb_intra || HAS_CBP(h->mtype)) {
@@ -585,15 +594,6 @@ retry:
         if (ff_MPV_common_init(s) < 0)
             return -1;
 
-    /* We need to set current_picture_ptr before reading the header,
-     * otherwise we cannot store anything in there. */
-    if (s->current_picture_ptr == NULL || s->current_picture_ptr->f.data[0]) {
-        int i = ff_find_unused_picture(s, 0);
-        if (i < 0)
-            return i;
-        s->current_picture_ptr = &s->picture[i];
-    }
-
     ret = h261_decode_picture_header(h);
 
     /* skip if the header was thrashed */
@@ -609,14 +609,16 @@ retry:
         s->parse_context = pc;
     }
     if (!s->context_initialized) {
-        avcodec_set_dimensions(avctx, s->width, s->height);
+        ret = ff_set_dimensions(avctx, s->width, s->height);
+        if (ret < 0)
+            return ret;
 
         goto retry;
     }
 
     // for skipping the frame
-    s->current_picture.f.pict_type = s->pict_type;
-    s->current_picture.f.key_frame = s->pict_type == AV_PICTURE_TYPE_I;
+    s->current_picture.f->pict_type = s->pict_type;
+    s->current_picture.f->key_frame = s->pict_type == AV_PICTURE_TYPE_I;
 
     if ((avctx->skip_frame >= AVDISCARD_NONREF && s->pict_type == AV_PICTURE_TYPE_B) ||
         (avctx->skip_frame >= AVDISCARD_NONKEY && s->pict_type != AV_PICTURE_TYPE_I) ||
@@ -639,10 +641,10 @@ retry:
     }
     ff_MPV_frame_end(s);
 
-    av_assert0(s->current_picture.f.pict_type == s->current_picture_ptr->f.pict_type);
-    av_assert0(s->current_picture.f.pict_type == s->pict_type);
+    av_assert0(s->current_picture.f->pict_type == s->current_picture_ptr->f->pict_type);
+    av_assert0(s->current_picture.f->pict_type == s->pict_type);
 
-    if ((ret = av_frame_ref(pict, &s->current_picture_ptr->f)) < 0)
+    if ((ret = av_frame_ref(pict, s->current_picture_ptr->f)) < 0)
         return ret;
     ff_print_debug_info(s, s->current_picture_ptr, pict);
 

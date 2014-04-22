@@ -44,6 +44,11 @@ int ff_load_image(uint8_t *data[4], int linesize[4],
         return ret;
     }
 
+    if ((ret = avformat_find_stream_info(format_ctx, NULL)) < 0) {
+        av_log(log_ctx, AV_LOG_ERROR, "Find stream info failed\n");
+        return ret;
+    }
+
     codec_ctx = format_ctx->streams[0]->codec;
     codec = avcodec_find_decoder(codec_ctx->codec_id);
     if (!codec) {
@@ -57,7 +62,7 @@ int ff_load_image(uint8_t *data[4], int linesize[4],
         goto end;
     }
 
-    if (!(frame = avcodec_alloc_frame()) ) {
+    if (!(frame = av_frame_alloc()) ) {
         av_log(log_ctx, AV_LOG_ERROR, "Failed to alloc frame\n");
         ret = AVERROR(ENOMEM);
         goto end;

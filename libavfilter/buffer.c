@@ -24,6 +24,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/imgutils.h"
+#include "libavutil/internal.h"
 #include "libavcodec/avcodec.h"
 
 #include "avfilter.h"
@@ -113,7 +114,9 @@ void avfilter_unref_buffer(AVFilterBufferRef *ref)
 
 void avfilter_unref_bufferp(AVFilterBufferRef **ref)
 {
+FF_DISABLE_DEPRECATION_WARNINGS
     avfilter_unref_buffer(*ref);
+FF_ENABLE_DEPRECATION_WARNINGS
     *ref = NULL;
 }
 
@@ -147,7 +150,7 @@ int avfilter_copy_frame_props(AVFilterBufferRef *dst, const AVFrame *src)
     return 0;
 }
 
-void avfilter_copy_buffer_ref_props(AVFilterBufferRef *dst, AVFilterBufferRef *src)
+void avfilter_copy_buffer_ref_props(AVFilterBufferRef *dst, const AVFilterBufferRef *src)
 {
     // copy common properties
     dst->pts             = src->pts;

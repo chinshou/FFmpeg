@@ -98,6 +98,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(CAVSVIDEO,        cavsvideo);
     REGISTER_DEMUXER (CDG,              cdg);
     REGISTER_DEMUXER (CDXL,             cdxl);
+    REGISTER_DEMUXER (CINE,             cine);
     REGISTER_DEMUXER (CONCAT,           concat);
     REGISTER_MUXER   (CRC,              crc);
     REGISTER_MUXDEMUX(DATA,             data);
@@ -134,8 +135,10 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(H261,             h261);
     REGISTER_MUXDEMUX(H263,             h263);
     REGISTER_MUXDEMUX(H264,             h264);
-    REGISTER_DEMUXER (HEVC,             hevc);
+    REGISTER_MUXER   (HDS,              hds);
+    REGISTER_MUXDEMUX(HEVC,             hevc);
     REGISTER_MUXDEMUX(HLS,              hls);
+    REGISTER_DEMUXER (HNM,              hnm);
     REGISTER_MUXDEMUX(ICO,              ico);
     REGISTER_DEMUXER (IDCIN,            idcin);
     REGISTER_DEMUXER (IDF,              idf);
@@ -143,6 +146,8 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(ILBC,             ilbc);
     REGISTER_MUXDEMUX(IMAGE2,           image2);
     REGISTER_MUXDEMUX(IMAGE2PIPE,       image2pipe);
+    REGISTER_DEMUXER (IMAGE2_ALIAS_PIX, image2_alias_pix);
+    REGISTER_DEMUXER (IMAGE2_BRENDER_PIX, image2_brender_pix);
     REGISTER_DEMUXER (INGENIENT,        ingenient);
     REGISTER_DEMUXER (IPMOVIE,          ipmovie);
     REGISTER_MUXER   (IPOD,             ipod);
@@ -201,8 +206,10 @@ void av_register_all(void)
     REGISTER_MUXER   (NULL,             null);
     REGISTER_MUXDEMUX(NUT,              nut);
     REGISTER_DEMUXER (NUV,              nuv);
+    REGISTER_MUXER   (OGA,              oga);
     REGISTER_MUXDEMUX(OGG,              ogg);
     REGISTER_MUXDEMUX(OMA,              oma);
+    REGISTER_MUXER   (OPUS,             opus);
     REGISTER_DEMUXER (PAF,              paf);
     REGISTER_MUXDEMUX(PCM_ALAW,         pcm_alaw);
     REGISTER_MUXDEMUX(PCM_MULAW,        pcm_mulaw);
@@ -246,6 +253,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(SAP,              sap);
     REGISTER_DEMUXER (SBG,              sbg);
     REGISTER_DEMUXER (SDP,              sdp);
+    REGISTER_DEMUXER (SDR2,             sdr2);
 #if CONFIG_RTPDEC
     ff_register_rtp_dynamic_payload_handlers();
     ff_register_rdt_dynamic_payload_handlers();
@@ -262,6 +270,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (SOL,              sol);
     REGISTER_MUXDEMUX(SOX,              sox);
     REGISTER_MUXDEMUX(SPDIF,            spdif);
+    REGISTER_MUXER   (SPEEX,            speex);
     REGISTER_MUXDEMUX(SRT,              srt);
     REGISTER_DEMUXER (STR,              str);
     REGISTER_DEMUXER (SUBVIEWER1,       subviewer1);
@@ -280,6 +289,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (TTA,              tta);
     REGISTER_DEMUXER (TXD,              txd);
     REGISTER_DEMUXER (TTY,              tty);
+    REGISTER_MUXER   (UNCODEDFRAMECRC,  uncodedframecrc);
     REGISTER_MUXDEMUX(VC1,              vc1);
     REGISTER_MUXDEMUX(VC1T,             vc1t);
     REGISTER_DEMUXER (VIVO,             vivo);
@@ -332,6 +342,7 @@ void av_register_all(void)
     REGISTER_PROTOCOL(RTP,              rtp);
     REGISTER_PROTOCOL(SCTP,             sctp);
     REGISTER_PROTOCOL(SRTP,             srtp);
+    REGISTER_PROTOCOL(SUBFILE,          subfile);
     REGISTER_PROTOCOL(TCP,              tcp);
     REGISTER_PROTOCOL(TLS,              tls);
     REGISTER_PROTOCOL(UDP,              udp);

@@ -73,7 +73,7 @@ av_cold int ff_ac3_float_mdct_init(AC3EncodeContext *s)
     n  = 1 << 9;
     n2 = n >> 1;
 
-    window = av_malloc(n * sizeof(*window));
+    window = av_malloc_array(n, sizeof(*window));
     if (!window) {
         av_log(s->avctx, AV_LOG_ERROR, "Cannot allocate memory.\n");
         return AVERROR(ENOMEM);
@@ -84,18 +84,6 @@ av_cold int ff_ac3_float_mdct_init(AC3EncodeContext *s)
     s->mdct_window = window;
 
     return ff_mdct_init(&s->mdct, 9, 0, -2.0 / n);
-}
-
-
-/*
- * Apply KBD window to input samples prior to MDCT.
- */
-static void apply_window(void *dsp, float *output,
-                         const float *input, const float *window,
-                         unsigned int len)
-{
-    AVFloatDSPContext *fdsp = dsp;
-    fdsp->vector_fmul(output, input, window, len);
 }
 
 
