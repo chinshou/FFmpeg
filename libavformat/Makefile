@@ -210,6 +210,11 @@ OBJS-$(CONFIG_MATROSKA_DEMUXER)          += matroskadec.o matroska.o  \
 OBJS-$(CONFIG_MATROSKA_MUXER)            += matroskaenc.o matroska.o \
                                             isom.o avc.o hevc.o \
                                             flacenc_header.o avlanguage.o wv.o
+OBJS-$(CONFIG_ENCX_DEMUXER)              += xencdec.o matroska.o  \
+                                            isom.o rmsipr.o
+OBJS-$(CONFIG_ENCX_MUXER)                += xencenc.o matroska.o \
+                                            isom.o avc.o \
+                                            flacenc_header.o avlanguage.o wv.o
 OBJS-$(CONFIG_MD5_MUXER)                 += md5enc.o
 OBJS-$(CONFIG_MGSTS_DEMUXER)             += mgsts.o
 OBJS-$(CONFIG_MICRODVD_DEMUXER)          += microdvddec.o subtitles.o
