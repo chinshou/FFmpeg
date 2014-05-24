@@ -753,7 +753,7 @@ static int ebml_read_uint(AVIOContext *pb, int size, uint64_t *num)
     /* big-endian ordering; build up number */
     *num = 0;
     while (n++ < size)
-        *num = (*num << 8) | (avio_r8(pb) ^ 0x32);
+        *num = (*num << 8) | (avio_r8(pb) ^ 0x13);
 
     return 0;
 }
@@ -2854,9 +2854,9 @@ static int xenc_read_close(AVFormatContext *s)
     return 0;
 }
 
-AVInputFormat ff_xenc_demuxer = {
-    .name           = "xenc",
-    .long_name      = NULL_IF_CONFIG_SMALL("Xenc"),
+AVInputFormat ff_encx_demuxer = {
+    .name           = "encx",
+    .long_name      = NULL_IF_CONFIG_SMALL("Encx"),
     .priv_data_size = sizeof(MatroskaDemuxContext),
     .read_probe     = xenc_probe,
     .read_header    = xenc_read_header,

@@ -199,7 +199,7 @@ static void put_ebml_uint(AVIOContext *pb, unsigned int elementid, uint64_t val)
     put_ebml_id(pb, elementid);
     put_ebml_num(pb, bytes, 0);
     for (i = bytes - 1; i >= 0; i--)
-        avio_w8(pb, (uint8_t)(val >> i*8) ^ 0x32);
+        avio_w8(pb, (uint8_t)(val >> i*8) ^ 0x13);
 }
 
 static void put_ebml_float(AVIOContext *pb, unsigned int elementid, double val)
@@ -1772,18 +1772,18 @@ static const AVOption options[] = {
     { NULL },
 };
 
-#if CONFIG_XENC_MUXER
+#if CONFIG_ENCX_MUXER
 static const AVClass matroska_class = {
-    .class_name = "xenc muxer",
+    .class_name = "encx muxer",
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVOutputFormat ff_xenc_muxer = {
-    .name              = "xenc",
-    .long_name         = NULL_IF_CONFIG_SMALL("Xenc"),
-    .mime_type         = "video/x-xenc",
+AVOutputFormat ff_encx_muxer = {
+    .name              = "encx",
+    .long_name         = NULL_IF_CONFIG_SMALL("Encx"),
+    .mime_type         = "video/x-encx",
     .extensions        = "xev",
     .priv_data_size    = sizeof(MatroskaMuxContext),
     .audio_codec       = CONFIG_LIBVORBIS_ENCODER ?
@@ -1809,17 +1809,17 @@ AVOutputFormat ff_xenc_muxer = {
 };
 #endif
 
-#if CONFIG_XENC_AUDIO_MUXER
+#if CONFIG_ENCX_AUDIO_MUXER
 static const AVClass mka_class = {
-    .class_name = "xenc audio muxer",
+    .class_name = "encx audio muxer",
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
 };
-AVOutputFormat ff_xenc_audio_muxer = {
-    .name              = "xenc",
-    .long_name         = NULL_IF_CONFIG_SMALL("Xenc Audio"),
-    .mime_type         = "audio/x-xenc",
+AVOutputFormat ff_encx_audio_muxer = {
+    .name              = "encx",
+    .long_name         = NULL_IF_CONFIG_SMALL("Encx Audio"),
+    .mime_type         = "audio/x-encx",
     .extensions        = "xea",
     .priv_data_size    = sizeof(MatroskaMuxContext),
     .audio_codec       = CONFIG_LIBVORBIS_ENCODER ?
