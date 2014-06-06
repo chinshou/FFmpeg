@@ -33,6 +33,7 @@
 #include "mpegvideo.h"
 #include "h263.h"
 #include "h264chroma.h"
+#include "qpeldsp.h"
 #include "vc1.h"
 #include "vc1data.h"
 #include "vc1acdata.h"
@@ -510,11 +511,7 @@ static void vc1_mc_1mv(VC1Context *v, int dir)
 
     if (s->mspel) {
         dxy = ((my & 3) << 2) | (mx & 3);
-        v->vc1dsp.put_vc1_mspel_pixels_tab[dxy](s->dest[0]    , srcY    , s->linesize, v->rnd);
-        v->vc1dsp.put_vc1_mspel_pixels_tab[dxy](s->dest[0] + 8, srcY + 8, s->linesize, v->rnd);
-        srcY += s->linesize * 8;
-        v->vc1dsp.put_vc1_mspel_pixels_tab[dxy](s->dest[0] + 8 * s->linesize    , srcY    , s->linesize, v->rnd);
-        v->vc1dsp.put_vc1_mspel_pixels_tab[dxy](s->dest[0] + 8 * s->linesize + 8, srcY + 8, s->linesize, v->rnd);
+        v->vc1dsp.put_vc1_mspel_pixels_tab[0][dxy](s->dest[0]    , srcY    , s->linesize, v->rnd);
     } else { // hpel mc - always used for luma
         dxy = (my & 2) | ((mx & 2) >> 1);
         if (!v->rnd)
@@ -728,9 +725,9 @@ static void vc1_mc_4mv_luma(VC1Context *v, int n, int dir, int avg)
     if (s->mspel) {
         dxy = ((my & 3) << 2) | (mx & 3);
         if (avg)
-            v->vc1dsp.avg_vc1_mspel_pixels_tab[dxy](s->dest[0] + off, srcY, s->linesize << fieldmv, v->rnd);
+            v->vc1dsp.avg_vc1_mspel_pixels_tab[1][dxy](s->dest[0] + off, srcY, s->linesize << fieldmv, v->rnd);
         else
-            v->vc1dsp.put_vc1_mspel_pixels_tab[dxy](s->dest[0] + off, srcY, s->linesize << fieldmv, v->rnd);
+            v->vc1dsp.put_vc1_mspel_pixels_tab[1][dxy](s->dest[0] + off, srcY, s->linesize << fieldmv, v->rnd);
     } else { // hpel mc - always used for luma
         dxy = (my & 2) | ((mx & 2) >> 1);
         if (!v->rnd)
@@ -2039,11 +2036,7 @@ static void vc1_interp_mc(VC1Context *v)
 
     if (s->mspel) {
         dxy = ((my & 3) << 2) | (mx & 3);
-        v->vc1dsp.avg_vc1_mspel_pixels_tab[dxy](s->dest[0] + off    , srcY    , s->linesize, v->rnd);
-        v->vc1dsp.avg_vc1_mspel_pixels_tab[dxy](s->dest[0] + off + 8, srcY + 8, s->linesize, v->rnd);
-        srcY += s->linesize * 8;
-        v->vc1dsp.avg_vc1_mspel_pixels_tab[dxy](s->dest[0] + off + 8 * s->linesize    , srcY    , s->linesize, v->rnd);
-        v->vc1dsp.avg_vc1_mspel_pixels_tab[dxy](s->dest[0] + off + 8 * s->linesize + 8, srcY + 8, s->linesize, v->rnd);
+        v->vc1dsp.avg_vc1_mspel_pixels_tab[0][dxy](s->dest[0] + off    , srcY    , s->linesize, v->rnd);
     } else { // hpel mc
         dxy = (my & 2) | ((mx & 2) >> 1);
 
@@ -5614,10 +5607,9 @@ static av_cold int vc1_decode_init(AVCodecContext *avctx)
     if (!avctx->extradata_size || !avctx->extradata)
         return -1;
     if (!(avctx->flags & CODEC_FLAG_GRAY))
-        avctx->pix_fmt = avctx->get_format(avctx, avctx->codec->pix_fmts);
+        avctx->pix_fmt = ff_get_format(avctx, avctx->codec->pix_fmts);
     else
         avctx->pix_fmt = AV_PIX_FMT_GRAY8;
-    avctx->hwaccel = ff_find_hwaccel(avctx);
     v->s.avctx = avctx;
 
     if ((ret = ff_vc1_init_common(v)) < 0)
@@ -5633,7 +5625,7 @@ static av_cold int vc1_decode_init(AVCodecContext *avctx)
     ff_vc1_decode_end(avctx);
 
     ff_h264chroma_init(&v->h264chroma, 8);
-    ff_vc1dsp_init(&v->vc1dsp);
+    ff_qpeldsp_init(&s->qdsp);
 
     if (avctx->codec_id == AV_CODEC_ID_WMV3 || avctx->codec_id == AV_CODEC_ID_WMV3IMAGE) {
         int count = 0;
@@ -5854,7 +5846,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                     if (avctx->hwaccel ||
                         s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU)
                         buf_start_second_field = start;
-                    tmp = av_realloc(slices, sizeof(*slices) * (n_slices+1));
+                    tmp = av_realloc_array(slices, sizeof(*slices), (n_slices+1));
                     if (!tmp)
                         goto err;
                     slices = tmp;
@@ -5879,7 +5871,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                     break;
                 case VC1_CODE_SLICE: {
                     int buf_size3;
-                    tmp = av_realloc(slices, sizeof(*slices) * (n_slices+1));
+                    tmp = av_realloc_array(slices, sizeof(*slices), (n_slices+1));
                     if (!tmp)
                         goto err;
                     slices = tmp;
@@ -5908,7 +5900,7 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
                 if (avctx->hwaccel ||
                     s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU)
                     buf_start_second_field = divider;
-                tmp = av_realloc(slices, sizeof(*slices) * (n_slices+1));
+                tmp = av_realloc_array(slices, sizeof(*slices), (n_slices+1));
                 if (!tmp)
                     goto err;
                 slices = tmp;
@@ -6006,7 +5998,8 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
 
     /* skip B-frames if we don't have reference frames */
     if (s->last_picture_ptr == NULL && (s->pict_type == AV_PICTURE_TYPE_B || s->droppable)) {
-        goto err;
+        av_log(v->s.avctx, AV_LOG_DEBUG, "Skipping B frame without reference frames\n");
+        goto end;
     }
     if ((avctx->skip_frame >= AVDISCARD_NONREF && s->pict_type == AV_PICTURE_TYPE_B) ||
         (avctx->skip_frame >= AVDISCARD_NONKEY && s->pict_type != AV_PICTURE_TYPE_I) ||
@@ -6041,8 +6034,8 @@ static int vc1_decode_frame(AVCodecContext *avctx, void *data,
         s->current_picture_ptr->f->repeat_pict = v->rptfrm * 2;
     }
 
-    s->me.qpel_put = s->dsp.put_qpel_pixels_tab;
-    s->me.qpel_avg = s->dsp.avg_qpel_pixels_tab;
+    s->me.qpel_put = s->qdsp.put_qpel_pixels_tab;
+    s->me.qpel_avg = s->qdsp.avg_qpel_pixels_tab;
 
     if ((CONFIG_VC1_VDPAU_DECODER)
         &&s->avctx->codec->capabilities&CODEC_CAP_HWACCEL_VDPAU) {

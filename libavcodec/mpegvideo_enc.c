@@ -46,6 +46,7 @@
 #include "mpegutils.h"
 #include "mjpegenc.h"
 #include "msmpeg4.h"
+#include "qpeldsp.h"
 #include "faandct.h"
 #include "thread.h"
 #include "aandcttab.h"
@@ -803,6 +804,8 @@ av_cold int ff_MPV_encode_init(AVCodecContext *avctx)
     if (ff_MPV_common_init(s) < 0)
         return -1;
 
+    ff_qpeldsp_init(&s->qdsp);
+
     s->avctx->coded_frame = s->current_picture.f;
 
     if (s->msmpeg4_version) {
@@ -888,6 +891,20 @@ av_cold int ff_MPV_encode_init(AVCodecContext *avctx)
     if (avctx->error_rate)
         s->error_rate = avctx->error_rate;
     FF_ENABLE_DEPRECATION_WARNINGS;
+#endif
+
+#if FF_API_NORMALIZE_AQP
+    FF_DISABLE_DEPRECATION_WARNINGS
+    if (avctx->flags & CODEC_FLAG_NORMALIZE_AQP)
+        s->mpv_flags |= FF_MPV_FLAG_NAQ;
+    FF_ENABLE_DEPRECATION_WARNINGS;
+#endif
+
+#if FF_API_MV0
+    FF_DISABLE_DEPRECATION_WARNINGS
+    if (avctx->flags & CODEC_FLAG_MV0)
+        s->mpv_flags |= FF_MPV_FLAG_MV0;
+    FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
     if (avctx->b_frame_strategy == 2) {
@@ -1045,7 +1062,7 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
         if (s->linesize & (STRIDE_ALIGN-1))
             direct = 0;
 
-        av_dlog(s->avctx, "%d %d %td %td\n", pic_arg->linesize[0],
+        av_dlog(s->avctx, "%d %d %"PTRDIFF_SPECIFIER" %"PTRDIFF_SPECIFIER"\n", pic_arg->linesize[0],
                 pic_arg->linesize[1], s->linesize, s->uvlinesize);
 
         if (direct) {
@@ -1092,10 +1109,6 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
                     int h = s->height >> v_shift;
                     uint8_t *src = pic_arg->data[i];
                     uint8_t *dst = pic->f->data[i];
-
-                    if (s->codec_id == AV_CODEC_ID_AMV && !(s->avctx->flags & CODEC_FLAG_EMU_EDGE)) {
-                        h = ((s->height + 15)/16*16) >> v_shift;
-                    }
 
                     if (!s->avctx->rc_buffer_size)
                         dst += INPLACE_OFFSET;
@@ -1217,8 +1230,7 @@ static int estimate_best_b_count(MpegEncContext *s)
 
     c->width        = s->width  >> scale;
     c->height       = s->height >> scale;
-    c->flags        = CODEC_FLAG_QSCALE | CODEC_FLAG_PSNR |
-                      CODEC_FLAG_INPUT_PRESERVED;
+    c->flags        = CODEC_FLAG_QSCALE | CODEC_FLAG_PSNR;
     c->flags       |= s->avctx->flags & CODEC_FLAG_QPEL;
     c->mb_decision  = s->avctx->mb_decision;
     c->me_cmp       = s->avctx->me_cmp;
@@ -2077,10 +2089,10 @@ static av_always_inline void encode_mb_internal(MpegEncContext *s,
 
         if ((!s->no_rounding) || s->pict_type == AV_PICTURE_TYPE_B) {
             op_pix  = s->hdsp.put_pixels_tab;
-            op_qpix = s->dsp.put_qpel_pixels_tab;
+            op_qpix = s->qdsp.put_qpel_pixels_tab;
         } else {
             op_pix  = s->hdsp.put_no_rnd_pixels_tab;
-            op_qpix = s->dsp.put_no_rnd_qpel_pixels_tab;
+            op_qpix = s->qdsp.put_no_rnd_qpel_pixels_tab;
         }
 
         if (s->mv_dir & MV_DIR_FORWARD) {
@@ -2088,7 +2100,7 @@ static av_always_inline void encode_mb_internal(MpegEncContext *s,
                           s->last_picture.f->data,
                           op_pix, op_qpix);
             op_pix  = s->hdsp.avg_pixels_tab;
-            op_qpix = s->dsp.avg_qpel_pixels_tab;
+            op_qpix = s->qdsp.avg_qpel_pixels_tab;
         }
         if (s->mv_dir & MV_DIR_BACKWARD) {
             ff_MPV_motion(s, dest_y, dest_cb, dest_cr, 1,

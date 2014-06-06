@@ -1231,7 +1231,6 @@ static enum AVPixelFormat mpeg_get_pixelformat(AVCodecContext *avctx)
 
 static void setup_hwaccel_for_pixfmt(AVCodecContext *avctx)
 {
-    avctx->hwaccel = ff_find_hwaccel(avctx);
     // until then pix_fmt may be changed right after codec init
     if (avctx->hwaccel || uses_vdpau(avctx))
         if (avctx->idct_algo == FF_IDCT_AUTO)
@@ -2391,7 +2390,7 @@ static int decode_chunks(AVCodecContext *avctx, AVFrame *picture,
         input_size = buf_end - buf_ptr;
 
         if (avctx->debug & FF_DEBUG_STARTCODE)
-            av_log(avctx, AV_LOG_DEBUG, "%3"PRIX32" at %td left %d\n",
+            av_log(avctx, AV_LOG_DEBUG, "%3"PRIX32" at %"PTRDIFF_SPECIFIER" left %d\n",
                    start_code, buf_ptr - buf, input_size);
 
         /* prepare data for next start code */

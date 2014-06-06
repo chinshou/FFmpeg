@@ -54,7 +54,8 @@ release management                      Michael Niedermayer
 Communication
 =============
 
-website                                 Robert Swain, Lou Logan
+website                                 Robert Swain
+Trac bug tracker                        Alexander Strasser, Michael Niedermayer, Carl Eugen Hoyos, Lou Logan
 mailinglists                            Michael Niedermayer, Baptiste Coudurier, Lou Logan
 Google+                                 Paul B Mahol, Michael Niedermayer, Alexander Strasser
 Twitter                                 Lou Logan
@@ -166,8 +167,9 @@ Codecs:
   dxa.c                                 Kostya Shishkov
   eacmv*, eaidct*, eat*                 Peter Ross
   exif.c, exif.h                        Thilo Borgmann
-  ffv1.c                                Michael Niedermayer
+  ffv1*                                 Michael Niedermayer
   ffwavesynth.c                         Nicolas George
+  fic.c                                 Derek Buitenhuis
   flac*                                 Justin Ruggles
   flashsv*                              Benjamin Larsson
   flicvideo.c                           Mike Melanson
@@ -242,7 +244,7 @@ Codecs:
   smacker.c                             Kostya Shishkov
   smc.c                                 Mike Melanson
   smvjpegdec.c                          Ash Hughes
-  snow.c                                Michael Niedermayer, Loren Merritt
+  snow*                                 Michael Niedermayer, Loren Merritt
   sonic.c                               Alex Beregszaszi
   srt*                                  Aurelien Jacobs
   sunrast.c                             Ivo van Poorten
@@ -316,6 +318,7 @@ libavdevice
   sdl                                   Stefano Sabatini
   v4l2.c                                Luca Abeni
   vfwcap.c                              Ramiro Polla
+  xv.c                                  Lukasz Marek
 
 libavfilter
 ===========
@@ -415,6 +418,7 @@ Muxers/Demuxers:
   matroska.c                            Aurelien Jacobs
   matroskadec.c                         Aurelien Jacobs
   matroskaenc.c                         David Conrad
+  matroska subtitles (matroskaenc.c)    John Peebles
   metadata*                             Aurelien Jacobs
   mgsts.c                               Paul B Mahol
   microdvd*                             Aurelien Jacobs
@@ -432,7 +436,7 @@ Muxers/Demuxers:
   mxfdec.c                              Tomas Härdin
   nistspheredec.c                       Paul B Mahol
   nsvdec.c                              Francois Revol
-  nut.c                                 Michael Niedermayer
+  nut*                                  Michael Niedermayer
   nuv.c                                 Reimar Doeffinger
   oggdec.c, oggdec.h                    David Conrad
   oggenc.c                              Baptiste Coudurier
@@ -467,6 +471,7 @@ Muxers/Demuxers:
   voc.c                                 Aurelien Jacobs
   wav.c                                 Michael Niedermayer
   wc3movie.c                            Mike Melanson
+  webm dash (matroskaenc.c)             Vignesh Venkatasubramanian
   webvtt*                               Matthew J Heaney
   westwood.c                            Mike Melanson
   wtv.c                                 Peter Ross
@@ -508,6 +513,8 @@ Amiga / PowerPC                         Colin Ward
 Linux / PowerPC                         Luca Barbato
 Windows MinGW                           Alex Beregszaszi, Ramiro Polla
 Windows Cygwin                          Victor Paesa
+Windows MSVC                            Matthew Oliver
+Windows ICL                             Matthew Oliver
 ADI/Blackfin DSP                        Marc Hoffman
 Sparc                                   Roman Shaposhnik
 x86                                     Michael Niedermayer
