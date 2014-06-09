@@ -1,7 +1,6 @@
 include $(SUBDIR)../config.mak
 
 NAME = avformat
-FFLIBS = avcodec avutil
 
 HEADERS = avformat.h                                                    \
           avio.h                                                        \
@@ -87,7 +86,7 @@ OBJS-$(CONFIG_AST_MUXER)                 += ast.o astenc.o
 OBJS-$(CONFIG_AU_DEMUXER)                += au.o pcm.o
 OBJS-$(CONFIG_AU_MUXER)                  += au.o rawenc.o
 OBJS-$(CONFIG_AVI_DEMUXER)               += avidec.o
-OBJS-$(CONFIG_AVI_MUXER)                 += avienc.o
+OBJS-$(CONFIG_AVI_MUXER)                 += avienc.o mpegtsenc.o avlanguage.o
 OBJS-$(CONFIG_AVISYNTH)                  += avisynth.o
 OBJS-$(CONFIG_AVM2_MUXER)                += swfenc.o swf.o
 OBJS-$(CONFIG_AVR_DEMUXER)               += avr.o pcm.o
@@ -121,6 +120,7 @@ OBJS-$(CONFIG_DIRAC_DEMUXER)             += diracdec.o rawdec.o
 OBJS-$(CONFIG_DIRAC_MUXER)               += rawenc.o
 OBJS-$(CONFIG_DNXHD_DEMUXER)             += dnxhddec.o rawdec.o
 OBJS-$(CONFIG_DNXHD_MUXER)               += rawenc.o
+OBJS-$(CONFIG_DSF_DEMUXER)               += dsfdec.o
 OBJS-$(CONFIG_DSICIN_DEMUXER)            += dsicin.o
 OBJS-$(CONFIG_DTSHD_DEMUXER)             += dtshddec.o
 OBJS-$(CONFIG_DTS_DEMUXER)               += dtsdec.o rawdec.o
@@ -208,9 +208,15 @@ OBJS-$(CONFIG_LXF_DEMUXER)               += lxfdec.o
 OBJS-$(CONFIG_M4V_DEMUXER)               += m4vdec.o rawdec.o
 OBJS-$(CONFIG_M4V_MUXER)                 += rawenc.o
 OBJS-$(CONFIG_MATROSKA_DEMUXER)          += matroskadec.o matroska.o  \
-                                            isom.o rmsipr.o
+                                            isom.o rmsipr.o flac_picture.o \
+                                            oggparsevorbis.o vorbiscomment.o
 OBJS-$(CONFIG_MATROSKA_MUXER)            += matroskaenc.o matroska.o \
                                             isom.o avc.o hevc.o \
+                                            flacenc_header.o avlanguage.o vorbiscomment.o wv.o
+OBJS-$(CONFIG_ENCX_DEMUXER)              += xencdec.o matroska.o  \
+                                            isom.o rmsipr.o
+OBJS-$(CONFIG_ENCX_MUXER)                += xencenc.o matroska.o \
+                                            isom.o avc.o \
                                             flacenc_header.o avlanguage.o wv.o
 OBJS-$(CONFIG_MD5_MUXER)                 += md5enc.o
 OBJS-$(CONFIG_MGSTS_DEMUXER)             += mgsts.o
@@ -220,6 +226,7 @@ OBJS-$(CONFIG_MJPEG_DEMUXER)             += rawdec.o
 OBJS-$(CONFIG_MJPEG_MUXER)               += rawenc.o
 OBJS-$(CONFIG_MLP_DEMUXER)               += rawdec.o
 OBJS-$(CONFIG_MLP_MUXER)                 += rawenc.o
+OBJS-$(CONFIG_MLV_DEMUXER)               += mlvdec.o riffdec.o
 OBJS-$(CONFIG_MM_DEMUXER)                += mm.o
 OBJS-$(CONFIG_MMF_DEMUXER)               += mmf.o
 OBJS-$(CONFIG_MMF_MUXER)                 += mmf.o rawenc.o
@@ -247,8 +254,8 @@ OBJS-$(CONFIG_MPL2_DEMUXER)              += mpl2dec.o subtitles.o
 OBJS-$(CONFIG_MPSUB_DEMUXER)             += mpsubdec.o subtitles.o
 OBJS-$(CONFIG_MSNWC_TCP_DEMUXER)         += msnwc_tcp.o
 OBJS-$(CONFIG_MTV_DEMUXER)               += mtv.o
-OBJS-$(CONFIG_MVI_DEMUXER)               += mvi.o
 OBJS-$(CONFIG_MV_DEMUXER)                += mvdec.o
+OBJS-$(CONFIG_MVI_DEMUXER)               += mvi.o
 OBJS-$(CONFIG_MXF_DEMUXER)               += mxfdec.o mxf.o
 OBJS-$(CONFIG_MXF_MUXER)                 += mxfenc.o mxf.o audiointerleave.o
 OBJS-$(CONFIG_MXG_DEMUXER)               += mxg.o
@@ -273,6 +280,8 @@ OBJS-$(CONFIG_OGG_DEMUXER)               += oggdec.o         \
                                             replaygain.o     \
                                             vorbiscomment.o  \
                                             flac_picture.o
+OBJS-$(CONFIG_OGA_MUXER)                 += oggenc.o \
+                                            vorbiscomment.o
 OBJS-$(CONFIG_OGG_MUXER)                 += oggenc.o \
                                             vorbiscomment.o
 OBJS-$(CONFIG_OMA_DEMUXER)               += omadec.o pcm.o oma.o
@@ -431,8 +440,8 @@ OBJS-$(CONFIG_XBIN_DEMUXER)              += bintext.o sauce.o
 OBJS-$(CONFIG_XMV_DEMUXER)               += xmv.o
 OBJS-$(CONFIG_XWMA_DEMUXER)              += xwma.o
 OBJS-$(CONFIG_YOP_DEMUXER)               += yop.o
-OBJS-$(CONFIG_YUV4MPEGPIPE_MUXER)        += yuv4mpeg.o
-OBJS-$(CONFIG_YUV4MPEGPIPE_DEMUXER)      += yuv4mpeg.o
+OBJS-$(CONFIG_YUV4MPEGPIPE_MUXER)        += yuv4mpegenc.o
+OBJS-$(CONFIG_YUV4MPEGPIPE_DEMUXER)      += yuv4mpegdec.o
 
 # external libraries
 OBJS-$(CONFIG_LIBGME_DEMUXER)            += libgme.o

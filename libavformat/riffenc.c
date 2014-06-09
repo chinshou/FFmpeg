@@ -31,7 +31,7 @@
 int64_t ff_start_tag(AVIOContext *pb, const char *tag)
 {
     ffio_wfourcc(pb, tag);
-    avio_wl32(pb, 0);
+    avio_wl32(pb, -1);
     return avio_tell(pb);
 }
 
@@ -51,7 +51,7 @@ void ff_end_tag(AVIOContext *pb, int64_t start)
 
 /* WAVEFORMATEX header */
 /* returns the size or -1 on error */
-int ff_put_wav_header(AVIOContext *pb, AVCodecContext *enc)
+int ff_put_wav_header(AVIOContext *pb, AVCodecContext *enc, int flags)
 {
     int bps, blkalign, bytespersec, frame_size;
     int hdrsize;
@@ -67,7 +67,7 @@ int ff_put_wav_header(AVIOContext *pb, AVCodecContext *enc)
     /* We use the known constant frame size for the codec if known, otherwise
      * fall back on using AVCodecContext.frame_size, which is not as reliable
      * for indicating packet duration. */
-    frame_size = av_get_audio_frame_duration(enc, 0);
+    frame_size = av_get_audio_frame_duration(enc, enc->block_align);
     if (!frame_size)
         frame_size = enc->frame_size;
 
@@ -189,9 +189,12 @@ int ff_put_wav_header(AVIOContext *pb, AVCodecContext *enc)
         avio_wl32(pb, 0xAA000080);
         avio_wl32(pb, 0x719B3800);
         }
-    } else {
+    } else if ((flags & FF_PUT_WAV_HEADER_FORCE_WAVEFORMATEX) ||
+               enc->codec_tag != 0x0001 /* PCM */ ||
+               riff_extradata - riff_extradata_start) {
+        /* WAVEFORMATEX */
         avio_wl16(pb, riff_extradata - riff_extradata_start); /* cbSize */
-    }
+    } /* else PCMWAVEFORMAT */
     avio_write(pb, riff_extradata_start, riff_extradata - riff_extradata_start);
     hdrsize = avio_tell(pb) - hdrstart;
     if (hdrsize & 1) {

@@ -106,6 +106,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (DFA,              dfa);
     REGISTER_MUXDEMUX(DIRAC,            dirac);
     REGISTER_MUXDEMUX(DNXHD,            dnxhd);
+    REGISTER_DEMUXER (DSF,              dsf);
     REGISTER_DEMUXER (DSICIN,           dsicin);
     REGISTER_MUXDEMUX(DTS,              dts);
     REGISTER_DEMUXER (DTSHD,            dtshd);
@@ -167,10 +168,13 @@ void av_register_all(void)
     REGISTER_MUXER   (MD5,              md5);
     REGISTER_MUXDEMUX(MATROSKA,         matroska);
     REGISTER_MUXER   (MATROSKA_AUDIO,   matroska_audio);
+    REGISTER_MUXDEMUX(ENCX,         encx);
+    REGISTER_MUXER   (ENCX_AUDIO,   encx_audio);
     REGISTER_DEMUXER (MGSTS,            mgsts);
     REGISTER_MUXDEMUX(MICRODVD,         microdvd);
     REGISTER_MUXDEMUX(MJPEG,            mjpeg);
     REGISTER_MUXDEMUX(MLP,              mlp);
+    REGISTER_DEMUXER (MLV,              mlv);
     REGISTER_DEMUXER (MM,               mm);
     REGISTER_MUXDEMUX(MMF,              mmf);
     REGISTER_MUXDEMUX(MOV,              mov);
@@ -263,6 +267,7 @@ void av_register_all(void)
     REGISTER_MUXER   (SEGMENT,          stream_segment);
     REGISTER_DEMUXER (SHORTEN,          shorten);
     REGISTER_DEMUXER (SIFF,             siff);
+    REGISTER_DEMUXER (SLN,              sln);
     REGISTER_DEMUXER (SMACKER,          smacker);
     REGISTER_MUXDEMUX(SMJPEG,           smjpeg);
     REGISTER_MUXER   (SMOOTHSTREAMING,  smoothstreaming);

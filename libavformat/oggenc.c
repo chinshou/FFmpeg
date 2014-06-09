@@ -277,18 +277,17 @@ static uint8_t *ogg_write_vorbiscomment(int offset, int bitexact,
     const char *vendor = bitexact ? "ffmpeg" : LIBAVFORMAT_IDENT;
     int size;
     uint8_t *p, *p0;
-    unsigned int count;
 
     ff_metadata_conv(m, ff_vorbiscomment_metadata_conv, NULL);
 
-    size = offset + ff_vorbiscomment_length(*m, vendor, &count) + framing_bit;
+    size = offset + ff_vorbiscomment_length(*m, vendor) + framing_bit;
     p = av_mallocz(size);
     if (!p)
         return NULL;
     p0 = p;
 
     p += offset;
-    ff_vorbiscomment_write(&p, m, vendor, count);
+    ff_vorbiscomment_write(&p, m, vendor);
     if (framing_bit)
         bytestream_put_byte(&p, 1);
 
@@ -392,6 +391,28 @@ static int ogg_build_opus_headers(AVCodecContext *avctx,
     return 0;
 }
 
+static void ogg_write_pages(AVFormatContext *s, int flush)
+{
+    OGGContext *ogg = s->priv_data;
+    OGGPageList *next, *p;
+
+    if (!ogg->page_list)
+        return;
+
+    for (p = ogg->page_list; p; ) {
+        OGGStreamContext *oggstream =
+            s->streams[p->page.stream_index]->priv_data;
+        if (oggstream->page_count < 2 && !flush)
+            break;
+        ogg_write_page(s, &p->page,
+                       flush == 1 && oggstream->page_count == 1 ? 4 : 0); // eos
+        next = p->next;
+        av_freep(&p);
+        p = next;
+    }
+    ogg->page_list = p;
+}
+
 static int ogg_write_header(AVFormatContext *s)
 {
     OGGContext *ogg = s->priv_data;
@@ -432,7 +453,7 @@ static int ogg_write_header(AVFormatContext *s)
 
         oggstream->page.stream_index = i;
 
-        if (!(st->codec->flags & CODEC_FLAG_BITEXACT))
+        if (!(s->flags & AVFMT_FLAG_BITEXACT))
             do {
                 serial_num = av_get_random_seed();
                 for (j = 0; j < i; j++) {
@@ -448,7 +469,7 @@ static int ogg_write_header(AVFormatContext *s)
         st->priv_data = oggstream;
         if (st->codec->codec_id == AV_CODEC_ID_FLAC) {
             int err = ogg_build_flac_headers(st->codec, oggstream,
-                                             st->codec->flags & CODEC_FLAG_BITEXACT,
+                                             s->flags & AVFMT_FLAG_BITEXACT,
                                              &st->metadata);
             if (err) {
                 av_log(s, AV_LOG_ERROR, "Error writing FLAC headers\n");
@@ -457,7 +478,7 @@ static int ogg_write_header(AVFormatContext *s)
             }
         } else if (st->codec->codec_id == AV_CODEC_ID_SPEEX) {
             int err = ogg_build_speex_headers(st->codec, oggstream,
-                                              st->codec->flags & CODEC_FLAG_BITEXACT,
+                                              s->flags & AVFMT_FLAG_BITEXACT,
                                               &st->metadata);
             if (err) {
                 av_log(s, AV_LOG_ERROR, "Error writing Speex headers\n");
@@ -466,7 +487,7 @@ static int ogg_write_header(AVFormatContext *s)
             }
         } else if (st->codec->codec_id == AV_CODEC_ID_OPUS) {
             int err = ogg_build_opus_headers(st->codec, oggstream,
-                                             st->codec->flags & CODEC_FLAG_BITEXACT,
+                                             s->flags & AVFMT_FLAG_BITEXACT,
                                              &st->metadata);
             if (err) {
                 av_log(s, AV_LOG_ERROR, "Error writing Opus headers\n");
@@ -487,7 +508,7 @@ static int ogg_write_header(AVFormatContext *s)
                 return -1;
             }
 
-            p = ogg_write_vorbiscomment(7, st->codec->flags & CODEC_FLAG_BITEXACT,
+            p = ogg_write_vorbiscomment(7, s->flags & AVFMT_FLAG_BITEXACT,
                                         &oggstream->header_len[1], &st->metadata,
                                         framing_bit);
             oggstream->header[1] = p;
@@ -528,29 +549,9 @@ static int ogg_write_header(AVFormatContext *s)
 
     oggstream->page.start_granule = AV_NOPTS_VALUE;
 
+    ogg_write_pages(s, 2);
+
     return 0;
-}
-
-static void ogg_write_pages(AVFormatContext *s, int flush)
-{
-    OGGContext *ogg = s->priv_data;
-    OGGPageList *next, *p;
-
-    if (!ogg->page_list)
-        return;
-
-    for (p = ogg->page_list; p; ) {
-        OGGStreamContext *oggstream =
-            s->streams[p->page.stream_index]->priv_data;
-        if (oggstream->page_count < 2 && !flush)
-            break;
-        ogg_write_page(s, &p->page,
-                       flush && oggstream->page_count == 1 ? 4 : 0); // eos
-        next = p->next;
-        av_freep(&p);
-        p = next;
-    }
-    ogg->page_list = p;
 }
 
 static int ogg_write_packet(AVFormatContext *s, AVPacket *pkt)

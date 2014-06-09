@@ -59,10 +59,10 @@ fate-vsynth%-ffv1:               ENCOPTS = -slices 4
 fate-vsynth%-ffv1.0:             CODEC   = ffv1
 
 FATE_VCODEC-$(call ENCDEC, FFVHUFF, AVI) += ffvhuff ffvhuff444 ffvhuff420p12 ffvhuff422p10left ffvhuff444p16
-fate-vsynth%-ffvhuff444:         ENCOPTS = -strict -2 -vcodec ffvhuff -pix_fmt yuv444p
-fate-vsynth%-ffvhuff420p12:      ENCOPTS = -strict -2 -vcodec ffvhuff -pix_fmt yuv420p12le
-fate-vsynth%-ffvhuff422p10left:  ENCOPTS = -strict -2 -vcodec ffvhuff -pix_fmt yuv422p10le -pred left
-fate-vsynth%-ffvhuff444p16:      ENCOPTS = -strict -2 -vcodec ffvhuff -pix_fmt yuv444p16le -pred plane
+fate-vsynth%-ffvhuff444:         ENCOPTS = -vcodec ffvhuff -pix_fmt yuv444p
+fate-vsynth%-ffvhuff420p12:      ENCOPTS = -vcodec ffvhuff -pix_fmt yuv420p12le
+fate-vsynth%-ffvhuff422p10left:  ENCOPTS = -vcodec ffvhuff -pix_fmt yuv422p10le -pred left
+fate-vsynth%-ffvhuff444p16:      ENCOPTS = -vcodec ffvhuff -pix_fmt yuv444p16le -pred plane
 
 FATE_VCODEC-$(call ENCDEC, FLASHSV, FLV) += flashsv
 fate-vsynth%-flashsv:            ENCOPTS = -sws_flags neighbor+full_chroma_int
@@ -89,7 +89,7 @@ fate-vsynth%-h263p:              ENCOPTS = -qscale 2 -flags +aic -umv 1 -aiv 1 -
 
 FATE_VCODEC-$(call ENCDEC, HUFFYUV, AVI) += huffyuv
 fate-vsynth%-huffyuv:            ENCOPTS = -pix_fmt yuv422p -sws_flags neighbor
-fate-vsynth%-huffyuv:            DECOPTS = -strict -2 -sws_flags neighbor
+fate-vsynth%-huffyuv:            DECOPTS = -sws_flags neighbor
 
 FATE_VCODEC-$(call ENCDEC, JPEGLS, AVI) += jpegls
 fate-vsynth%-jpegls:             ENCOPTS = -sws_flags neighbor+full_chroma_int
@@ -163,7 +163,8 @@ FATE_MPEG4_AVI = mpeg4-rc                                               \
                  mpeg4-qpel                                             \
                  mpeg4-thread                                           \
                  mpeg4-error                                            \
-                 mpeg4-nr
+                 mpeg4-nr                                               \
+                 mpeg4-nsse
 
 FATE_VCODEC-$(call ENCDEC, MPEG4, MP4 MOV) += $(FATE_MPEG4_MP4)
 FATE_VCODEC-$(call ENCDEC, MPEG4, AVI)     += $(FATE_MPEG4_AVI)
@@ -184,6 +185,10 @@ fate-vsynth%-mpeg4-error:        ENCOPTS = -qscale 7 -flags +mv4+aic    \
                                            -ps 250 -error 10
 
 fate-vsynth%-mpeg4-nr:           ENCOPTS = -qscale 8 -flags +mv4 -mbd rd -nr 200
+
+fate-vsynth%-mpeg4-nsse:         ENCOPTS = -qscale 7 -cmp nsse -subcmp nsse \
+                                           -mbcmp nsse -precmp nsse         \
+                                           -skipcmp nsse
 
 fate-vsynth%-mpeg4-qpel:         ENCOPTS = -qscale 7 -flags +mv4+qpel -mbd 2 \
                                            -bf 2 -cmp 1 -subcmp 2

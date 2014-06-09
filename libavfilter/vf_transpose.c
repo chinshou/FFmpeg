@@ -51,7 +51,7 @@ enum TransposeDir {
     TRANSPOSE_CLOCK_FLIP,
 };
 
-typedef struct {
+typedef struct TransContext {
     const AVClass *class;
     int hsub, vsub;
     int pixsteps[4];
@@ -65,7 +65,7 @@ static int query_formats(AVFilterContext *ctx)
     AVFilterFormats *pix_fmts = NULL;
     int fmt;
 
-    for (fmt = 0; fmt < AV_PIX_FMT_NB; fmt++) {
+    for (fmt = 0; av_pix_fmt_desc_get(fmt); fmt++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(fmt);
         if (!(desc->flags & AV_PIX_FMT_FLAG_PAL ||
               desc->flags & AV_PIX_FMT_FLAG_HWACCEL ||

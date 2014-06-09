@@ -370,7 +370,7 @@ typedef struct SwsContext {
     uint8_t *table_rV[256 + 2*YUVRGB_TABLE_HEADROOM];
     uint8_t *table_gU[256 + 2*YUVRGB_TABLE_HEADROOM];
     uint8_t *table_bU[256 + 2*YUVRGB_TABLE_HEADROOM];
-    DECLARE_ALIGNED(16, int32_t, input_rgb2yuv_table)[16+40*4]; // This table can contain both C and SIMD formatted values, teh C vales are always at the XY_IDX points
+    DECLARE_ALIGNED(16, int32_t, input_rgb2yuv_table)[16+40*4]; // This table can contain both C and SIMD formatted values, the C vales are always at the XY_IDX points
 #define RY_IDX 0
 #define GY_IDX 1
 #define BY_IDX 2
@@ -429,6 +429,7 @@ typedef struct SwsContext {
 #define UV_OFF_BYTE           "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+56"
 #define DITHER16              "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+64"
 #define DITHER32              "11*8+4*4*"AV_STRINGIFY(MAX_FILTER_SIZE)"*3+80"
+#define DITHER32_INT          (11*8+4*4*MAX_FILTER_SIZE*3+80) // value equal to above, used for checking that the struct hasnt been changed by mistake
 
     DECLARE_ALIGNED(8, uint64_t, redDither);
     DECLARE_ALIGNED(8, uint64_t, greenDither);

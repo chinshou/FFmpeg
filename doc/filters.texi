@@ -697,6 +697,11 @@ ffmpeg -i input.mkv -filter_complex "[0:1][0:2][0:3][0:4][0:5][0:6] amerge=input
 
 Mixes multiple audio inputs into a single output.
 
+Note that this filter only supports float samples (the @var{amerge}
+and @var{pan} audio filters support many formats). If the @var{amix}
+input has integer samples then @ref{aresample} will be automatically
+inserted to perform the conversion to float samples.
+
 For example
 @example
 ffmpeg -i INPUT1 -i INPUT2 -i INPUT3 -filter_complex amix=inputs=3:duration=first:dropout_transition=3 OUTPUT
@@ -1205,6 +1210,36 @@ Determine how steep is the filter's shelf transition.
 Apply a biquad IIR filter with the given coefficients.
 Where @var{b0}, @var{b1}, @var{b2} and @var{a0}, @var{a1}, @var{a2}
 are the numerator and denominator coefficients respectively.
+
+@section bs2b
+Bauer stereo to binaural transformation, which improves headphone listening of
+stereo audio records.
+
+It accepts the following parameters:
+@table @option
+
+@item profile
+Pre-defined crossfeed level.
+@table @option
+
+@item default
+Default level (fcut=700, feed=50).
+
+@item cmoy
+Chu Moy circuit (fcut=700, feed=60).
+
+@item jmeier
+Jan Meier circuit (fcut=650, feed=95).
+
+@end table
+
+@item fcut
+Cut frequency (in Hz).
+
+@item feed
+Feed level (in Hz).
+
+@end table
 
 @section channelmap
 
@@ -3580,6 +3615,8 @@ libfreetype library.
 
 To enable compilation of this filter, you need to configure FFmpeg with
 @code{--enable-libfreetype}.
+To enable default font fallback and the @var{font} option you need to
+configure FFmpeg with @code{--enable-libfontconfig}.
 
 @subsection Syntax
 
@@ -3623,9 +3660,12 @@ the "Color" section in the ffmpeg-utils manual.
 
 The default value of @var{fontcolor} is "black".
 
+@item font
+The font family to be used for drawing text. By default Sans.
+
 @item fontfile
 The font file to be used for drawing text. The path must be included.
-This parameter is mandatory.
+This parameter is mandatory if the fontconfig support is disabled.
 
 @item fontsize
 The font size to be used for drawing text.
@@ -3786,9 +3826,6 @@ These parameters allow the @var{x} and @var{y} expressions to refer
 each other, so you can for example specify @code{y=x/dar}.
 @end table
 
-If libavfilter was built with @code{--enable-fontconfig}, then
-@option{fontfile} can be a fontconfig pattern or omitted.
-
 @anchor{drawtext_expansion}
 @subsection Text expansion
 
@@ -3848,7 +3885,14 @@ The frame number, starting from 0.
 A 1 character description of the current picture type.
 
 @item pts
-The timestamp of the current frame, in seconds, with microsecond accuracy.
+The timestamp of the current frame.
+It can take up to two arguments.
+
+The first argument is the format of the timestamp; it defaults to @code{flt}
+for seconds as a decimal number with microsecond accuracy; @code{hms} stands
+for a formatted @var{[-]HH:MM:SS.mmm} timestamp with millisecond accuracy.
+
+The second argument is an offset added to the timestamp.
 
 @end table
 
@@ -3951,12 +3995,36 @@ by the low threshold.
 
 Default value for @var{low} is @code{20/255}, and default value for @var{high}
 is @code{50/255}.
+
+@item mode
+Define the drawing mode.
+
+@table @samp
+@item wires
+Draw white/gray wires on black background.
+
+@item colormix
+Mix the colors to create a paint/cartoon effect.
 @end table
 
-Example:
+Default value is @var{wires}.
+@end table
+
+@subsection Examples
+
+@itemize
+@item
+Standard edge detection with custom values for the hysteresis thresholding:
 @example
 edgedetect=low=0.1:high=0.4
 @end example
+
+@item
+Painting effect without thresholding:
+@example
+edgedetect=mode=colormix:high=0
+@end example
+@end itemize
 
 @section extractplanes
 
@@ -7716,6 +7784,9 @@ changed.
 @item charenc
 Set subtitles input character encoding. @code{subtitles} filter only. Only
 useful if not UTF-8.
+
+@item stream_index, si
+Set subtitles stream index. @code{subtitles} filter only.
 @end table
 
 If the first key is not specified, it is assumed that the first value
@@ -7730,6 +7801,16 @@ subtitles=sub.srt
 which is equivalent to:
 @example
 subtitles=filename=sub.srt
+@end example
+
+To render the default subtitles stream from file @file{video.mkv}, use:
+@example
+subtitles=video.mkv
+@end example
+
+To render the second subtitles stream from that file, use:
+@example
+subtitles=video.mkv:si=1
 @end example
 
 @section super2xsai
@@ -9308,7 +9389,7 @@ Set the number of output video streams, that is also the number of video
 streams in each segment. Default is 1.
 
 @item a
-Set the number of output audio streams, that is also the number of video
+Set the number of output audio streams, that is also the number of audio
 streams in each segment. Default is 0.
 
 @item unsafe
