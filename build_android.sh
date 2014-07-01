@@ -42,6 +42,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-libfaac \
     --enable-libvorbis \
     --enable-libfreetype \
+    --enable-libspeex \
     --enable-openssl \
     --enable-libgsm \
     --enable-libmp3lame \
@@ -59,6 +60,9 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --disable-outdevs \
     --disable-postproc \
     --disable-decoder=h264_vdpau \
+    --disable-muxer=encx \
+    --disable-muxer=encx_audio \
+    --disable-demuxer=encx \
     --disable-indev=waveform  \
     --cross-prefix=$TOOLCHAIN/bin/arm-linux-androideabi- \
     --target-os=linux \
@@ -76,6 +80,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
 #make clean
 #make
 #make install
+#    --disable-muxers \
 }
 
 ADDI_CFLAGS="-marm -march=armv7-a -mfpu=neon -mfloat-abi=softfp -mtune=cortex-a8"
