@@ -155,9 +155,10 @@ static void get_private_data(OutputStream *os)
         return;
     os->private_str = av_mallocz(2*size + 1);
     if (!os->private_str)
-        return;
+        goto fail;
     for (i = 0; i < size; i++)
         snprintf(&os->private_str[2*i], 3, "%02x", ptr[i]);
+fail:
     if (ptr != codec->extradata)
         av_free(ptr);
 }
@@ -303,7 +304,7 @@ static int ism_write_header(AVFormatContext *s)
         goto fail;
     }
 
-    c->streams = av_mallocz(sizeof(*c->streams) * s->nb_streams);
+    c->streams = av_mallocz_array(s->nb_streams, sizeof(*c->streams));
     if (!c->streams) {
         ret = AVERROR(ENOMEM);
         goto fail;
@@ -314,7 +315,6 @@ static int ism_write_header(AVFormatContext *s)
         AVFormatContext *ctx;
         AVStream *st;
         AVDictionary *opts = NULL;
-        char buf[10];
 
         if (!s->streams[i]->codec->bit_rate) {
             av_log(s, AV_LOG_ERROR, "No bit rate set for stream %d\n", i);
@@ -350,8 +350,7 @@ static int ism_write_header(AVFormatContext *s)
             goto fail;
         }
 
-        snprintf(buf, sizeof(buf), "%d", c->lookahead_count);
-        av_dict_set(&opts, "ism_lookahead", buf, 0);
+        av_dict_set_int(&opts, "ism_lookahead", c->lookahead_count, 0);
         av_dict_set(&opts, "movflags", "frag_custom", 0);
         if ((ret = avformat_write_header(ctx, &opts)) < 0) {
              goto fail;
@@ -592,7 +591,7 @@ static int ism_write_packet(AVFormatContext *s, AVPacket *pkt)
     }
 
     os->packets_written++;
-    return ff_write_chained(os->ctx, 0, pkt, s);
+    return ff_write_chained(os->ctx, 0, pkt, s, 0);
 }
 
 static int ism_write_trailer(AVFormatContext *s)

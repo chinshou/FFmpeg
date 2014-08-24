@@ -34,6 +34,7 @@
 #include "huffyuvencdsp.h"
 #include "internal.h"
 #include "put_bits.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 
 static inline void diff_bytes(HYuvContext *s, uint8_t *dst,
@@ -196,7 +197,7 @@ static int store_huffman_tables(HYuvContext *s, uint8_t *buf)
         count = 1 + s->alpha + 2*s->chroma;
 
     for (i = 0; i < count; i++) {
-        if ((ret = ff_huff_gen_len_table(s->len[i], s->stats[i], s->vlc_n)) < 0)
+        if ((ret = ff_huff_gen_len_table(s->len[i], s->stats[i], s->vlc_n, 0)) < 0)
             return ret;
 
         if (ff_huffyuv_generate_bits_table(s->bits[i], s->len[i], s->vlc_n) < 0) {
@@ -400,7 +401,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
             for (j = 0; j < s->vlc_n; j++) {
                 int d = FFMIN(j, s->vlc_n - j);
 
-                s->stats[i][j] = 100000000 / (d + 1);
+                s->stats[i][j] = 100000000 / (d*d + 1);
             }
     }
 
@@ -414,7 +415,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
             int pels = s->width * s->height / (i ? 40 : 10);
             for (j = 0; j < s->vlc_n; j++) {
                 int d = FFMIN(j, s->vlc_n - j);
-                s->stats[i][j] = pels/(d + 1);
+                s->stats[i][j] = pels/(d*d + 1);
             }
         }
     } else {
@@ -964,7 +965,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         avctx->stats_out[0] = '\0';
     if (!(s->avctx->flags2 & CODEC_FLAG2_NO_OUTPUT)) {
         flush_put_bits(&s->pb);
-        s->dsp.bswap_buf((uint32_t*)pkt->data, (uint32_t*)pkt->data, size);
+        s->bdsp.bswap_buf((uint32_t *) pkt->data, (uint32_t *) pkt->data, size);
     }
 
     s->picture_number++;
@@ -990,6 +991,27 @@ static av_cold int encode_end(AVCodecContext *avctx)
     return 0;
 }
 
+static const AVOption options[] = {
+    { "non_deterministic", "Allow multithreading for e.g. context=1 at the expense of determinism",
+      offsetof(HYuvContext, non_determ), AV_OPT_TYPE_INT, { .i64 = 1 },
+      0, 1, AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM },
+    { NULL },
+};
+
+static const AVClass normal_class = {
+    .class_name = "huffyuv",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
+static const AVClass ff_class = {
+    .class_name = "ffvhuff",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
 AVCodec ff_huffyuv_encoder = {
     .name           = "huffyuv",
     .long_name      = NULL_IF_CONFIG_SMALL("Huffyuv / HuffYUV"),
@@ -1000,6 +1022,7 @@ AVCodec ff_huffyuv_encoder = {
     .encode2        = encode_frame,
     .close          = encode_end,
     .capabilities   = CODEC_CAP_FRAME_THREADS | CODEC_CAP_INTRA_ONLY,
+    .priv_class     = &normal_class,
     .pix_fmts       = (const enum AVPixelFormat[]){
         AV_PIX_FMT_YUV422P, AV_PIX_FMT_RGB24,
         AV_PIX_FMT_RGB32, AV_PIX_FMT_NONE
@@ -1017,6 +1040,7 @@ AVCodec ff_ffvhuff_encoder = {
     .encode2        = encode_frame,
     .close          = encode_end,
     .capabilities   = CODEC_CAP_FRAME_THREADS | CODEC_CAP_INTRA_ONLY,
+    .priv_class     = &ff_class,
     .pix_fmts       = (const enum AVPixelFormat[]){
         AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV411P,
         AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV440P,

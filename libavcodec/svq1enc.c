@@ -27,8 +27,8 @@
  */
 
 #include "avcodec.h"
-#include "dsputil.h"
 #include "hpeldsp.h"
+#include "me_cmp.h"
 #include "mpegvideo.h"
 #include "h263.h"
 #include "internal.h"
@@ -77,7 +77,7 @@ static void svq1_write_header(SVQ1EncContext *s, int frame_type)
 #define THRESHOLD_MULTIPLIER 0.6
 
 static int ssd_int8_vs_int16_c(const int8_t *pix1, const int16_t *pix2,
-                               int size)
+                               intptr_t size)
 {
     int score = 0, i;
 
@@ -252,7 +252,7 @@ static int svq1_encode_plane(SVQ1EncContext *s, int plane,
     int block_width, block_height;
     int level;
     int threshold[6];
-    uint8_t *src     = s->scratchbuf + stride * 16;
+    uint8_t *src     = s->scratchbuf + stride * 32;
     const int lambda = (f->quality * f->quality) >>
                        (2 * FF_LAMBDA_SHIFT);
 
@@ -314,7 +314,7 @@ static int svq1_encode_plane(SVQ1EncContext *s, int plane,
         s->m.current_picture.motion_val[0]   = s->motion_val8[plane] + 2;
         s->m.p_mv_table                      = s->motion_val16[plane] +
                                                s->m.mb_stride + 1;
-        s->m.dsp                             = s->dsp; // move
+        s->m.mecc                            = s->mecc; // move
         ff_init_me(&s->m);
 
         s->m.me.dia_size      = s->avctx->dia_size;
@@ -427,18 +427,18 @@ static int svq1_encode_plane(SVQ1EncContext *s, int plane,
 
                     dxy = (mx & 1) + 2 * (my & 1);
 
-                    s->hdsp.put_pixels_tab[0][dxy](temp + 16,
+                    s->hdsp.put_pixels_tab[0][dxy](temp + 16*stride,
                                                    ref + (mx >> 1) +
                                                    stride * (my >> 1),
                                                    stride, 16);
 
-                    score[1] += encode_block(s, src + 16 * x, temp + 16,
+                    score[1] += encode_block(s, src + 16 * x, temp + 16*stride,
                                              decoded, stride, 5, 64, lambda, 0);
                     best      = score[1] <= score[0];
 
                     vlc       = ff_svq1_block_type_vlc[SVQ1_BLOCK_SKIP];
-                    score[2]  = s->dsp.sse[0](NULL, src + 16 * x, ref,
-                                              stride, 16);
+                    score[2]  = s->mecc.sse[0](NULL, src + 16 * x, ref,
+                                               stride, 16);
                     score[2] += vlc[1] * lambda;
                     if (score[2] < score[best] && mx == 0 && my == 0) {
                         best = 2;
@@ -489,7 +489,7 @@ static av_cold int svq1_encode_end(AVCodecContext *avctx)
                                   avctx->frame_number));
 
     s->m.mb_type = NULL;
-    ff_MPV_common_end(&s->m);
+    ff_mpv_common_end(&s->m);
 
     av_freep(&s->m.me.scratchpad);
     av_freep(&s->m.me.map);
@@ -515,8 +515,9 @@ static av_cold int svq1_encode_init(AVCodecContext *avctx)
     SVQ1EncContext *const s = avctx->priv_data;
     int ret;
 
-    ff_dsputil_init(&s->dsp, avctx);
     ff_hpeldsp_init(&s->hdsp, avctx->flags);
+    ff_me_cmp_init(&s->mecc, avctx);
+    ff_mpegvideoencdsp_init(&s->m.mpvencdsp, avctx);
 
     avctx->coded_frame = av_frame_alloc();
     s->current_picture = av_frame_alloc();
@@ -538,7 +539,7 @@ static av_cold int svq1_encode_init(AVCodecContext *avctx)
     s->avctx               = avctx;
     s->m.avctx             = avctx;
 
-    if ((ret = ff_MPV_common_init(&s->m)) < 0) {
+    if ((ret = ff_mpv_common_init(&s->m)) < 0) {
         svq1_encode_end(avctx);
         return ret;
     }
@@ -586,7 +587,7 @@ static int svq1_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             (ret = ff_get_buffer(avctx, s->last_picture, 0))   < 0) {
             return ret;
         }
-        s->scratchbuf = av_malloc(s->current_picture->linesize[0] * 16 * 2);
+        s->scratchbuf = av_malloc(s->current_picture->linesize[0] * 16 * 3);
     }
 
     FFSWAP(AVFrame*, s->current_picture, s->last_picture);

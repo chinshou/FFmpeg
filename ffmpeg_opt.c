@@ -104,8 +104,6 @@ float max_error_rate  = 2.0/3;
 static int intra_only         = 0;
 static int file_overwrite     = 0;
 static int no_file_overwrite  = 0;
-static int video_discard      = 0;
-static int intra_dc_precision = 8;
 static int do_psnr            = 0;
 static int input_sync;
 static int override_ffserver  = 0;
@@ -573,6 +571,8 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
         char *framerate = NULL, *hwaccel = NULL, *hwaccel_device = NULL;
         char *codec_tag = NULL;
         char *next;
+        char *discard_str = NULL;
+        const AVOption *discard_opt = av_opt_find(dec, "skip_frame", NULL, 0, 0);
 
         if (!ist)
             exit_program(1);
@@ -601,6 +601,14 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
 
         ist->reinit_filters = -1;
         MATCH_PER_STREAM_OPT(reinit_filters, i, ist->reinit_filters, ic, st);
+
+        MATCH_PER_STREAM_OPT(discard, str, discard_str, ic, st);
+        ist->user_set_discard = AVDISCARD_NONE;
+        if (discard_str && av_opt_eval_int(dec, discard_opt, discard_str, &ist->user_set_discard) < 0) {
+            av_log(NULL, AV_LOG_ERROR, "Error parsing discard %s.\n",
+                    discard_str);
+            exit_program(1);
+        }
 
         ist->filter_in_rescale_delta_last = AV_NOPTS_VALUE;
 
@@ -777,7 +785,6 @@ static int open_input_file(OptionsContext *o, const char *filename)
     AVInputFormat *file_iformat = NULL;
     int err, i, ret;
     int64_t timestamp;
-    uint8_t buf[128];
     AVDictionary **opts;
     AVDictionary *unused_opts = NULL;
     AVDictionaryEntry *e = NULL;
@@ -806,8 +813,7 @@ static int open_input_file(OptionsContext *o, const char *filename)
         exit_program(1);
     }
     if (o->nb_audio_sample_rate) {
-        snprintf(buf, sizeof(buf), "%d", o->audio_sample_rate[o->nb_audio_sample_rate - 1].u.i);
-        av_dict_set(&o->g->format_opts, "sample_rate", buf, 0);
+        av_dict_set_int(&o->g->format_opts, "sample_rate", o->audio_sample_rate[o->nb_audio_sample_rate - 1].u.i, 0);
     }
     if (o->nb_audio_channels) {
         /* because we set audio_channels based on both the "ac" and
@@ -816,9 +822,7 @@ static int open_input_file(OptionsContext *o, const char *filename)
         if (file_iformat && file_iformat->priv_class &&
             av_opt_find(&file_iformat->priv_class, "channels", NULL, 0,
                         AV_OPT_SEARCH_FAKE_OBJ)) {
-            snprintf(buf, sizeof(buf), "%d",
-                     o->audio_channels[o->nb_audio_channels - 1].u.i);
-            av_dict_set(&o->g->format_opts, "channels", buf, 0);
+            av_dict_set_int(&o->g->format_opts, "channels", o->audio_channels[o->nb_audio_channels - 1].u.i, 0);
         }
     }
     if (o->nb_frame_rates) {
@@ -864,6 +868,7 @@ static int open_input_file(OptionsContext *o, const char *filename)
         print_error(filename, err);
         exit_program(1);
     }
+    remove_avoptions(&o->g->format_opts, o->g->codec_opts);
     assert_avoptions(o->g->format_opts);
 
     /* apply forced codec ids */
@@ -879,8 +884,10 @@ static int open_input_file(OptionsContext *o, const char *filename)
     ret = avformat_find_stream_info(ic, opts);
     if (ret < 0) {
         av_log(NULL, AV_LOG_FATAL, "%s: could not find codec parameters\n", filename);
-        avformat_close_input(&ic);
-        exit_program(1);
+        if (ic->nb_streams == 0) {
+            avformat_close_input(&ic);
+            exit_program(1);
+        }
     }
 
     timestamp = (o->start_time == AV_NOPTS_VALUE) ? 0 : o->start_time;
@@ -1166,7 +1173,7 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
     if (source_index >= 0) {
         ost->sync_ist = input_streams[source_index];
         input_streams[source_index]->discard = 0;
-        input_streams[source_index]->st->discard = AVDISCARD_NONE;
+        input_streams[source_index]->st->discard = input_streams[source_index]->user_set_discard;
     }
     ost->last_mux_dts = AV_NOPTS_VALUE;
 
@@ -1367,7 +1374,6 @@ static OutputStream *new_video_stream(OptionsContext *o, AVFormatContext *oc, in
             if (p) p++;
         }
         video_enc->rc_override_count = i;
-        video_enc->intra_dc_precision = intra_dc_precision - 8;
 
         if (do_psnr)
             video_enc->flags|= CODEC_FLAG_PSNR;
@@ -1468,11 +1474,13 @@ static OutputStream *new_audio_stream(OptionsContext *o, AVFormatContext *oc, in
                 }
 
                 if (!ist || (ist->file_index == map->file_idx && ist->st->index == map->stream_idx)) {
-                    if (ost->audio_channels_mapped < FF_ARRAY_ELEMS(ost->audio_channels_map))
-                        ost->audio_channels_map[ost->audio_channels_mapped++] = map->channel_idx;
-                    else
-                        av_log(NULL, AV_LOG_FATAL, "Max channel mapping for output %d.%d reached\n",
-                               ost->file_index, ost->st->index);
+                    if (av_reallocp_array(&ost->audio_channels_map,
+                                          ost->audio_channels_mapped + 1,
+                                          sizeof(*ost->audio_channels_map)
+                                          ) < 0 )
+                        exit_program(1);
+
+                    ost->audio_channels_map[ost->audio_channels_mapped++] = map->channel_idx;
                 }
             }
         }
@@ -1805,7 +1813,7 @@ static int open_output_file(OptionsContext *o, const char *filename)
                     if(ost->st->codec->codec_type == AVMEDIA_TYPE_AUDIO) ost->avfilter = av_strdup("anull");
                     if(ost->st->codec->codec_type == AVMEDIA_TYPE_VIDEO) ost->avfilter = av_strdup("null");
                     ist->discard = 0;
-                    ist->st->discard = AVDISCARD_NONE;
+                    ist->st->discard = ist->user_set_discard;
                     break;
                 }
             }
@@ -1819,7 +1827,7 @@ static int open_output_file(OptionsContext *o, const char *filename)
         /* pick the "best" stream of each type */
 
         /* video: highest resolution */
-        if (!o->video_disable && oc->oformat->video_codec != AV_CODEC_ID_NONE) {
+        if (!o->video_disable && av_guess_codec(oc->oformat, NULL, filename, NULL, AVMEDIA_TYPE_VIDEO) != AV_CODEC_ID_NONE) {
             int area = 0, idx = -1;
             int qcr = avformat_query_codec(oc->oformat, oc->oformat->video_codec, 0);
             for (i = 0; i < nb_input_streams; i++) {
@@ -1841,7 +1849,7 @@ static int open_output_file(OptionsContext *o, const char *filename)
         }
 
         /* audio: most channels */
-        if (!o->audio_disable && oc->oformat->audio_codec != AV_CODEC_ID_NONE) {
+        if (!o->audio_disable && av_guess_codec(oc->oformat, NULL, filename, NULL, AVMEDIA_TYPE_AUDIO) != AV_CODEC_ID_NONE) {
             int channels = 0, idx = -1;
             for (i = 0; i < nb_input_streams; i++) {
                 ist = input_streams[i];
@@ -1860,8 +1868,27 @@ static int open_output_file(OptionsContext *o, const char *filename)
         if (!o->subtitle_disable && (avcodec_find_encoder(oc->oformat->subtitle_codec) || subtitle_codec_name)) {
             for (i = 0; i < nb_input_streams; i++)
                 if (input_streams[i]->st->codec->codec_type == AVMEDIA_TYPE_SUBTITLE) {
-                    new_subtitle_stream(o, oc, i);
-                    break;
+                    AVCodecDescriptor const *input_descriptor =
+                        avcodec_descriptor_get(input_streams[i]->st->codec->codec_id);
+                    AVCodecDescriptor const *output_descriptor = NULL;
+                    AVCodec const *output_codec =
+                        avcodec_find_encoder(oc->oformat->subtitle_codec);
+                    int input_props = 0, output_props = 0;
+                    if (output_codec)
+                        output_descriptor = avcodec_descriptor_get(output_codec->id);
+                    if (input_descriptor)
+                        input_props = input_descriptor->props & (AV_CODEC_PROP_TEXT_SUB | AV_CODEC_PROP_BITMAP_SUB);
+                    if (output_descriptor)
+                        output_props = output_descriptor->props & (AV_CODEC_PROP_TEXT_SUB | AV_CODEC_PROP_BITMAP_SUB);
+                    if (subtitle_codec_name ||
+                        input_props & output_props ||
+                        // Map dvb teletext which has neither property to any output subtitle encoder
+                        input_descriptor && output_descriptor &&
+                        (!input_descriptor->props ||
+                         !output_descriptor->props)) {
+                        new_subtitle_stream(o, oc, i);
+                        break;
+                    }
                 }
         }
         /* do something with data? */
@@ -1983,8 +2010,13 @@ loop_end:
         const AVClass *class = avcodec_get_class();
         const AVOption *option = av_opt_find(&class, e->key, NULL, 0,
                                              AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ);
-        if (!option)
+        const AVClass *fclass = avformat_get_class();
+        const AVOption *foption = av_opt_find(&fclass, e->key, NULL, 0,
+                                              AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ);
+        if (!option || foption)
             continue;
+
+
         if (!(option->flags & AV_OPT_FLAG_ENCODING_PARAM)) {
             av_log(NULL, AV_LOG_ERROR, "Codec AVOption %s (%s) specified for "
                    "output file #%d (%s) is not an encoding option.\n", e->key,
@@ -2029,9 +2061,7 @@ loop_end:
         assert_file_overwrite(filename);
 
     if (o->mux_preload) {
-        uint8_t buf[64];
-        snprintf(buf, sizeof(buf), "%d", (int)(o->mux_preload*AV_TIME_BASE));
-        av_dict_set(&of->opts, "preload", buf, 0);
+        av_dict_set_int(&of->opts, "preload", o->mux_preload*AV_TIME_BASE, 0);
     }
     oc->max_delay = (int)(o->mux_max_delay * AV_TIME_BASE);
 
@@ -2157,7 +2187,8 @@ static int opt_target(void *optctx, const char *opt, const char *arg)
             for (j = 0; j < nb_input_files; j++) {
                 for (i = 0; i < input_files[j]->nb_streams; i++) {
                     AVCodecContext *c = input_files[j]->ctx->streams[i]->codec;
-                    if (c->codec_type != AVMEDIA_TYPE_VIDEO)
+                    if (c->codec_type != AVMEDIA_TYPE_VIDEO ||
+                        !c->time_base.num)
                         continue;
                     fr = c->time_base.den * 1000 / c->time_base.num;
                     if (fr == 25000) {
@@ -2389,7 +2420,11 @@ static int opt_old2new(void *optctx, const char *opt, const char *arg)
 static int opt_bitrate(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    if(!strcmp(opt, "b")){
+
+    if(!strcmp(opt, "ab")){
+        av_dict_set(&o->g->codec_opts, "b:a", arg, 0);
+        return 0;
+    } else if(!strcmp(opt, "b")){
         av_log(NULL, AV_LOG_WARNING, "Please use -b:a or -b:v, -b is ambiguous\n");
         av_dict_set(&o->g->codec_opts, "b:v", arg, 0);
         return 0;
@@ -2853,6 +2888,9 @@ const OptionDef options[] = {
         "print timestamp debugging info" },
     { "max_error_rate",  HAS_ARG | OPT_FLOAT,                        { &max_error_rate },
         "maximum error rate", "ratio of errors (0.0: no errors, 1.0: 100% errors) above which ffmpeg returns an error instead of success." },
+    { "discard",        OPT_STRING | HAS_ARG | OPT_SPEC |
+                        OPT_INPUT,                                   { .off = OFFSET(discard) },
+        "discard", "" },
 
     /* video options */
     { "vframes",      OPT_VIDEO | HAS_ARG  | OPT_PERFILE | OPT_OUTPUT,           { .func_arg = opt_video_frames },
@@ -2875,8 +2913,6 @@ const OptionDef options[] = {
         "deprecated use -g 1" },
     { "vn",           OPT_VIDEO | OPT_BOOL  | OPT_OFFSET | OPT_INPUT | OPT_OUTPUT,{ .off = OFFSET(video_disable) },
         "disable video" },
-    { "vdt",          OPT_VIDEO | OPT_INT | HAS_ARG | OPT_EXPERT ,               { &video_discard },
-        "discard threshold", "n" },
     { "rc_override",  OPT_VIDEO | HAS_ARG | OPT_EXPERT  | OPT_STRING | OPT_SPEC |
                       OPT_OUTPUT,                                                { .off = OFFSET(rc_overrides) },
         "rate control override for specific intervals", "override" },
@@ -2916,8 +2952,6 @@ const OptionDef options[] = {
     { "top",          OPT_VIDEO | HAS_ARG | OPT_EXPERT  | OPT_INT| OPT_SPEC |
                       OPT_INPUT | OPT_OUTPUT,                                    { .off = OFFSET(top_field_first) },
         "top=1/bottom=0/auto=-1 field first", "" },
-    { "dc",           OPT_VIDEO | OPT_INT | HAS_ARG | OPT_EXPERT ,               { &intra_dc_precision },
-        "intra_dc_precision", "precision" },
     { "vtag",         OPT_VIDEO | HAS_ARG | OPT_EXPERT  | OPT_PERFILE |
                       OPT_OUTPUT,                                                { .func_arg = opt_old2new },
         "force video tag/fourcc", "fourcc/tag" },
@@ -2932,6 +2966,8 @@ const OptionDef options[] = {
     { "force_key_frames", OPT_VIDEO | OPT_STRING | HAS_ARG | OPT_EXPERT |
                           OPT_SPEC | OPT_OUTPUT,                                 { .off = OFFSET(forced_key_frames) },
         "force key frames at specified timestamps", "timestamps" },
+    { "ab",           OPT_VIDEO | HAS_ARG | OPT_PERFILE | OPT_OUTPUT,            { .func_arg = opt_bitrate },
+        "audio bitrate (please use -b:a)", "bitrate" },
     { "b",            OPT_VIDEO | HAS_ARG | OPT_PERFILE | OPT_OUTPUT,            { .func_arg = opt_bitrate },
         "video bitrate (please use -b:v)", "bitrate" },
     { "hwaccel",          OPT_VIDEO | OPT_STRING | HAS_ARG | OPT_EXPERT |

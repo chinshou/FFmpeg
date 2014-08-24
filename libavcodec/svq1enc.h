@@ -25,9 +25,9 @@
 
 #include "libavutil/frame.h"
 #include "avcodec.h"
-#include "dsputil.h"
 #include "get_bits.h"
 #include "hpeldsp.h"
+#include "me_cmp.h"
 #include "mpegvideo.h"
 #include "put_bits.h"
 
@@ -37,7 +37,7 @@ typedef struct SVQ1EncContext {
      * of MpegEncContext, so this will be removed then. */
     MpegEncContext m;
     AVCodecContext *avctx;
-    DSPContext dsp;
+    MECmpContext mecc;
     HpelDSPContext hdsp;
     AVFrame *current_picture;
     AVFrame *last_picture;
@@ -69,7 +69,7 @@ typedef struct SVQ1EncContext {
     uint8_t *scratchbuf;
 
     int (*ssd_int8_vs_int16)(const int8_t *pix1, const int16_t *pix2,
-                             int size);
+                             intptr_t size);
 } SVQ1EncContext;
 
 void ff_svq1enc_init_ppc(SVQ1EncContext *c);

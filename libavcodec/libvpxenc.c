@@ -196,7 +196,7 @@ static void coded_frame_add(void *list, struct FrameListData *cx_frame)
 {
     struct FrameListData **p = list;
 
-    while (*p != NULL)
+    while (*p)
         p = &(*p)->next;
     *p = cx_frame;
     cx_frame->next = NULL;
@@ -415,8 +415,7 @@ static av_cold int vpx_init(AVCodecContext *avctx,
 
     //codec control failures are currently treated only as warnings
     av_log(avctx, AV_LOG_DEBUG, "vpx_codec_control\n");
-    if (ctx->cpu_used != INT_MIN)
-        codecctl_int(avctx, VP8E_SET_CPUUSED,          ctx->cpu_used);
+    codecctl_int(avctx, VP8E_SET_CPUUSED,          ctx->cpu_used);
     if (ctx->flags & VP8F_AUTO_ALT_REF)
         ctx->auto_alt_ref = 1;
     if (ctx->auto_alt_ref >= 0)
@@ -543,7 +542,7 @@ static int storeframe(AVCodecContext *avctx, struct FrameListData *cx_frame,
             side_data = av_packet_new_side_data(pkt,
                                                 AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL,
                                                 cx_frame->sz_alpha + 8);
-            if(side_data == NULL) {
+            if(!side_data) {
                 av_free_packet(pkt);
                 av_free(pkt);
                 return AVERROR(ENOMEM);
@@ -754,7 +753,7 @@ static int vp8_encode(AVCodecContext *avctx, AVPacket *pkt,
 #endif
 
 #define COMMON_OPTIONS \
-    { "cpu-used",        "Quality/Speed ratio modifier",           OFFSET(cpu_used),        AV_OPT_TYPE_INT, {.i64 = INT_MIN}, INT_MIN, INT_MAX, VE}, \
+    { "cpu-used",        "Quality/Speed ratio modifier",           OFFSET(cpu_used),        AV_OPT_TYPE_INT, {.i64 = 1},       -16,     16,      VE}, \
     { "auto-alt-ref",    "Enable use of alternate reference " \
                          "frames (2-pass only)",                   OFFSET(auto_alt_ref),    AV_OPT_TYPE_INT, {.i64 = -1},      -1,      1,       VE}, \
     { "lag-in-frames",   "Number of frames to look ahead for " \

@@ -38,8 +38,9 @@ static int yuv4_generate_header(AVFormatContext *s, char* buf)
     width  = st->codec->width;
     height = st->codec->height;
 
-    av_reduce(&raten, &rated, st->codec->time_base.den,
-              st->codec->time_base.num, (1UL << 31) - 1);
+    // TODO: should be avg_frame_rate
+    av_reduce(&raten, &rated, st->time_base.den,
+              st->time_base.num, (1UL << 31) - 1);
 
     aspectn = st->sample_aspect_ratio.num;
     aspectd = st->sample_aspect_ratio.den;
@@ -47,15 +48,12 @@ static int yuv4_generate_header(AVFormatContext *s, char* buf)
     if (aspectn == 0 && aspectd == 1)
         aspectd = 0;  // 0:0 means unknown
 
-    inter = 'p'; /* progressive is the default */
-    if (st->codec->coded_frame && st->codec->coded_frame->interlaced_frame)
-        inter = st->codec->coded_frame->top_field_first ? 't' : 'b';
-    if (st->codec->field_order == AV_FIELD_PROGRESSIVE) {
-        inter = 'p';
-    } else if (st->codec->field_order == AV_FIELD_TB || st->codec->field_order == AV_FIELD_TT) {
-        inter = 't';
-    } else if (st->codec->field_order == AV_FIELD_BT || st->codec->field_order == AV_FIELD_BB) {
-        inter = 'b';
+    switch (st->codec->field_order) {
+    case AV_FIELD_TB:
+    case AV_FIELD_TT: inter = 't'; break;
+    case AV_FIELD_BT:
+    case AV_FIELD_BB: inter = 'b'; break;
+    default:          inter = 'p'; break;
     }
 
     switch (st->codec->pix_fmt) {

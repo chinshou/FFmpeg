@@ -37,7 +37,7 @@
 
 #if HAVE_AVX
 #   define STRIDE_ALIGN 32
-#elif HAVE_NEON || ARCH_PPC || HAVE_MMX
+#elif HAVE_SIMD_ALIGN_16
 #   define STRIDE_ALIGN 16
 #else
 #   define STRIDE_ALIGN 8
@@ -239,6 +239,12 @@ const uint8_t *avpriv_find_start_code(const uint8_t *p,
  * context.
  */
 int ff_set_dimensions(AVCodecContext *s, int width, int height);
+
+/**
+ * Check that the provided sample aspect ratio is valid and set it on the codec
+ * context.
+ */
+int ff_set_sar(AVCodecContext *avctx, AVRational sar);
 
 /**
  * Add or update AV_FRAME_DATA_MATRIXENCODING side data.

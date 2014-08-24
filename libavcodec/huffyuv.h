@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 #include "avcodec.h"
-#include "dsputil.h"
+#include "bswapdsp.h"
 #include "get_bits.h"
 #include "huffyuvdsp.h"
 #include "huffyuvencdsp.h"
@@ -52,6 +52,7 @@ typedef enum Predictor {
 } Predictor;
 
 typedef struct HYuvContext {
+    AVClass *class;
     AVCodecContext *avctx;
     Predictor predictor;
     GetBitContext gb;
@@ -84,10 +85,11 @@ typedef struct HYuvContext {
     VLC vlc[8];                             //Y,U,V,A,YY,YU,YV,AA
     uint8_t *bitstream_buffer;
     unsigned int bitstream_buffer_size;
-    DSPContext dsp;
+    BswapDSPContext bdsp;
     HuffYUVDSPContext hdsp;
     HuffYUVEncDSPContext hencdsp;
     LLVidDSPContext llviddsp;
+    int non_determ; // non-deterministic, multi-threaded encoder allowed
 } HYuvContext;
 
 void ff_huffyuv_common_init(AVCodecContext *s);

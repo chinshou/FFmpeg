@@ -26,6 +26,7 @@ HEADERS = adler32.h                                                     \
           fifo.h                                                        \
           file.h                                                        \
           frame.h                                                       \
+          hash.h                                                        \
           hmac.h                                                        \
           imgutils.h                                                    \
           intfloat.h                                                    \
@@ -37,12 +38,14 @@ HEADERS = adler32.h                                                     \
           mathematics.h                                                 \
           md5.h                                                         \
           mem.h                                                         \
+          motion_vector.h                                               \
           murmur3.h                                                     \
           dict.h                                                        \
           old_pix_fmts.h                                                \
           opt.h                                                         \
           parseutils.h                                                  \
           pixdesc.h                                                     \
+          pixelutils.h                                                  \
           pixfmt.h                                                      \
           random_seed.h                                                 \
           replaygain.h                                                  \
@@ -100,8 +103,7 @@ OBJS = adler32.o                                                        \
        intfloat_readwrite.o                                             \
        intmath.o                                                        \
        lfg.o                                                            \
-       lls1.o                                                           \
-       lls2.o                                                           \
+       lls.o                                                            \
        log.o                                                            \
        log2_tab.o                                                       \
        mathematics.o                                                    \
@@ -112,6 +114,7 @@ OBJS = adler32.o                                                        \
        opt.o                                                            \
        parseutils.o                                                     \
        pixdesc.o                                                        \
+       pixelutils.o                                                     \
        random_seed.o                                                    \
        rational.o                                                       \
        rc4.o                                                            \
@@ -160,8 +163,7 @@ TESTPROGS = adler32                                                     \
             float_dsp                                                   \
             hmac                                                        \
             lfg                                                         \
-            lls1                                                        \
-            lls2                                                        \
+            lls                                                         \
             log                                                         \
             md5                                                         \
             murmur3                                                     \
@@ -169,6 +171,7 @@ TESTPROGS = adler32                                                     \
             pca                                                         \
             parseutils                                                  \
             pixdesc                                                     \
+            pixelutils                                                  \
             random_seed                                                 \
             rational                                                    \
             ripemd                                                      \

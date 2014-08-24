@@ -601,7 +601,13 @@ static int dca_parse_audio_coding_header(DCAContext *s, int base_channel,
         if (get_bits1(&s->gb)) {
             embedded_downmix = get_bits1(&s->gb);
             coeff            = get_bits(&s->gb, 6);
-            scale_factor     = -1.0f / dca_dmix_code(FFMAX(coeff<<2, 4)-3);
+
+            if (coeff<1 || coeff>61) {
+                av_log(s->avctx, AV_LOG_ERROR, "6bit coeff %d is out of range\n", coeff);
+                return AVERROR_INVALIDDATA;
+            }
+
+            scale_factor     = -1.0f / dca_dmix_code((coeff<<2)-3);
 
             s->xxch_dmix_sf[s->xxch_chset] = scale_factor;
 
@@ -622,7 +628,11 @@ static int dca_parse_audio_coding_header(DCAContext *s, int base_channel,
 
                         coeff = get_bits(&s->gb, 7);
                         ichan = dca_xxch2index(s, 1 << i);
-                        s->xxch_dmix_coeff[j][ichan] = dca_dmix_code(FFMAX(coeff<<2, 3)-3);
+                        if ((coeff&63)<1 || (coeff&63)>61) {
+                            av_log(s->avctx, AV_LOG_ERROR, "7bit coeff %d is out of range\n", coeff);
+                            return AVERROR_INVALIDDATA;
+                        }
+                        s->xxch_dmix_coeff[j][ichan] = dca_dmix_code((coeff<<2)-3);
                     }
                 }
             }
@@ -2107,8 +2117,7 @@ static float dca_dmix_code(unsigned code)
 {
     int sign = (code >> 8) - 1;
     code &= 0xff;
-#define POW2_MINUS15 .000030517578125
-    return ((dca_dmixtable[code] ^ sign) - sign) * POW2_MINUS15;
+    return ((dca_dmixtable[code] ^ sign) - sign) * (1.0 / (1 << 15));
 }
 
 /**
@@ -2143,7 +2152,7 @@ static int dca_decode_frame(AVCodecContext *avctx, void *data,
 
     s->xch_present = 0;
 
-    s->dca_buffer_size = ff_dca_convert_bitstream(buf, buf_size, s->dca_buffer,
+    s->dca_buffer_size = avpriv_dca_convert_bitstream(buf, buf_size, s->dca_buffer,
                                                   DCA_MAX_FRAME_SIZE + DCA_MAX_EXSS_HEADER_SIZE);
     if (s->dca_buffer_size == AVERROR_INVALIDDATA) {
         av_log(avctx, AV_LOG_ERROR, "Not a valid DCA frame\n");
@@ -2423,7 +2432,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             }
         }
 
-        /* make sure that we have managed to get equivelant dts/avcodec channel
+        /* make sure that we have managed to get equivalent dts/avcodec channel
          * masks in some sense -- unfortunately some channels could overlap */
         if (av_popcount(channel_mask) != av_popcount(channel_layout)) {
             av_log(avctx, AV_LOG_DEBUG,

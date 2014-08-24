@@ -41,13 +41,13 @@
 #include "libavutil/mem.h"
 #include "libavutil/x86/asm.h"
 #include "idct_xvid.h"
-#include "dsputil_x86.h"
+#include "idctdsp.h"
 
 #if HAVE_SSE2_INLINE
 
 /**
  * @file
- * @brief SSE2 idct compatible with xvidmmx
+ * @brief SSE2 IDCT compatible with the Xvid IDCT
  */
 
 #define X8(x)     x,x,x,x,x,x,x,x

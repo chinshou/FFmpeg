@@ -64,7 +64,6 @@ typedef struct VLC {
     int bits;
     VLC_TYPE (*table)[2]; ///< code, bits
     int table_size, table_allocated;
-    void * volatile init_state;
 } VLC;
 
 typedef struct RL_VLC_ELEM {
@@ -113,6 +112,9 @@ typedef struct RL_VLC_ELEM {
  *
  * LAST_SKIP_BITS(name, gb, num)
  *   Like SKIP_BITS, to be used if next call is UPDATE_CACHE or CLOSE_READER.
+ *
+ * BITS_LEFT(name, gb)
+ *   Return the number of bits left
  *
  * For examples see get_bits, show_bits, skip_bits, get_vlc.
  */
@@ -179,6 +181,8 @@ typedef struct RL_VLC_ELEM {
 #   define SKIP_COUNTER(name, gb, num) \
     name ## _index = FFMIN(name ## _size_plus8, name ## _index + (num))
 #endif
+
+#define BITS_LEFT(name, gb) ((int)((gb)->size_in_bits - name ## _index))
 
 #define SKIP_BITS(name, gb, num)                \
     do {                                        \
@@ -409,7 +413,7 @@ static inline int init_get_bits(GetBitContext *s, const uint8_t *buffer,
     int ret = 0;
 
     if (bit_size >= INT_MAX - 7 || bit_size < 0 || !buffer) {
-        buffer_size = bit_size = 0;
+        bit_size    = 0;
         buffer      = NULL;
         ret         = AVERROR_INVALIDDATA;
     }

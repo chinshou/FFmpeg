@@ -26,7 +26,6 @@
  */
 
 #include <xvid.h>
-#include <unistd.h>
 #include "avcodec.h"
 #include "internal.h"
 #include "libavutil/file.h"
@@ -35,6 +34,14 @@
 #include "libavutil/mathematics.h"
 #include "libxvid.h"
 #include "mpegvideo.h"
+
+#if HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
+#if HAVE_IO_H
+#include <io.h>
+#endif
 
 /**
  * Buffer management macros.
@@ -103,7 +110,7 @@ static int xvid_ff_2pass_create(xvid_plg_create_t * param,
     char *log = x->context->twopassbuffer;
 
     /* Do a quick bounds check */
-    if( log == NULL )
+    if (!log)
         return XVID_ERR_FAIL;
 
     /* We use snprintf() */
@@ -132,7 +139,7 @@ static int xvid_ff_2pass_destroy(struct xvid_context *ref,
                                 xvid_plg_destroy_t *param) {
     /* Currently cannot think of anything to do on destruction */
     /* Still, the framework should be here for reference/use */
-    if( ref->twopassbuffer != NULL )
+    if (ref->twopassbuffer)
         ref->twopassbuffer[0] = 0;
     return 0;
 }
@@ -194,7 +201,7 @@ static int xvid_ff_2pass_after(struct xvid_context *ref,
     char frame_type;
 
     /* Quick bounds check */
-    if( log == NULL )
+    if (!log)
         return XVID_ERR_FAIL;
 
     /* Convert the type given to us into a character */
@@ -278,7 +285,7 @@ static int xvid_strip_vol_header(AVCodecContext *avctx,
 
     if( vo_len > 0 ) {
         /* We need to store the header, so extract it */
-        if( avctx->extradata == NULL ) {
+        if (!avctx->extradata) {
             avctx->extradata = av_malloc(vo_len);
             memcpy(avctx->extradata, pkt->data, vo_len);
             avctx->extradata_size = vo_len;
@@ -442,19 +449,7 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
 
     xvid_gbl_init.version = XVID_VERSION;
     xvid_gbl_init.debug = 0;
-
-#if ARCH_PPC
-    /* Xvid's PPC support is borked, use libavcodec to detect */
-#if HAVE_ALTIVEC
-    if (av_get_cpu_flags() & AV_CPU_FLAG_ALTIVEC) {
-        xvid_gbl_init.cpu_flags = XVID_CPU_FORCE | XVID_CPU_ALTIVEC;
-    } else
-#endif
-        xvid_gbl_init.cpu_flags = XVID_CPU_FORCE;
-#else
-    /* Xvid can detect on x86 */
     xvid_gbl_init.cpu_flags = 0;
-#endif
 
     /* Initialize */
     xvid_global(NULL, XVID_GBL_INIT, &xvid_gbl_init, NULL);
@@ -488,7 +483,7 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
         rc2pass1.context = x;
         x->twopassbuffer = av_malloc(BUFFER_SIZE);
         x->old_twopassbuffer = av_malloc(BUFFER_SIZE);
-        if( x->twopassbuffer == NULL || x->old_twopassbuffer == NULL ) {
+        if (!x->twopassbuffer || !x->old_twopassbuffer) {
             av_log(avctx, AV_LOG_ERROR,
                 "Xvid: Cannot allocate 2-pass log buffers\n");
             goto fail;
@@ -510,7 +505,7 @@ static av_cold int xvid_encode_init(AVCodecContext *avctx)  {
         }
         x->twopassfd = fd;
 
-        if( avctx->stats_in == NULL ) {
+        if (!avctx->stats_in) {
             av_log(avctx, AV_LOG_ERROR,
                 "Xvid: No 2-pass information loaded for second pass\n");
             goto fail;
@@ -794,7 +789,7 @@ static av_cold int xvid_encode_close(AVCodecContext *avctx) {
     x->encoder_handle = NULL;
 
     av_freep(&avctx->extradata);
-    if( x->twopassbuffer != NULL ) {
+    if (x->twopassbuffer) {
         av_freep(&x->twopassbuffer);
         av_freep(&x->old_twopassbuffer);
         avctx->stats_out = NULL;

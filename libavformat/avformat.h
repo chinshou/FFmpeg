@@ -194,7 +194,7 @@
  *   the @ref AVStream.codec "stream codec context" information, such as the
  *   codec @ref AVCodecContext.codec_type "type", @ref AVCodecContext.codec_id
  *   "id" and other parameters (e.g. width / height, the pixel or sample format,
- *   etc.) as known. The @ref AVCodecContext.time_base "codec timebase" should
+ *   etc.) as known. The @ref AVStream.time_base "stream timebase" should
  *   be set to the timebase that the caller desires to use for this stream (note
  *   that the timebase actually used by the muxer can be different, as will be
  *   described later).
@@ -218,8 +218,8 @@
  * a single muxing context, they should not be mixed). Do note that the timing
  * information on the packets sent to the muxer must be in the corresponding
  * AVStream's timebase. That timebase is set by the muxer (in the
- * avformat_write_header() step) and may be different from the timebase the
- * caller set on the codec context.
+ * avformat_write_header() step) and may be different from the timebase
+ * requested by the caller.
  *
  * Once all the data has been written, the caller must call av_write_trailer()
  * to flush any buffered packets and finalize the output file, then close the IO
@@ -298,6 +298,11 @@ struct AVDeviceCapabilitiesQuery;
  *    -  sorting  -- a modified version of a tag that should be used for
  *       sorting will have '-sort' appended. E.g. artist="The Beatles",
  *       artist-sort="Beatles, The".
+ * - Some protocols and demuxers support metadata updates. After a successful
+ *   call to av_read_packet(), AVFormatContext.event_flags or AVStream.event_flags
+ *   will be updated to indicate if metadata changed. In order to detect metadata
+ *   changes on a stream, you need to loop through all streams in the AVFormatContext
+ *   and check their individual event_flags.
  *
  * -  Demuxers attempt to export metadata in a generic format, however tags
  *    with no generic equivalents are left as they are stored in the container.
@@ -393,12 +398,14 @@ typedef struct AVProbeData {
     const char *filename;
     unsigned char *buf; /**< Buffer must have AVPROBE_PADDING_SIZE of extra allocated bytes filled with zero. */
     int buf_size;       /**< Size of buf except extra allocated bytes */
+    uint8_t *mime_type; /**< mime_type, when known. */
 } AVProbeData;
 
 #define AVPROBE_SCORE_RETRY (AVPROBE_SCORE_MAX/4)
 #define AVPROBE_SCORE_STREAM_RETRY (AVPROBE_SCORE_MAX/4-1)
 
 #define AVPROBE_SCORE_EXTENSION  50 ///< score for file extension
+#define AVPROBE_SCORE_MIME       75 ///< score for file mime type
 #define AVPROBE_SCORE_MAX       100 ///< maximum score
 
 #define AVPROBE_PADDING_SIZE 32             ///< extra allocated bytes at the end of the probe buffer
@@ -584,6 +591,13 @@ typedef struct AVInputFormat {
     const struct AVCodecTag * const *codec_tag;
 
     const AVClass *priv_class; ///< AVClass for the private context
+
+    /**
+     * Comma-separated list of mime types.
+     * It is used check for matching mime types while probing.
+     * @see av_probe_input_format2
+     */
+    const char *mime_type;
 
     /*****************************************************************
      * No fields below this line are part of the public API. They
@@ -800,9 +814,12 @@ typedef struct AVStream {
      * of which frame timestamps are represented.
      *
      * decoding: set by libavformat
-     * encoding: set by libavformat in avformat_write_header. The muxer may use the
-     * user-provided value of @ref AVCodecContext.time_base "codec->time_base"
-     * as a hint.
+     * encoding: May be set by the caller before avformat_write_header() to
+     *           provide a hint to the muxer about the desired timebase. In
+     *           avformat_write_header(), the muxer will overwrite this field
+     *           with the timebase that will actually be used for the timestamps
+     *           written into the file (which may or may not be related to the
+     *           user-provided one, depending on the format).
      */
     AVRational time_base;
 
@@ -880,6 +897,14 @@ typedef struct AVStream {
      */
     int            nb_side_data;
 
+    /**
+     * Flags for the user to detect events happening on the stream. Flags must
+     * be cleared by the user once the event has been handled.
+     * A combination of AVSTREAM_EVENT_FLAG_*.
+     */
+    int event_flags;
+#define AVSTREAM_EVENT_FLAG_METADATA_UPDATED 0x0001 ///< The call resulted in updated metadata.
+
     /*****************************************************************
      * All fields below this line are not part of the public API. They
      * may not be used outside of libavformat and can be changed and
@@ -922,11 +947,6 @@ typedef struct AVStream {
 
     int pts_wrap_bits; /**< number of bits in pts (used for wrapping control) */
 
-#if FF_API_REFERENCE_DTS
-    /* a hack to keep ABI compatibility for ffmpeg and other applications, which accesses parser even
-     * though it should not */
-    int64_t do_not_use;
-#endif
     // Timestamp generation support:
     /**
      * Timestamp corresponding to the last dts sync point.
@@ -1066,6 +1086,7 @@ typedef struct AVStream {
 
 AVRational av_stream_get_r_frame_rate(const AVStream *s);
 void       av_stream_set_r_frame_rate(AVStream *s, AVRational r);
+struct AVCodecParserContext *av_stream_get_parser(const AVStream *s);
 
 /**
  * Returns the pts of the last muxed packet + its duration
@@ -1281,18 +1302,14 @@ typedef struct AVFormatContext {
 #define AVFMT_FLAG_KEEP_SIDE_DATA 0x40000 ///< Don't merge side data but keep it separate.
 
     /**
-     * Maximum size of the data read from input for determining
-     * the input container format.
-     * Demuxing only, set by the caller before avformat_open_input().
+     * @deprecated deprecated in favor of probesize2
      */
     unsigned int probesize;
 
     /**
-     * Maximum duration (in AV_TIME_BASE units) of the data read
-     * from input in avformat_find_stream_info().
-     * Demuxing only, set by the caller before avformat_find_stream_info().
-     * Can be set to 0 to let avformat choose using a heuristic.
+     * @deprecated deprecated in favor of max_analyze_duration2
      */
+    attribute_deprecated
     int max_analyze_duration;
 
     const uint8_t *key;
@@ -1430,6 +1447,15 @@ typedef struct AVFormatContext {
     int strict_std_compliance;
 
     /**
+     * Flags for the user to detect events happening on the file. Flags must
+     * be cleared by the user once the event has been handled.
+     * A combination of AVFMT_EVENT_FLAG_*.
+     */
+    int event_flags;
+#define AVFMT_EVENT_FLAG_METADATA_UPDATED 0x0001 ///< The call resulted in updated metadata.
+
+
+    /**
      * Transport stream id.
      * This will be moved into demuxer private options. Thus no API/ABI compatibility
      */
@@ -1498,7 +1524,7 @@ typedef struct AVFormatContext {
      * - encoding: unused
      * - decoding: Set by user via AVOptions (NO direct access)
      */
-    unsigned int skip_initial_bytes;
+    int64_t skip_initial_bytes;
 
     /**
      * Correct single timestamp overflows
@@ -1649,6 +1675,23 @@ typedef struct AVFormatContext {
      * Muxing: set by user via AVOptions (NO direct access)
      */
     int64_t output_ts_offset;
+
+    /**
+     * Maximum duration (in AV_TIME_BASE units) of the data read
+     * from input in avformat_find_stream_info().
+     * Demuxing only, set by the caller before avformat_find_stream_info()
+     * via AVOptions (NO direct access).
+     * Can be set to 0 to let avformat choose using a heuristic.
+     */
+    int64_t max_analyze_duration2;
+
+    /**
+     * Maximum size of the data read from input for determining
+     * the input container format.
+     * Demuxing only, set by the caller before avformat_open_input()
+     * via AVOptions (NO direct access).
+     */
+    int64_t probesize2;
 } AVFormatContext;
 
 int av_format_get_probe_score(const AVFormatContext *s);
@@ -1741,14 +1784,14 @@ int avformat_network_deinit(void);
  * if f is non-NULL, returns the next registered input format after f
  * or NULL if f is the last one.
  */
-AVInputFormat  *av_iformat_next(AVInputFormat  *f);
+AVInputFormat  *av_iformat_next(const AVInputFormat  *f);
 
 /**
  * If f is NULL, returns the first registered output format,
  * if f is non-NULL, returns the next registered output format after f
  * or NULL if f is the last one.
  */
-AVOutputFormat *av_oformat_next(AVOutputFormat *f);
+AVOutputFormat *av_oformat_next(const AVOutputFormat *f);
 
 /**
  * Allocate an AVFormatContext.
@@ -2496,12 +2539,16 @@ void av_url_split(char *proto,         int proto_size,
                   char *path,          int path_size,
                   const char *url);
 
+
 /**
- * log a nice Dump of input format context or output format context
- * @param ic already initialized Format Context, must not be NULL.
- * @param index index of the stream to dump information about
- * @param url name of file or URL of stream to print information about
- * @param is_output Select whether specified context is of input(0) or output(1)
+ * Print detailed information about the input or output format, such as
+ * duration, bitrate, streams, container, programs, metadata, side data,
+ * codec and time base.
+ *
+ * @param ic        the context to analyze
+ * @param index     index of the stream to dump information about
+ * @param url       the URL to print, such as source or destination file
+ * @param is_output Select whether the specified context is an input(0) or output(1)
  */
 void av_dump_format(AVFormatContext *ic,
                     int index,
@@ -2569,7 +2616,8 @@ int av_match_ext(const char *filename, const char *extensions);
  * @return 1 if codec with ID codec_id can be stored in ofmt, 0 if it cannot.
  *         A negative number if this information is not available.
  */
-int avformat_query_codec(AVOutputFormat *ofmt, enum AVCodecID codec_id, int std_compliance);
+int avformat_query_codec(const AVOutputFormat *ofmt, enum AVCodecID codec_id,
+                         int std_compliance);
 
 /**
  * @defgroup riff_fourcc RIFF FourCCs

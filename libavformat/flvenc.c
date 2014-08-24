@@ -221,6 +221,18 @@ static int flv_write_header(AVFormatContext *s)
                        avcodec_get_name(enc->codec_id), i);
                 return AVERROR(EINVAL);
             }
+            if (enc->codec_id == AV_CODEC_ID_MPEG4 ||
+                enc->codec_id == AV_CODEC_ID_H263) {
+                int error = enc->strict_std_compliance > FF_COMPLIANCE_UNOFFICIAL;
+                av_log(s, error ? AV_LOG_ERROR : AV_LOG_WARNING,
+                       "Codec %s is not supported in the official FLV specification,\n", avcodec_get_name(enc->codec_id));
+
+                if (error) {
+                    av_log(s, AV_LOG_ERROR,
+                           "use vstrict=-1 / -strict -1 to use it anyway.\n");
+                    return AVERROR(EINVAL);
+                }
+            }
             break;
         case AVMEDIA_TYPE_AUDIO:
             if (audio_enc) {
@@ -292,7 +304,7 @@ static int flv_write_header(AVFormatContext *s)
     /* mixed array (hash) with size and string/type/data tuples */
     avio_w8(pb, AMF_DATA_TYPE_MIXEDARRAY);
     metadata_count_pos = avio_tell(pb);
-    metadata_count = 5 * !!video_enc +
+    metadata_count = 4 * !!video_enc +
                      5 * !!audio_enc +
                      1 * !!data_enc  +
                      2; // +2 for duration and file size
@@ -318,6 +330,7 @@ static int flv_write_header(AVFormatContext *s)
         if (framerate != 0.0) {
             put_amf_string(pb, "framerate");
             put_amf_double(pb, framerate);
+            metadata_count++;
         }
 
         put_amf_string(pb, "videocodecid");
@@ -508,7 +521,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
                (AV_RB16(pkt->data) & 0xfff0) == 0xfff0) {
         if (!s->streams[pkt->stream_index]->nb_frames) {
         av_log(s, AV_LOG_ERROR, "Malformed AAC bitstream detected: "
-               "use audio bitstream filter 'aac_adtstoasc' to fix it "
+               "use the audio bitstream filter 'aac_adtstoasc' to fix it "
                "('-bsf:a aac_adtstoasc' option with ffmpeg)\n");
         return AVERROR_INVALIDDATA;
         }

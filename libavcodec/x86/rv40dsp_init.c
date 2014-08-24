@@ -33,7 +33,7 @@
 #include "hpeldsp.h"
 
 #define DEFINE_FN(op, size, insn) \
-static void op##_rv40_qpel##size##_mc33_##insn(uint8_t *dst, uint8_t *src, \
+static void op##_rv40_qpel##size##_mc33_##insn(uint8_t *dst, const uint8_t *src, \
                                                ptrdiff_t stride) \
 { \
     ff_##op##_pixels##size##_xy2_##insn(dst, src, stride, size); \
@@ -77,7 +77,7 @@ DECLARE_WEIGHT(ssse3)
  */
 #define QPEL_FUNC_DECL(OP, SIZE, PH, PV, OPT)                           \
 static void OP ## rv40_qpel ##SIZE ##_mc ##PH ##PV ##OPT(uint8_t *dst,  \
-                                                         uint8_t *src,  \
+                                                         const uint8_t *src, \
                                                          ptrdiff_t stride)  \
 {                                                                       \
     int i;                                                              \
@@ -134,8 +134,8 @@ QPEL_FUNCS_DECL(OP, 3, 2, OPT)
 /** @} */
 
 #define LOOPSIZE  8
-#define HCOFF(x)  (32 * (x - 1))
-#define VCOFF(x)  (32 * (x - 1))
+#define HCOFF(x)  (32 * ((x) - 1))
+#define VCOFF(x)  (32 * ((x) - 1))
 QPEL_MC_DECL(put_, _ssse3)
 QPEL_MC_DECL(avg_, _ssse3)
 
@@ -143,8 +143,8 @@ QPEL_MC_DECL(avg_, _ssse3)
 #undef HCOFF
 #undef VCOFF
 #define LOOPSIZE  8
-#define HCOFF(x)  (64 * (x - 1))
-#define VCOFF(x)  (64 * (x - 1))
+#define HCOFF(x)  (64 * ((x) - 1))
+#define VCOFF(x)  (64 * ((x) - 1))
 QPEL_MC_DECL(put_, _sse2)
 QPEL_MC_DECL(avg_, _sse2)
 
@@ -153,8 +153,8 @@ QPEL_MC_DECL(avg_, _sse2)
 #undef HCOFF
 #undef VCOFF
 #define LOOPSIZE  4
-#define HCOFF(x)  (64 * (x - 1))
-#define VCOFF(x)  (64 * (x - 1))
+#define HCOFF(x)  (64 * ((x) - 1))
+#define VCOFF(x)  (64 * ((x) - 1))
 
 QPEL_MC_DECL(put_, _mmx)
 

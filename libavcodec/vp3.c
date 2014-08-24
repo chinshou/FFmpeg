@@ -262,6 +262,20 @@ typedef struct Vp3DecodeContext {
  * VP3 specific functions
  ************************************************************************/
 
+static av_cold void free_tables(AVCodecContext *avctx)
+{
+    Vp3DecodeContext *s = avctx->priv_data;
+
+    av_freep(&s->superblock_coding);
+    av_freep(&s->all_fragments);
+    av_freep(&s->coded_fragment_list[0]);
+    av_freep(&s->dct_tokens_base);
+    av_freep(&s->superblock_fragments);
+    av_freep(&s->macroblock_coding);
+    av_freep(&s->motion_val[0]);
+    av_freep(&s->motion_val[1]);
+}
+
 static void vp3_decode_flush(AVCodecContext *avctx)
 {
     Vp3DecodeContext *s = avctx->priv_data;
@@ -279,14 +293,7 @@ static av_cold int vp3_decode_end(AVCodecContext *avctx)
     Vp3DecodeContext *s = avctx->priv_data;
     int i;
 
-    av_freep(&s->superblock_coding);
-    av_freep(&s->all_fragments);
-    av_freep(&s->coded_fragment_list[0]);
-    av_freep(&s->dct_tokens_base);
-    av_freep(&s->superblock_fragments);
-    av_freep(&s->macroblock_coding);
-    av_freep(&s->motion_val[0]);
-    av_freep(&s->motion_val[1]);
+    free_tables(avctx);
     av_freep(&s->edge_emu_buffer);
 
     s->theora_tables = 0;
@@ -1025,7 +1032,7 @@ static int unpack_vlcs(Vp3DecodeContext *s, GetBitContext *gb,
     if (blocks_ended > s->num_coded_frags[plane][coeff_index])
         av_log(s->avctx, AV_LOG_ERROR, "More blocks ended than coded!\n");
 
-    // decrement the number of blocks that have higher coeffecients for each
+    // decrement the number of blocks that have higher coefficients for each
     // EOB run at this level
     if (blocks_ended)
         for (i = coeff_index + 1; i < 64; i++)
@@ -1422,7 +1429,7 @@ static void vp3_draw_horiz_band(Vp3DecodeContext *s, int y)
                                   0);
     }
 
-    if (s->avctx->draw_horiz_band == NULL)
+    if (!s->avctx->draw_horiz_band)
         return;
 
     h = y - s->last_slice_end;
@@ -1655,6 +1662,8 @@ static av_cold int allocate_tables(AVCodecContext *avctx)
     Vp3DecodeContext *s = avctx->priv_data;
     int y_fragment_count, c_fragment_count;
 
+    free_tables(avctx);
+
     y_fragment_count = s->fragment_width[0] * s->fragment_height[0];
     c_fragment_count = s->fragment_width[1] * s->fragment_height[1];
 
@@ -1731,7 +1740,7 @@ static av_cold int vp3_decode_init(AVCodecContext *avctx)
     ff_vp3dsp_init(&s->vp3dsp, avctx->flags);
 
     for (i = 0; i < 64; i++) {
-#define TRANSPOSE(x) (x >> 3) | ((x & 7) << 3)
+#define TRANSPOSE(x) (((x) >> 3) | (((x) & 7) << 3))
         s->idct_permutation[i] = TRANSPOSE(i);
         s->idct_scantable[i]   = TRANSPOSE(ff_zigzag_direct[i]);
 #undef TRANSPOSE
@@ -2270,6 +2279,7 @@ static int theora_decode_header(AVCodecContext *avctx, GetBitContext *gb)
         av_reduce(&avctx->sample_aspect_ratio.num,
                   &avctx->sample_aspect_ratio.den,
                   aspect.num, aspect.den, 1 << 30);
+        ff_set_sar(avctx, avctx->sample_aspect_ratio);
     }
 
     if (s->theora < 0x030200)

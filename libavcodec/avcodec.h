@@ -575,7 +575,7 @@ typedef struct AVCodecDescriptor {
     /**
      * MIME type(s) associated with the codec.
      * May be NULL; if not, a NULL-terminated array of MIME types.
-     * The first item is always non-NULL and is the prefered MIME type.
+     * The first item is always non-NULL and is the preferred MIME type.
      */
     const char *const *mime_types;
 } AVCodecDescriptor;
@@ -596,6 +596,16 @@ typedef struct AVCodecDescriptor {
  */
 #define AV_CODEC_PROP_LOSSLESS      (1 << 2)
 /**
+ * Codec supports frame reordering. That is, the coded order (the order in which
+ * the encoded packets are output by the encoders / stored / input to the
+ * decoders) may be different from the presentation order of the corresponding
+ * frames.
+ *
+ * For codecs that do not have this property set, PTS and DTS should always be
+ * equal.
+ */
+#define AV_CODEC_PROP_REORDER       (1 << 3)
+/**
  * Subtitle codec is bitmap based
  * Decoded AVSubtitle data can be read from the AVSubtitleRect->pict field.
  */
@@ -614,7 +624,7 @@ typedef struct AVCodecDescriptor {
  * Note: If the first 23 bits of the additional bytes are not 0, then damaged
  * MPEG bitstreams could cause overread and segfault.
  */
-#define FF_INPUT_BUFFER_PADDING_SIZE 16
+#define FF_INPUT_BUFFER_PADDING_SIZE 32
 
 /**
  * @ingroup lavc_encoding
@@ -651,6 +661,7 @@ enum AVDiscard{
     AVDISCARD_DEFAULT =  0, ///< discard useless packets like 0 size packets in avi
     AVDISCARD_NONREF  =  8, ///< discard all non reference
     AVDISCARD_BIDIR   = 16, ///< discard all bidirectional frames
+    AVDISCARD_NONINTRA= 24, ///< discard all non intra frames
     AVDISCARD_NONKEY  = 32, ///< discard all frames except keyframes
     AVDISCARD_ALL     = 48, ///< discard all
 };
@@ -756,6 +767,7 @@ typedef struct RcOverride{
 
 #define CODEC_FLAG2_CHUNKS        0x00008000 ///< Input bitstream might be truncated at a packet boundaries instead of only at frame boundaries.
 #define CODEC_FLAG2_SHOW_ALL      0x00400000 ///< Show all frames before the first keyframe
+#define CODEC_FLAG2_EXPORT_MVS    0x10000000 ///< Export motion vectors through frame side data
 
 /* Unsupported options :
  *              Syntax Arithmetic coding (SAC)
@@ -1679,6 +1691,7 @@ typedef struct AVCodecContext {
      */
     int me_subpel_quality;
 
+#if FF_API_AFD
     /**
      * DTG active format information (additional aspect ratio
      * information only used in DVB MPEG-2 transport streams)
@@ -1686,8 +1699,9 @@ typedef struct AVCodecContext {
      *
      * - encoding: unused
      * - decoding: Set by decoder.
+     * @deprecated Deprecated in favor of AVSideData
      */
-    int dtg_active_format;
+    attribute_deprecated int dtg_active_format;
 #define FF_DTG_AFD_SAME         8
 #define FF_DTG_AFD_4_3          9
 #define FF_DTG_AFD_16_9         10
@@ -1695,6 +1709,7 @@ typedef struct AVCodecContext {
 #define FF_DTG_AFD_4_3_SP_14_9  13
 #define FF_DTG_AFD_16_9_SP_14_9 14
 #define FF_DTG_AFD_SP_4_3       15
+#endif /* FF_API_AFD */
 
     /**
      * maximum motion estimation search range in subpel units
@@ -1880,12 +1895,14 @@ typedef struct AVCodecContext {
      */
     int chromaoffset;
 
+#if FF_API_UNUSED_MEMBERS
     /**
      * Multiplied by qscale for each frame and added to scene_change_score.
      * - encoding: Set by user.
      * - decoding: unused
      */
-    int scenechange_factor;
+    attribute_deprecated int scenechange_factor;
+#endif
 
     /**
      *
@@ -2290,7 +2307,7 @@ typedef struct AVCodecContext {
     /**
      * maximum bitrate
      * - encoding: Set by user.
-     * - decoding: unused
+     * - decoding: Set by libavcodec.
      */
     int rc_max_rate;
 
@@ -2335,7 +2352,9 @@ typedef struct AVCodecContext {
 #define FF_CODER_TYPE_AC        1
 #define FF_CODER_TYPE_RAW       2
 #define FF_CODER_TYPE_RLE       3
+#if FF_API_UNUSED_MEMBERS
 #define FF_CODER_TYPE_DEFLATE   4
+#endif /* FF_API_UNUSED_MEMBERS */
     /**
      * coder type
      * - encoding: Set by user.
@@ -2541,7 +2560,9 @@ typedef struct AVCodecContext {
 #define FF_DEBUG_DCT_COEFF   0x00000040
 #define FF_DEBUG_SKIP        0x00000080
 #define FF_DEBUG_STARTCODE   0x00000100
+#if FF_API_UNUSED_MEMBERS
 #define FF_DEBUG_PTS         0x00000200
+#endif /* FF_API_UNUSED_MEMBERS */
 #define FF_DEBUG_ER          0x00000400
 #define FF_DEBUG_MMCO        0x00000800
 #define FF_DEBUG_BUGS        0x00001000
@@ -2593,7 +2614,6 @@ typedef struct AVCodecContext {
     /**
      * opaque 64bit number (generally a PTS) that will be reordered and
      * output in AVFrame.reordered_opaque
-     * @deprecated in favor of pkt_pts
      * - encoding: unused
      * - decoding: Set by user.
      */
@@ -2633,7 +2653,9 @@ typedef struct AVCodecContext {
     int dct_algo;
 #define FF_DCT_AUTO    0
 #define FF_DCT_FASTINT 1
+#if FF_API_UNUSED_MEMBERS
 #define FF_DCT_INT     2
+#endif /* FF_API_UNUSED_MEMBERS */
 #define FF_DCT_MMX     3
 #define FF_DCT_ALTIVEC 5
 #define FF_DCT_FAAN    6
@@ -2654,8 +2676,13 @@ typedef struct AVCodecContext {
 #define FF_IDCT_SH4           9
 #endif
 #define FF_IDCT_SIMPLEARM     10
+#if FF_API_UNUSED_MEMBERS
 #define FF_IDCT_IPP           13
+#endif /* FF_API_UNUSED_MEMBERS */
+#define FF_IDCT_XVID          14
+#if FF_API_IDCT_XVIDMMX
 #define FF_IDCT_XVIDMMX       14
+#endif /* FF_API_IDCT_XVIDMMX */
 #define FF_IDCT_SIMPLEARMV5TE 16
 #define FF_IDCT_SIMPLEARMV6   17
 #if FF_API_ARCH_SPARC
@@ -2666,6 +2693,7 @@ typedef struct AVCodecContext {
 #if FF_API_ARCH_ALPHA
 #define FF_IDCT_SIMPLEALPHA   23
 #endif
+#define FF_IDCT_SIMPLEAUTO    128
 
     /**
      * bits per sample/pixel from the demuxer (needed for huffyuv).
@@ -2864,6 +2892,7 @@ typedef struct AVCodecContext {
 #define FF_PROFILE_HEVC_MAIN                        1
 #define FF_PROFILE_HEVC_MAIN_10                     2
 #define FF_PROFILE_HEVC_MAIN_STILL_PICTURE          3
+#define FF_PROFILE_HEVC_REXT                        4
 
     /**
      * level
@@ -3279,7 +3308,7 @@ typedef struct AVHWAccel {
     /**
      * Called for every Macroblock in a slice.
      *
-     * XvMC uses it to replace the ff_MPV_decode_mb().
+     * XvMC uses it to replace the ff_mpv_decode_mb().
      * Instead of decoding to raw picture, MB parameters are
      * stored in an array provided by the video driver.
      *
@@ -3804,6 +3833,19 @@ void av_packet_move_ref(AVPacket *dst, AVPacket *src);
 int av_packet_copy_props(AVPacket *dst, const AVPacket *src);
 
 /**
+ * Convert valid timing fields (timestamps / durations) in a packet from one
+ * timebase to another. Timestamps with unknown values (AV_NOPTS_VALUE) will be
+ * ignored.
+ *
+ * @param pkt packet on which the conversion will be performed
+ * @param tb_src source timebase, in which the timing fields in pkt are
+ *               expressed
+ * @param tb_dst destination timebase, to which the timing fields will be
+ *               converted
+ */
+void av_packet_rescale_ts(AVPacket *pkt, AVRational tb_src, AVRational tb_dst);
+
+/**
  * @}
  */
 
@@ -4071,8 +4113,8 @@ int avcodec_decode_video2(AVCodecContext *avctx, AVFrame *picture,
  * marked with CODEC_CAP_DELAY, then no subtitles will be returned.
  *
  * @param avctx the codec context
- * @param[out] sub The AVSubtitle in which the decoded subtitle will be stored, must be
-                   freed with avsubtitle_free if *got_sub_ptr is set.
+ * @param[out] sub The Preallocated AVSubtitle in which the decoded subtitle will be stored,
+ *                 must be freed with avsubtitle_free if *got_sub_ptr is set.
  * @param[in,out] got_sub_ptr Zero if no subtitle could be decompressed, otherwise, it is nonzero.
  * @param[in] avpkt The input AVPacket containing the input buffer.
  */
@@ -4261,7 +4303,7 @@ typedef struct AVCodecParser {
     struct AVCodecParser *next;
 } AVCodecParser;
 
-AVCodecParser *av_parser_next(AVCodecParser *c);
+AVCodecParser *av_parser_next(const AVCodecParser *c);
 
 void av_register_codec_parser(AVCodecParser *parser);
 AVCodecParserContext *av_parser_init(int codec_id);
@@ -4957,7 +4999,7 @@ AVBitStreamFilterContext *av_bitstream_filter_init(const char *name);
  * @return >= 0 in case of success, or a negative error code in case of failure
  *
  * If the return value is positive, an output buffer is allocated and
- * is availble in *poutbuf, and is distinct from the input buffer.
+ * is available in *poutbuf, and is distinct from the input buffer.
  *
  * If the return value is 0, the output buffer is not allocated and
  * should be considered identical to the input buffer, or in case
@@ -4985,7 +5027,7 @@ void av_bitstream_filter_close(AVBitStreamFilterContext *bsf);
  * This function can be used to iterate over all registered bitstream
  * filters.
  */
-AVBitStreamFilter *av_bitstream_filter_next(AVBitStreamFilter *f);
+AVBitStreamFilter *av_bitstream_filter_next(const AVBitStreamFilter *f);
 
 /* memory */
 
@@ -5053,7 +5095,7 @@ void av_register_hwaccel(AVHWAccel *hwaccel);
  * if hwaccel is non-NULL, returns the next registered hardware accelerator
  * after hwaccel, or NULL if hwaccel is the last one.
  */
-AVHWAccel *av_hwaccel_next(AVHWAccel *hwaccel);
+AVHWAccel *av_hwaccel_next(const AVHWAccel *hwaccel);
 
 
 /**
