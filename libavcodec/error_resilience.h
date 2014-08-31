@@ -23,7 +23,7 @@
 #include <stdint.h>
 
 #include "avcodec.h"
-#include "dsputil.h"
+#include "me_cmp.h"
 #include "thread.h"
 
 ///< current MB is the first after a resync marker
@@ -42,7 +42,7 @@ typedef struct ERPicture {
     AVFrame *f;
     ThreadFrame *tf;
 
-    // it's the caller responsability to allocate these buffers
+    // it's the caller's responsibility to allocate these buffers
     int16_t (*motion_val[2])[2];
     int8_t *ref_index[2];
 
@@ -52,7 +52,7 @@ typedef struct ERPicture {
 
 typedef struct ERContext {
     AVCodecContext *avctx;
-    DSPContext *dsp;
+    MECmpContext *mecc;
 
     int *mb_index2xy;
     int mb_num;

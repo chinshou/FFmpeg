@@ -56,7 +56,9 @@
 #include "libavutil/time.h"
 
 #include <stdarg.h>
+#if HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #if HAVE_POLL_H
@@ -556,7 +558,8 @@ static int socket_open_listen(struct sockaddr_in *my_addr)
     }
 
     tmp = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &tmp, sizeof(tmp));
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &tmp, sizeof(tmp)))
+        av_log(NULL, AV_LOG_WARNING, "setsockopt SO_REUSEADDR failed\n");
 
     my_addr->sin_family = AF_INET;
     if (bind (server_fd, (struct sockaddr *) my_addr, sizeof (*my_addr)) < 0) {
@@ -572,7 +575,9 @@ static int socket_open_listen(struct sockaddr_in *my_addr)
         closesocket(server_fd);
         return -1;
     }
-    ff_socket_nonblock(server_fd, 1);
+
+    if (ff_socket_nonblock(server_fd, 1) < 0)
+        av_log(NULL, AV_LOG_WARNING, "ff_socket_nonblock failed\n");
 
     return server_fd;
 }
@@ -587,7 +592,7 @@ static void start_multicast(void)
     int default_port, stream_index;
 
     default_port = 6000;
-    for(stream = first_stream; stream != NULL; stream = stream->next) {
+    for(stream = first_stream; stream; stream = stream->next) {
         if (stream->is_multicast) {
             unsigned random0 = av_lfg_get(&random_state);
             unsigned random1 = av_lfg_get(&random_state);
@@ -641,25 +646,31 @@ static int http_server(void)
     struct pollfd *poll_table, *poll_entry;
     HTTPContext *c, *c_next;
 
-    if(!(poll_table = av_mallocz((nb_max_http_connections + 2)*sizeof(*poll_table)))) {
+    if(!(poll_table = av_mallocz_array(nb_max_http_connections + 2, sizeof(*poll_table)))) {
         http_log("Impossible to allocate a poll table handling %d connections.\n", nb_max_http_connections);
         return -1;
     }
 
     if (my_http_addr.sin_port) {
         server_fd = socket_open_listen(&my_http_addr);
-        if (server_fd < 0)
+        if (server_fd < 0) {
+            av_free(poll_table);
             return -1;
+        }
     }
 
     if (my_rtsp_addr.sin_port) {
         rtsp_server_fd = socket_open_listen(&my_rtsp_addr);
-        if (rtsp_server_fd < 0)
+        if (rtsp_server_fd < 0) {
+            av_free(poll_table);
+            closesocket(server_fd);
             return -1;
+        }
     }
 
     if (!rtsp_server_fd && !server_fd) {
         http_log("HTTP and RTSP disabled.\n");
+        av_free(poll_table);
         return -1;
     }
 
@@ -685,7 +696,7 @@ static int http_server(void)
         /* wait for events on each HTTP handle */
         c = first_http_ctx;
         delay = 1000;
-        while (c != NULL) {
+        while (c) {
             int fd;
             fd = c->fd;
             switch(c->state) {
@@ -738,8 +749,10 @@ static int http_server(void)
         do {
             ret = poll(poll_table, poll_entry - poll_table, delay);
             if (ret < 0 && ff_neterrno() != AVERROR(EAGAIN) &&
-                ff_neterrno() != AVERROR(EINTR))
+                ff_neterrno() != AVERROR(EINTR)) {
+                av_free(poll_table);
                 return -1;
+            }
         } while (ret < 0);
 
         cur_time = av_gettime() / 1000;
@@ -750,7 +763,7 @@ static int http_server(void)
         }
 
         /* now handle the events */
-        for(c = first_http_ctx; c != NULL; c = c_next) {
+        for(c = first_http_ctx; c; c = c_next) {
             c_next = c->next;
             if (handle_connection(c) < 0) {
                 log_connection(c);
@@ -802,7 +815,8 @@ static void http_send_too_busy_reply(int fd)
                        "</body></html>\r\n",
                        nb_connections, nb_max_connections);
     av_assert0(len < sizeof(buffer));
-    send(fd, buffer, len, 0);
+    if (send(fd, buffer, len, 0) < len)
+        av_log(NULL, AV_LOG_WARNING, "Could not send too-busy reply, send() failed\n");
 }
 
 
@@ -820,7 +834,8 @@ static void new_connection(int server_fd, int is_rtsp)
         http_log("error during accept %s\n", strerror(errno));
         return;
     }
-    ff_socket_nonblock(fd, 1);
+    if (ff_socket_nonblock(fd, 1) < 0)
+        av_log(NULL, AV_LOG_WARNING, "ff_socket_nonblock failed\n");
 
     if (nb_connections >= nb_max_connections) {
         http_send_too_busy_reply(fd);
@@ -866,7 +881,7 @@ static void close_connection(HTTPContext *c)
 
     /* remove connection from list */
     cp = &first_http_ctx;
-    while ((*cp) != NULL) {
+    while (*cp) {
         c1 = *cp;
         if (c1 == c)
             *cp = c->next;
@@ -875,7 +890,7 @@ static void close_connection(HTTPContext *c)
     }
 
     /* remove references, if any (XXX: do it faster) */
-    for(c1 = first_http_ctx; c1 != NULL; c1 = c1->next) {
+    for(c1 = first_http_ctx; c1; c1 = c1->next) {
         if (c1->rtsp_c == c)
             c1->rtsp_c = NULL;
     }
@@ -1365,7 +1380,8 @@ static void parse_acl_row(FFStream *stream, FFStream* feed, IPAddressACL *ext_ac
                 naclp = &(*naclp)->next;
 
             *naclp = nacl;
-        }
+        } else
+            av_free(nacl);
     }
 }
 
@@ -1470,7 +1486,7 @@ static void compute_real_filename(char *filename, int max_size)
     p = strrchr(file1, '.');
     if (p)
         *p = '\0';
-    for(stream = first_stream; stream != NULL; stream = stream->next) {
+    for(stream = first_stream; stream; stream = stream->next) {
         av_strlcpy(file2, stream->filename, sizeof(file2));
         p = strrchr(file2, '.');
         if (p)
@@ -1579,12 +1595,12 @@ static int http_parse_request(HTTPContext *c)
         av_strlcpy(filename, "index.html", sizeof(filename) - 1);
 
     stream = first_stream;
-    while (stream != NULL) {
+    while (stream) {
         if (!strcmp(stream->filename, filename) && validate_acl(stream, c))
             break;
         stream = stream->next;
     }
-    if (stream == NULL) {
+    if (!stream) {
         snprintf(msg, sizeof(msg), "File '%s' not found", url);
         http_log("File '%s' not found\n", url);
         goto send_error;
@@ -1747,7 +1763,10 @@ static int http_parse_request(HTTPContext *c)
                             q += strlen(q);
 
                             len = sizeof(my_addr);
-                            getsockname(c->fd, (struct sockaddr *)&my_addr, &len);
+
+                            /* XXX: Should probably fail? */
+                            if (getsockname(c->fd, (struct sockaddr *)&my_addr, &len))
+                                http_log("getsockname() failed\n");
 
                             /* XXX: should use a dynamic buffer */
                             sdp_data_size = prepare_sdp_description(stream,
@@ -1955,7 +1974,7 @@ static void compute_status(HTTPContext *c)
     avio_printf(pb, "<table cellspacing=0 cellpadding=4>\n");
     avio_printf(pb, "<tr><th valign=top>Path<th align=left>Served<br>Conns<th><br>bytes<th valign=top>Format<th>Bit rate<br>kbits/s<th align=left>Video<br>kbits/s<th><br>Codec<th align=left>Audio<br>kbits/s<th><br>Codec<th align=left valign=top>Feed\n");
     stream = first_stream;
-    while (stream != NULL) {
+    while (stream) {
         char sfilename[1024];
         char *eosf;
 
@@ -2044,7 +2063,7 @@ static void compute_status(HTTPContext *c)
     avio_printf(pb, "</table>\n");
 
     stream = first_stream;
-    while (stream != NULL) {
+    while (stream) {
         if (stream->feed == stream) {
             avio_printf(pb, "<h2>Feed %s</h2>", stream->filename);
             if (stream->pid) {
@@ -2122,7 +2141,7 @@ static void compute_status(HTTPContext *c)
     avio_printf(pb, "<tr><th>#<th>File<th>IP<th>Proto<th>State<th>Target bits/sec<th>Actual bits/sec<th>Bytes transferred\n");
     c1 = first_http_ctx;
     i = 0;
-    while (c1 != NULL) {
+    while (c1) {
         int bitrate;
         int j;
 
@@ -2278,7 +2297,7 @@ static int http_prepare_data(HTTPContext *c)
         c->fmt_ctx = *ctx;
         av_freep(&ctx);
         av_dict_copy(&(c->fmt_ctx.metadata), c->stream->metadata, 0);
-        c->fmt_ctx.streams = av_mallocz(sizeof(AVStream *) * c->stream->nb_streams);
+        c->fmt_ctx.streams = av_mallocz_array(c->stream->nb_streams, sizeof(AVStream *));
 
         for(i=0;i<c->stream->nb_streams;i++) {
             AVStream *src;
@@ -2740,8 +2759,11 @@ static int http_receive_data(HTTPContext *c)
         /* a packet has been received : write it in the store, except
            if header */
         if (c->data_count > FFM_PACKET_SIZE) {
-            /* XXX: use llseek or url_seek */
-            lseek(c->feed_fd, feed->feed_write_index, SEEK_SET);
+            /* XXX: use llseek or url_seek
+             * XXX: Should probably fail? */
+            if (lseek(c->feed_fd, feed->feed_write_index, SEEK_SET) == -1)
+                http_log("Seek to %"PRId64" failed\n", feed->feed_write_index);
+
             if (write(c->feed_fd, c->buffer, FFM_PACKET_SIZE) < 0) {
                 http_log("Error writing to feed file: %s\n", strerror(errno));
                 goto fail;
@@ -2763,7 +2785,7 @@ static int http_receive_data(HTTPContext *c)
             }
 
             /* wake up any waiting connections */
-            for(c1 = first_http_ctx; c1 != NULL; c1 = c1->next) {
+            for(c1 = first_http_ctx; c1; c1 = c1->next) {
                 if (c1->state == HTTPSTATE_WAIT_FEED &&
                     c1->stream->feed == c->stream->feed)
                     c1->state = HTTPSTATE_SEND_DATA;
@@ -2819,7 +2841,7 @@ static int http_receive_data(HTTPContext *c)
     c->stream->feed_opened = 0;
     close(c->feed_fd);
     /* wake up any waiting connections to stop waiting for feed */
-    for(c1 = first_http_ctx; c1 != NULL; c1 = c1->next) {
+    for(c1 = first_http_ctx; c1; c1 = c1->next) {
         if (c1->state == HTTPSTATE_WAIT_FEED &&
             c1->stream->feed == c->stream->feed)
             c1->state = HTTPSTATE_SEND_DATA_TRAILER;
@@ -2955,8 +2977,10 @@ static int prepare_sdp_description(FFStream *stream, uint8_t **pbuffer,
     AVDictionaryEntry *entry = av_dict_get(stream->metadata, "title", NULL, 0);
     int i;
 
+    *pbuffer = NULL;
+
     avc =  avformat_alloc_context();
-    if (avc == NULL || !rtp_format) {
+    if (!avc || !rtp_format) {
         return -1;
     }
     avc->oformat = rtp_format;
@@ -2991,7 +3015,7 @@ static int prepare_sdp_description(FFStream *stream, uint8_t **pbuffer,
     av_free(avc);
     av_free(avs);
 
-    return strlen(*pbuffer);
+    return *pbuffer ? strlen(*pbuffer) : AVERROR(ENOMEM);
 }
 
 static void rtsp_cmd_options(HTTPContext *c, const char *url)
@@ -3019,7 +3043,7 @@ static void rtsp_cmd_describe(HTTPContext *c, const char *url)
     if (*path == '/')
         path++;
 
-    for(stream = first_stream; stream != NULL; stream = stream->next) {
+    for(stream = first_stream; stream; stream = stream->next) {
         if (!stream->is_feed &&
             stream->fmt && !strcmp(stream->fmt->name, "rtp") &&
             !strcmp(path, stream->filename)) {
@@ -3057,7 +3081,7 @@ static HTTPContext *find_rtp_session(const char *session_id)
     if (session_id[0] == '\0')
         return NULL;
 
-    for(c = first_http_ctx; c != NULL; c = c->next) {
+    for(c = first_http_ctx; c; c = c->next) {
         if (!strcmp(c->session_id, session_id))
             return c;
     }
@@ -3097,7 +3121,7 @@ static void rtsp_cmd_setup(HTTPContext *c, const char *url,
         path++;
 
     /* now check each stream */
-    for(stream = first_stream; stream != NULL; stream = stream->next) {
+    for(stream = first_stream; stream; stream = stream->next) {
         if (!stream->is_feed &&
             stream->fmt && !strcmp(stream->fmt->name, "rtp")) {
             /* accept aggregate filenames only if single stream */
@@ -3403,7 +3427,7 @@ static int rtp_new_av_stream(HTTPContext *c,
     if (!st)
         goto fail;
     ctx->nb_streams = 1;
-    ctx->streams = av_mallocz(sizeof(AVStream *) * ctx->nb_streams);
+    ctx->streams = av_mallocz_array(ctx->nb_streams, sizeof(AVStream *));
     if (!ctx->streams)
       goto fail;
     ctx->streams[0] = st;
@@ -3467,6 +3491,7 @@ static int rtp_new_av_stream(HTTPContext *c,
     fail:
         if (h)
             ffurl_close(h);
+        av_free(st);
         av_free(ctx);
         return -1;
     }
@@ -3557,7 +3582,7 @@ static void remove_stream(FFStream *stream)
 {
     FFStream **ps;
     ps = &first_stream;
-    while (*ps != NULL) {
+    while (*ps) {
         if (*ps == stream)
             *ps = (*ps)->next;
         else
@@ -3623,7 +3648,7 @@ static void build_file_streams(void)
     int i, ret;
 
     /* gather all streams */
-    for(stream = first_stream; stream != NULL; stream = stream_next) {
+    for(stream = first_stream; stream; stream = stream_next) {
         AVFormatContext *infile = NULL;
         stream_next = stream->next;
         if (stream->stream_type == STREAM_TYPE_LIVE &&
@@ -3675,7 +3700,7 @@ static void build_feed_streams(void)
     int i;
 
     /* gather all streams */
-    for(stream = first_stream; stream != NULL; stream = stream->next) {
+    for(stream = first_stream; stream; stream = stream->next) {
         feed = stream->feed;
         if (feed) {
             if (stream->is_feed) {
@@ -3690,7 +3715,7 @@ static void build_feed_streams(void)
     }
 
     /* create feed files if needed */
-    for(feed = first_feed; feed != NULL; feed = feed->next_feed) {
+    for(feed = first_feed; feed; feed = feed->next_feed) {
         int fd;
 
         if (avio_check(feed->feed_filename, AVIO_FLAG_READ) > 0) {
@@ -3822,7 +3847,7 @@ static void compute_bandwidth(void)
     int i;
     FFStream *stream;
 
-    for(stream = first_stream; stream != NULL; stream = stream->next) {
+    for(stream = first_stream; stream; stream = stream->next) {
         bandwidth = 0;
         for(i=0;i<stream->nb_streams;i++) {
             AVStream *st = stream->streams[i];
@@ -4056,14 +4081,20 @@ static int parse_ffconfig(const char *filename)
 
         get_arg(cmd, sizeof(cmd), &p);
 
-        if (!av_strcasecmp(cmd, "Port")) {
+        if (!av_strcasecmp(cmd, "Port") || !av_strcasecmp(cmd, "HTTPPort")) {
+            if (!av_strcasecmp(cmd, "Port"))
+                WARNING("Port option is deprecated, use HTTPPort instead\n");
             get_arg(arg, sizeof(arg), &p);
             val = atoi(arg);
             if (val < 1 || val > 65536) {
-                ERROR("Invalid_port: %s\n", arg);
+                ERROR("Invalid port: %s\n", arg);
             }
+            if (val < 1024)
+                WARNING("Trying to use IETF assigned system port: %d\n", val);
             my_http_addr.sin_port = htons(val);
-        } else if (!av_strcasecmp(cmd, "BindAddress")) {
+        } else if (!av_strcasecmp(cmd, "HTTPBindAddress") || !av_strcasecmp(cmd, "BindAddress")) {
+            if (!av_strcasecmp(cmd, "BindAddress"))
+                WARNING("BindAddress option is deprecated, use HTTPBindAddress instead\n");
             get_arg(arg, sizeof(arg), &p);
             if (resolve_host(&my_http_addr.sin_addr, arg) != 0) {
                 ERROR("%s:%d: Invalid host/IP address: %s\n", arg);
@@ -4269,7 +4300,7 @@ static int parse_ffconfig(const char *filename)
                 FFStream *sfeed;
 
                 sfeed = first_feed;
-                while (sfeed != NULL) {
+                while (sfeed) {
                     if (!strcmp(sfeed->filename, arg))
                         break;
                     sfeed = sfeed->next_feed;

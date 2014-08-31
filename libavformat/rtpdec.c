@@ -72,6 +72,7 @@ void ff_register_rtp_dynamic_payload_handlers(void)
     ff_register_dynamic_payload_handler(&ff_g726_24_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_g726_32_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_g726_40_dynamic_handler);
+    ff_register_dynamic_payload_handler(&ff_h261_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_h263_1998_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_h263_2000_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_h263_rfc2190_dynamic_handler);
@@ -833,8 +834,10 @@ void ff_rtp_parse_close(RTPDemuxContext *s)
     av_free(s);
 }
 
-int ff_parse_fmtp(AVStream *stream, PayloadContext *data, const char *p,
-                  int (*parse_fmtp)(AVStream *stream,
+int ff_parse_fmtp(AVFormatContext *s,
+                  AVStream *stream, PayloadContext *data, const char *p,
+                  int (*parse_fmtp)(AVFormatContext *s,
+                                    AVStream *stream,
                                     PayloadContext *data,
                                     char *attr, char *value))
 {
@@ -859,7 +862,7 @@ int ff_parse_fmtp(AVStream *stream, PayloadContext *data, const char *p,
     while (ff_rtsp_next_attr_and_value(&p,
                                        attr, sizeof(attr),
                                        value, value_size)) {
-        res = parse_fmtp(stream, data, attr, value);
+        res = parse_fmtp(s, stream, data, attr, value);
         if (res < 0 && res != AVERROR_PATCHWELCOME) {
             av_free(value);
             return res;

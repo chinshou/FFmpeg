@@ -46,6 +46,16 @@ typedef enum {
     AV_CLASS_CATEGORY_NB, ///< not part of ABI/API
 }AVClassCategory;
 
+#define AV_IS_INPUT_DEVICE(category) \
+    (((category) == AV_CLASS_CATEGORY_DEVICE_VIDEO_INPUT) || \
+     ((category) == AV_CLASS_CATEGORY_DEVICE_AUDIO_INPUT) || \
+     ((category) == AV_CLASS_CATEGORY_DEVICE_INPUT))
+
+#define AV_IS_OUTPUT_DEVICE(category) \
+    (((category) == AV_CLASS_CATEGORY_DEVICE_VIDEO_OUTPUT) || \
+     ((category) == AV_CLASS_CATEGORY_DEVICE_AUDIO_OUTPUT) || \
+     ((category) == AV_CLASS_CATEGORY_DEVICE_OUTPUT))
+
 struct AVOptionRanges;
 
 /**
@@ -321,6 +331,15 @@ void av_log_format_line(void *ptr, int level, const char *fmt, va_list vl,
  * call av_log(NULL, AV_LOG_QUIET, "%s", ""); at the end
  */
 #define AV_LOG_SKIP_REPEATED 1
+
+/**
+ * Include the log severity in messages originating from codecs.
+ *
+ * Results in messages such as:
+ * [rawvideo @ 0xDEADBEEF] [error] encode did not produce valid pts
+ */
+#define AV_LOG_PRINT_LEVEL 2
+
 void av_log_set_flags(int arg);
 int av_log_get_flags(void);
 

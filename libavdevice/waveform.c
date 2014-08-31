@@ -19,7 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA                                                                      
  */                                                                                                                                                  
                                                                                                                                                      
-#include "libavformat/avformat.h"                                                                                                                    
+#include "libavformat/avformat.h"
+#include "libavutil/samplefmt.h"            
+#include "libavformat/internal.h"                                                                                                        
 #include <windows.h>                                                                                                                                 
                                                                                                                                                      
 #define AUDIO_BLOCK_COUNT 32                                                                                                                         
@@ -238,7 +240,7 @@ static int waveform_read_header(AVFormatContext *s)
     fx.wFormatTag      = WAVE_FORMAT_PCM;                                                                                                            
     fx.nChannels       = 2;//ap->channels;                                                                                                               
     fx.nSamplesPerSec  = 44100;//ap->sample_rate;                                                                                                            
-    fx.wBitsPerSample  = av_get_bits_per_sample_fmt(AV_SAMPLE_FMT_S16);//(ap->sample_fmt);                                                                              
+    fx.wBitsPerSample  = av_get_bytes_per_sample(AV_SAMPLE_FMT_S16) << 3;//av_get_bits_per_sample_fmt(AV_SAMPLE_FMT_S16);//(ap->sample_fmt);                                                                              
     fx.nBlockAlign     = fx.nChannels * (fx.wBitsPerSample >> 3);                                                                                    
     fx.nAvgBytesPerSec = fx.nSamplesPerSec * fx.nBlockAlign;                                                                                         
     fx.cbSize          = 0;                                                                                                                          
@@ -298,7 +300,7 @@ static int waveform_read_header(AVFormatContext *s)
     if (result != MMSYSERR_NOERROR)                                                                                                                  
         return bail_out(s, result, "waveInStart");                                                                                                   
                                                                                                                                                      
-    av_set_pts_info(st, 32, 1, 1000);                                                                                                                
+    avpriv_set_pts_info(st, 32, 1, 1000);                                                                                                                
                                                                                                                                                      
     return 0;                                                                                                                                        
 }                                                                                                                                                    

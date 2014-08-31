@@ -26,6 +26,7 @@
 
 SECTION_RODATA
 
+cextern pw_512
 cextern pw_16
 cextern pw_8
 cextern pw_4
@@ -35,7 +36,6 @@ cextern pw_1
 pw_m32101234: dw -3, -2, -1, 0, 1, 2, 3, 4
 pw_m3:        times 8 dw -3
 pw_pixel_max: times 8 dw ((1 << 10)-1)
-pw_512:       times 8 dw 512
 pd_17:        times 4 dd 17
 pd_16:        times 4 dd 16
 
@@ -171,22 +171,6 @@ PRED4x4_HD
 ;-----------------------------------------------------------------------------
 ; void ff_pred4x4_dc(pixel *src, const pixel *topright, int stride)
 ;-----------------------------------------------------------------------------
-%macro HADDD 2 ; sum junk
-%if mmsize == 16
-    movhlps %2, %1
-    paddd   %1, %2
-    pshuflw %2, %1, 0xE
-    paddd   %1, %2
-%else
-    pshufw  %2, %1, 0xE
-    paddd   %1, %2
-%endif
-%endmacro
-
-%macro HADDW 2
-    pmaddwd %1, [pw_1]
-    HADDD   %1, %2
-%endmacro
 
 INIT_MMX mmxext
 cglobal pred4x4_dc_10, 3, 3

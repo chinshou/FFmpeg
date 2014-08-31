@@ -689,7 +689,7 @@ static void adaptive_quantization(MpegEncContext *s, double q)
     }
 
     /* handle qmin/qmax clipping */
-    if (s->flags & CODEC_FLAG_NORMALIZE_AQP) {
+    if (s->mpv_flags & FF_MPV_FLAG_NAQ) {
         float factor = bits_sum / cplx_sum;
         for (i = 0; i < s->mb_num; i++) {
             float newq = q * cplx_tab[i] / bits_tab[i];
@@ -714,7 +714,7 @@ static void adaptive_quantization(MpegEncContext *s, double q)
         float newq      = q * cplx_tab[i] / bits_tab[i];
         int intq;
 
-        if (s->flags & CODEC_FLAG_NORMALIZE_AQP) {
+        if (s->mpv_flags & FF_MPV_FLAG_NAQ) {
             newq *= bits_sum / cplx_sum;
         }
 
@@ -848,7 +848,6 @@ float ff_rate_estimate_qscale(MpegEncContext *s, int dry_run)
         rcc->mv_bits_sum[pict_type] += rce->mv_bits;
         rcc->frame_count[pict_type]++;
 
-        bits        = rce->i_tex_bits + rce->p_tex_bits;
         rate_factor = rcc->pass1_wanted_bits /
                       rcc->pass1_rc_eq_output_sum * br_compensation;
 
@@ -952,8 +951,8 @@ static int init_pass2(MpegEncContext *s)
         return -1;
     }
 
-    qscale         = av_malloc(sizeof(double) * rcc->num_entries);
-    blurred_qscale = av_malloc(sizeof(double) * rcc->num_entries);
+    qscale         = av_malloc_array(rcc->num_entries, sizeof(double));
+    blurred_qscale = av_malloc_array(rcc->num_entries, sizeof(double));
     toobig = 0;
 
     for (step = 256 * 256; step > 0.0000001; step *= 0.5) {

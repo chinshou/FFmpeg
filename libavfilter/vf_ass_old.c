@@ -47,6 +47,7 @@ extern char *sub_cp;
 
 typedef struct
 {
+  const AVClass *class;
   /*ass_library_t *ass_library;*/
   void *ass_library;
   ASS_Renderer *ass_renderer;
@@ -58,15 +59,22 @@ typedef struct
   char *filename;
   char *font;
   char *color;
-  //char filename[512];
   char *encoding;
 
   int frame_width, frame_height;
   int vsub,hsub;   //< chroma subsampling
 
-  int enc; //1:encoder 0:player
-
 } AssContext;
+
+#define OFFSET(x) offsetof(AssContext, x)
+#define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
+
+static const AVOption options[] = {
+    {"filename",       "set the filename of file to read",                         OFFSET(filename),   AV_OPT_TYPE_STRING,     {.str = NULL},  CHAR_MIN, CHAR_MAX, FLAGS },
+    {"font",       "set the filename of font file to read",                         OFFSET(font),   AV_OPT_TYPE_STRING,     {.str = NULL},  CHAR_MIN, CHAR_MAX, FLAGS },
+    {"color",       "set the color",                         OFFSET(color),   AV_OPT_TYPE_STRING,     {.str = NULL},  CHAR_MIN, CHAR_MAX, FLAGS },
+    {NULL},
+};
 
 char **ass_force_style_list = NULL;
 int ass_use_margins = 0;
@@ -231,32 +239,34 @@ static ASS_Track* ass_read_subdata(AssContext* context, double fps) {
 	return track;
 }
 
-static int parse_args(AVFilterContext *ctx, AssContext *context, const char* args);
-static av_cold int init(AVFilterContext *ctx, const char *args)
+#define ass_old_options options
+AVFILTER_DEFINE_CLASS(ass_old);
+
+static av_cold int init_ass(AVFilterContext *ctx)
 {
   AssContext *context= ctx->priv;
-  //int num_fields;
 
   /* defaults */
   context->margin = 10;
   context->encoding = "utf-8";
-  context->enc = 0;//player
 
-  if ( parse_args(ctx, context, args) )
-    return 1;
+  if (!context->filename) {
+      av_log(ctx, AV_LOG_ERROR, "No filename provided!\n");
+      return AVERROR(EINVAL);
+  }
+
+  if (!context->font) {
+      av_log(ctx, AV_LOG_ERROR, "No font filename provided!\n");
+      return AVERROR(EINVAL);
+  }
+
+  if (!context->color) {
+      av_log(ctx, AV_LOG_ERROR, "No color provided!\n");
+      return AVERROR(EINVAL);
+  }
 
   av_log(ctx, AV_LOG_ERROR,"file:%s font:%s\n", context->filename, context->font);
-#if 0  
-  num_fields = sscanf(args, "%512[^|]",
-					  context->filename);
-  if (num_fields != 1) {
-	  av_log(ctx, AV_LOG_ERROR,
-			 " file=%s\n",
-			 context->filename);
-	  return -1;
-  }
-  
-#endif
+
   return 0;
 }
 
@@ -269,7 +279,6 @@ static int query_formats(AVFilterContext *ctx)
 static int config_input(AVFilterLink *link)
 {
   AssContext *context = link->dst->priv;
-  int i;
 
   context->frame_width = link->w;
   context->frame_height = link->h;
@@ -318,14 +327,6 @@ static int config_input(AVFilterLink *link)
 
   //sub_free(context->subd);
 
-#if 0
-  for (i = 0; i < context->ass_track->n_events; ++i) {
-	  ASS_Event *event = context->ass_track->events + i;
-	  event->Duration = 100000;
-	  av_log(0, AV_LOG_ERROR, "event:%d duration(ms):%d start(ms):%d text:%s !\n", i,event->Duration, event->Start, event->Text);
-  }
-#endif  
-
   context->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
   context->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
 
@@ -354,7 +355,7 @@ static av_cold void uninit(AVFilterContext *ctx)
 #define rgba2u(c)  ( ((-152*_r(c) - 298*_g(c) + 450*_b(c)) >> 10) + 128 )                                                                      
 #define rgba2v(c)  ( (( 450*_r(c) - 376*_g(c) -  73*_b(c)) >> 10) + 128 )                                                                      
 
-static void draw_ass_image(AVFrame *pic, ASS_Image *img, AssContext *context)
+static void draw_ass_image(AVFrame *picref, ASS_Image *img, AssContext *context)
 {
   unsigned char *row[4];
   unsigned char c_y = rgba2y(img->color);
@@ -377,20 +378,20 @@ static void draw_ass_image(AVFrame *pic, ASS_Image *img, AssContext *context)
 
   for (i = 0; i < bitmap_h; ++i) {
     y = dst_y + i;
-    if ( y >= pic->height )
+    if ( y >= picref->height )
       break;
 
-    row[0] = pic->data[0] + y * pic->linesize[0];
+    row[0] = picref->data[0] + y * picref->linesize[0];
 
     for (channel = 1; channel < 3; channel++)
-      row[channel] = pic->data[channel] +
-	pic->linesize[channel] * (y>> context->vsub);
+      row[channel] = picref->data[channel] +
+	picref->linesize[channel] * (y>> context->vsub);
 
     for (j = 0; j < bitmap_w; ++j) {
       unsigned k = ((unsigned)src[j]) * opacity / 255;
 
       x = dst_x + j;
-      if ( y >= pic->width )
+      if ( y >= picref->width )
 	break;
 
       row[0][x] = (k*c_y + (255-k)*row[0][x]) / 255;
@@ -402,7 +403,7 @@ static void draw_ass_image(AVFrame *pic, ASS_Image *img, AssContext *context)
   } 
 }
 
-static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
+static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
 {
   AssContext *context = inlink->dst->priv;
   AVFilterLink* output = inlink->dst->outputs[0];
@@ -411,10 +412,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
   //miliseconds
   //int scale = context->enc?1:1000;
   int scale = 1000;
-  int64_t picref_time = frame->pts * av_q2d(inlink->time_base)*scale;
-#if 0
-  av_log(0, AV_LOG_ERROR, "draw_ass_image pts_time:%I64d pts:%I64d num:%d den:%d \n", picref_time, pic->pts, link->time_base.num, link->time_base.den);
-#endif
+  int64_t picref_time = picref->pts * av_q2d(inlink->time_base)*scale;
+
   ASS_Image* img = ass_render_frame(context->ass_renderer,
 				      context->ass_track,
 				      picref_time,
@@ -422,91 +421,18 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
 
   while ( img ) {
-    draw_ass_image(frame, img, context);
+    draw_ass_image(picref, img, context);
     img = img->next;
   }
 
-  return ff_filter_frame(output, frame);
-
-}
-
-static int parse_args(AVFilterContext *ctx, AssContext *context, const char* args)
-{
-  char *arg_copy = av_strdup(args);
-  char *strtok_arg = arg_copy;
-  char *param;
-
-  while ( param = strtok(strtok_arg, "#") ) {
-    char *tmp = param;
-    char *param_name;
-    char *param_value;
-
-    strtok_arg = NULL;
-
-    while ( *tmp && *tmp != '$' ) {
-      tmp++;
-    }
-
-    if ( param == tmp || ! *tmp ) {
-      av_log(ctx, AV_LOG_ERROR, "Error while parsing arguments - must be like 'param1:value1|param2:value2'\n");
-      return 1;
-    }
-    //av_log(ctx, AV_LOG_ERROR, "param:%s param_name size:%d'\n", param, tmp-param);
-    param_name = av_malloc(tmp - param + 1);
-    memset(param_name, 0, tmp - param + 1);
-    av_strlcpy(param_name, param, tmp-param+1);
-
-    tmp++;
-
-    if ( ! *tmp ) {
-      av_log(ctx, AV_LOG_ERROR, "Error while parsing arguments - parameter value cannot be empty\n");
-      return 1;
-    }
-
-    param_value = av_strdup(tmp);
-
-    if ( !strcmp("margin", param_name ) ) {
-      context->margin = atoi(param_value);
-    } else if ( !strcmp("filename", param_name ) ) {
-      context->filename = av_strdup(param_value);
-    } else if ( !strcmp("encoding", param_name ) ) {
-      context->encoding = av_strdup(param_value);
-    } else if ( !strcmp("font", param_name ) ) {
-      context->font = av_strdup(param_value);
-    } else if ( !strcmp("color", param_name ) ) {
-      context->color = av_strdup(param_value);
-    } else if ( !strcmp("codepage", param_name ) ) {
-      sub_cp = av_strdup(param_value);
-    }else if ( !strcmp("enc", param_name ) ) {
-      context->enc = atoi(param_value);
-    }		
-	
-	else {
-      av_log(ctx, AV_LOG_ERROR, "Error while parsing arguments - unsupported parameter '%s'\n", param_name);
-      return 1;
-    }
-    av_free(param_name);
-    av_free(param_value);
-  }
-
-  if ( ! context->filename ) {
-    av_log(ctx, AV_LOG_ERROR, "Error while parsing arguments - mandatory parameter 'filename' missing\n");
-    return 1;
-  }
-
-  if ( ! context->font ) {
-    av_log(ctx, AV_LOG_ERROR, "Error while parsing arguments - mandatory parameter 'font' missing\n");
-    return 1;
-  }
-  
-  return 0;
+  return ff_filter_frame(output, picref);
 }
 
 AVFilter ff_vf_ass_old = {
     .name      = "ass_old",
     .description   = NULL_IF_CONFIG_SMALL("Render subtitles onto input video using the libass library."),
     .priv_size = sizeof(AssContext),
-    .init      = init,
+    .init      = init_ass,
     .uninit    = uninit,	
     .query_formats   = query_formats,
 
@@ -525,4 +451,5 @@ AVFilter ff_vf_ass_old = {
           .type             = AVMEDIA_TYPE_VIDEO, },
         { .name = NULL}
     },
+    .priv_class    = &ass_old_class,
 };
