@@ -351,13 +351,13 @@ static int mmap_init(AVFormatContext *ctx)
         return AVERROR(ENOMEM);
     }
     s->buffers = req.count;
-    s->buf_start = av_malloc(sizeof(void *) * s->buffers);
-    if (s->buf_start == NULL) {
+    s->buf_start = av_malloc_array(s->buffers, sizeof(void *));
+    if (!s->buf_start) {
         av_log(ctx, AV_LOG_ERROR, "Cannot allocate buffer pointers\n");
         return AVERROR(ENOMEM);
     }
-    s->buf_len = av_malloc(sizeof(unsigned int) * s->buffers);
-    if (s->buf_len == NULL) {
+    s->buf_len = av_malloc_array(s->buffers, sizeof(unsigned int));
+    if (!s->buf_len) {
         av_log(ctx, AV_LOG_ERROR, "Cannot allocate buffer sizes\n");
         av_free(s->buf_start);
         return AVERROR(ENOMEM);
@@ -427,10 +427,7 @@ static void mmap_release_buffer(void *opaque, uint8_t *data)
 #if HAVE_CLOCK_GETTIME && defined(CLOCK_MONOTONIC)
 static int64_t av_gettime_monotonic(void)
 {
-    struct timespec tv;
-
-    clock_gettime(CLOCK_MONOTONIC, &tv);
-    return (int64_t)tv.tv_sec * 1000000 + tv.tv_nsec / 1000;
+    return av_gettime_relative();
 }
 #endif
 
@@ -561,7 +558,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
         buf_descriptor = av_malloc(sizeof(struct buff_data));
-        if (buf_descriptor == NULL) {
+        if (!buf_descriptor) {
             /* Something went wrong... Since av_malloc() failed, we cannot even
              * allocate a buffer for memcpying into it
              */
@@ -691,7 +688,11 @@ static int v4l2_set_parameters(AVFormatContext *s1)
             standard.index = i;
             if (v4l2_ioctl(s->fd, VIDIOC_ENUMSTD, &standard) < 0) {
                 ret = AVERROR(errno);
-                if (ret == AVERROR(EINVAL)) {
+                if (ret == AVERROR(EINVAL)
+#ifdef ENODATA
+                    || ret == AVERROR(ENODATA)
+#endif
+                ) {
                     tpf = &streamparm.parm.capture.timeperframe;
                     break;
                 }
@@ -1014,7 +1015,7 @@ static const AVOption options[] = {
     { "default",      "use timestamps from the kernel",                           OFFSET(ts_mode),      AV_OPT_TYPE_CONST,  {.i64 = V4L_TS_DEFAULT  }, 0, 2, DEC, "timestamps" },
     { "abs",          "use absolute timestamps (wall clock)",                     OFFSET(ts_mode),      AV_OPT_TYPE_CONST,  {.i64 = V4L_TS_ABS      }, 0, 2, DEC, "timestamps" },
     { "mono2abs",     "force conversion from monotonic to absolute timestamps",   OFFSET(ts_mode),      AV_OPT_TYPE_CONST,  {.i64 = V4L_TS_MONO2ABS }, 0, 2, DEC, "timestamps" },
-    { "use_libv4l2",  "use libv4l2 (v4l-utils) convertion functions",             OFFSET(use_libv4l2),  AV_OPT_TYPE_INT,    {.i64 = 0}, 0, 1, DEC },
+    { "use_libv4l2",  "use libv4l2 (v4l-utils) conversion functions",             OFFSET(use_libv4l2),  AV_OPT_TYPE_INT,    {.i64 = 0}, 0, 1, DEC },
     { NULL },
 };
 

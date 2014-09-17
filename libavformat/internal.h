@@ -93,7 +93,7 @@ void ff_program_add_stream_index(AVFormatContext *ac, int progid, unsigned int i
  * @return 0, or < 0 on error
  */
 int ff_interleave_add_packet(AVFormatContext *s, AVPacket *pkt,
-                              int (*compare)(AVFormatContext *, AVPacket *, AVPacket *));
+                             int (*compare)(AVFormatContext *, AVPacket *, AVPacket *));
 
 void ff_read_frame_flush(AVFormatContext *s);
 
@@ -134,10 +134,11 @@ void ff_sdp_write_media(char *buff, int size, AVStream *st, int idx,
  * @param dst_stream the stream index within dst to write the packet to
  * @param pkt the packet to be written
  * @param src the muxer the packet originally was intended for
+ * @param interleave 0->use av_write_frame, 1->av_write_interleaved_frame
  * @return the value av_write_frame returned
  */
 int ff_write_chained(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
-                     AVFormatContext *src);
+                     AVFormatContext *src, int interleave);
 
 /**
  * Get the length in bytes which is needed to store val as v.
@@ -336,8 +337,6 @@ void ff_free_stream(AVFormatContext *s, AVStream *st);
 void ff_compute_frame_duration(int *pnum, int *pden, AVStream *st,
                                AVCodecParserContext *pc, AVPacket *pkt);
 
-int ff_get_audio_frame_size(AVCodecContext *enc, int size, int mux);
-
 unsigned int ff_codec_get_tag(const AVCodecTag *tags, enum AVCodecID id);
 
 enum AVCodecID ff_codec_get_id(const AVCodecTag *tags, unsigned int tag);
@@ -360,11 +359,11 @@ enum AVCodecID ff_get_pcm_codec_id(int bps, int flt, int be, int sflags);
 /**
  * Chooses a timebase for muxing the specified stream.
  *
- * The choosen timebase allows sample accurate timestamps based
+ * The chosen timebase allows sample accurate timestamps based
  * on the framerate or sample rate for audio streams. It also is
- * at least as precisse as 1/min_precission would be.
+ * at least as precise as 1/min_precision would be.
  */
-AVRational ff_choose_timebase(AVFormatContext *s, AVStream *st, int min_precission);
+AVRational ff_choose_timebase(AVFormatContext *s, AVStream *st, int min_precision);
 
 /**
  * Generate standard extradata for AVC-Intra based on width/height and field

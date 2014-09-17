@@ -64,7 +64,6 @@ typedef struct VLC {
     int bits;
     VLC_TYPE (*table)[2]; ///< code, bits
     int table_size, table_allocated;
-    void * volatile init_state;
 } VLC;
 
 typedef struct RL_VLC_ELEM {
@@ -113,6 +112,9 @@ typedef struct RL_VLC_ELEM {
  *
  * LAST_SKIP_BITS(name, gb, num)
  *   Like SKIP_BITS, to be used if next call is UPDATE_CACHE or CLOSE_READER.
+ *
+ * BITS_LEFT(name, gb)
+ *   Return the number of bits left
  *
  * For examples see get_bits, show_bits, skip_bits, get_vlc.
  */
@@ -180,6 +182,8 @@ typedef struct RL_VLC_ELEM {
     name ## _index = FFMIN(name ## _size_plus8, name ## _index + (num))
 #endif
 
+#define BITS_LEFT(name, gb) ((int)((gb)->size_in_bits - name ## _index))
+
 #define SKIP_BITS(name, gb, num)                \
     do {                                        \
         SKIP_CACHE(name, gb, num);              \
@@ -219,7 +223,7 @@ static inline void skip_bits_long(GetBitContext *s, int n)
 }
 
 /**
- * read mpeg1 dc style vlc (sign bit + mantisse with no MSB).
+ * read mpeg1 dc style vlc (sign bit + mantissa with no MSB).
  * if MSB not set it is negative
  * @param n length in bits
  */
@@ -409,7 +413,7 @@ static inline int init_get_bits(GetBitContext *s, const uint8_t *buffer,
     int ret = 0;
 
     if (bit_size >= INT_MAX - 7 || bit_size < 0 || !buffer) {
-        buffer_size = bit_size = 0;
+        bit_size    = 0;
         buffer      = NULL;
         ret         = AVERROR_INVALIDDATA;
     }
@@ -513,7 +517,7 @@ void ff_free_vlc(VLC *vlc);
         SKIP_BITS(name, gb, n);                                 \
     } while (0)
 
-#define GET_RL_VLC(level, run, name, gb, table, bits,           \
+#define GET_RL_VLC_INTERNAL(level, run, name, gb, table, bits,  \
                    max_depth, need_update)                      \
     do {                                                        \
         int n, nb_bits;                                         \
@@ -642,6 +646,25 @@ static inline int get_vlc_trace(GetBitContext *s, VLC_TYPE (*table)[2],
     return r;
 }
 
+#define GET_RL_VLC(level, run, name, gb, table, bits,           \
+                   max_depth, need_update)                      \
+    do {                                                        \
+        int show  = SHOW_UBITS(name, gb, 24);                   \
+        int len;                                                \
+        int pos = name ## _index;                               \
+                                                                \
+        GET_RL_VLC_INTERNAL(level, run, name, gb, table, bits,max_depth, need_update); \
+                                                                \
+        len = name ## _index - pos + 1;                         \
+        show = show >> (24 - len);                              \
+                                                                \
+        print_bin(show, len);                                   \
+                                                                \
+        av_log(NULL, AV_LOG_DEBUG, "%5d %2d %3d/%-3d rlv @%5d in %s %s:%d\n",\
+               show, len, run-1, level, pos, __FILE__, __PRETTY_FUNCTION__, __LINE__);\
+    } while (0)                                                 \
+
+
 static inline int get_xbits_trace(GetBitContext *s, int n, const char *file,
                                   const char *func, int line)
 {
@@ -666,6 +689,7 @@ static inline int get_xbits_trace(GetBitContext *s, int n, const char *file,
 
 #else //TRACE
 #define tprintf(p, ...) { }
+#define GET_RL_VLC GET_RL_VLC_INTERNAL
 #endif
 
 #endif /* AVCODEC_GET_BITS_H */
