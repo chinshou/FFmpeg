@@ -239,13 +239,13 @@ static int cache_open(URLContext *h, const char *arg, int flags)
 {
   char *url;
   int dlen, opened;
+  int fd;
   CacheContext *c= h->priv_data;
 
-  arg = strchr(arg, ':') + 1;
   url = strchr(arg, ':') + 1;
   dlen = strlen(arg) - strlen(url);
-  c->cache_path = av_mallocz(sizeof(char) * dlen);
-  av_strlcpy(c->cache_path, arg, dlen);
+  fd = av_tempfile("ffcache", &c->cache_path, 0, h);
+  close(fd);
   av_log(NULL, AV_LOG_INFO, "cache_open: %s, %s\n", c->cache_path, url);
 
   opened = ffurl_open(&c->inner, url, flags, &h->interrupt_callback, NULL);
@@ -376,7 +376,7 @@ static const AVOption options[] = {
   {NULL}
 };
 
-static const AVClass cache2_context_class = {
+static const AVClass cache_context_class = {
   .class_name     = "cache2",
   .item_name      = av_default_item_name,
   .option         = options,
