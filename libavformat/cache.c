@@ -45,9 +45,11 @@
 #include "url.h"
 
 typedef struct Context {
+    const AVClass *class;
     int fd;
     int64_t end;
     int64_t pos;
+    char *cache_path;
     URLContext *inner;
 } Context;
 
@@ -57,16 +59,21 @@ static int cache_open(URLContext *h, const char *arg, int flags)
     Context *c= h->priv_data;
 
     av_strstart(arg, "cache:", &arg);
+    av_log(NULL, AV_LOG_INFO, "cache_open: %s, %s\n", c->cache_path, arg);
 
-    c->fd = av_tempfile("ffcache", &buffername, 0, h);
+    if (c->cache_path)
+      c->fd = open(c->cache_path, O_RDWR | O_BINARY | O_CREAT, 0600);
+    else
+      c->fd = av_tempfile("ffcache", &buffername, 0, h);
     if (c->fd < 0){
-        av_log(h, AV_LOG_ERROR, "Failed to create tempfile\n");
+        av_log(h, AV_LOG_ERROR, "Failed to open cache file\n");
         return c->fd;
     }
-
-    unlink(buffername);
-    av_freep(&buffername);
-
+    if (!c->cache_path)
+    {
+      unlink(buffername);
+      av_freep(&buffername);
+    }
     return ffurl_open(&c->inner, arg, flags, &h->interrupt_callback, NULL);
 }
 
@@ -130,6 +137,21 @@ static int cache_close(URLContext *h)
     return 0;
 }
 
+#define DEC AV_OPT_FLAG_DECODING_PARAM
+#define ENC AV_OPT_FLAG_ENCODING_PARAM
+
+static const AVOption options[] = {
+  {"cache_path", "cache path", offsetof(CacheContext, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC|ENC},
+  {NULL}
+};
+
+static const AVClass cache_context_class = {
+  .class_name     = "cache",
+  .item_name      = av_default_item_name,
+  .option         = options,
+  .version        = LIBAVUTIL_VERSION_INT,
+};
+
 URLProtocol ff_cache_protocol = {
     .name                = "cache",
     .url_open            = cache_open,
@@ -137,4 +159,5 @@ URLProtocol ff_cache_protocol = {
     .url_seek            = cache_seek,
     .url_close           = cache_close,
     .priv_data_size      = sizeof(Context),
+    .priv_data_class     = &cache_context_class,
 };
