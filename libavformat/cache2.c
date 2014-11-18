@@ -244,8 +244,11 @@ static int cache_open(URLContext *h, const char *arg, int flags)
 
   url = strchr(arg, ':') + 1;
   dlen = strlen(arg) - strlen(url);
-  fd = av_tempfile("ffcache", &c->cache_path, 0, h);
-  close(fd);
+  if (!c->cache_path)
+  {
+    fd = av_tempfile("ffcache", &c->cache_path, 0, h);
+    close(fd);
+  }
   av_log(NULL, AV_LOG_INFO, "cache_open: %s, %s\n", c->cache_path, url);
 
   opened = ffurl_open(&c->inner, url, flags, &h->interrupt_callback, NULL);
@@ -373,6 +376,7 @@ static int cache_close(URLContext *h)
 
 static const AVOption options[] = {
   {"cache_clk", "callback when cache updated", offsetof(CacheContext, callback), AV_OPT_TYPE_INT64, {0}, LONG_MIN, LONG_MAX},
+  {"cache_path", "cache path", offsetof(CacheContext, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC|ENC},
   {NULL}
 };
 

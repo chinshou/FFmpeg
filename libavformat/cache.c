@@ -31,6 +31,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/file.h"
+#include "libavutil/opt.h"
 #include "avformat.h"
 #include <fcntl.h>
 #if HAVE_IO_H
