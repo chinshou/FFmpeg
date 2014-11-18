@@ -142,7 +142,7 @@ static int cache_close(URLContext *h)
 #define ENC AV_OPT_FLAG_ENCODING_PARAM
 
 static const AVOption options[] = {
-  {"cache_path", "cache path", offsetof(CacheContext, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC|ENC},
+  {"cache_path", "cache path", offsetof(Context, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC|ENC},
   {NULL}
 };
 
