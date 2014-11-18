@@ -374,6 +374,9 @@ static int cache_close(URLContext *h)
   return 0;
 }
 
+#define DEC AV_OPT_FLAG_DECODING_PARAM
+#define ENC AV_OPT_FLAG_ENCODING_PARAM
+
 static const AVOption options[] = {
   {"cache_clk", "callback when cache updated", offsetof(CacheContext, callback), AV_OPT_TYPE_INT64, {0}, LONG_MIN, LONG_MAX},
   {"cache_path", "cache path", offsetof(CacheContext, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, DEC|ENC},
