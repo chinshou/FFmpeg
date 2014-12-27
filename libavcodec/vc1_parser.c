@@ -112,6 +112,8 @@ static void vc1_extract_header(AVCodecParserContext *s, AVCodecContext *avctx,
 
         break;
     }
+    if (avctx->framerate.num)
+        avctx->time_base = av_inv_q(av_mul_q(avctx->framerate, (AVRational){avctx->ticks_per_frame, 1}));
 }
 
 static int vc1_parse(AVCodecParserContext *s,
@@ -127,6 +129,7 @@ static int vc1_parse(AVCodecParserContext *s,
     uint8_t *unesc_buffer = vpc->unesc_buffer;
     size_t unesc_index = vpc->unesc_index;
     VC1ParseSearchState search_state = vpc->search_state;
+    int start_code_found = 0;
     int next = END_NOT_FOUND;
     int i = vpc->bytes_to_skip;
 
@@ -137,8 +140,8 @@ static int vc1_parse(AVCodecParserContext *s,
         next = 0;
     }
     while (i < buf_size) {
-        int start_code_found = 0;
         uint8_t b;
+        start_code_found = 0;
         while (i < buf_size && unesc_index < UNESCAPED_THRESHOLD) {
             b = buf[i++];
             unesc_buffer[unesc_index++] = b;

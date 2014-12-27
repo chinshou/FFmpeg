@@ -35,9 +35,6 @@
 
 #define MAX_PAYLOAD_SIZE 4096
 
-#undef NDEBUG
-#include <assert.h>
-
 typedef struct PacketDesc {
     int64_t pts;
     int64_t dts;
@@ -301,7 +298,7 @@ static int get_system_header_size(AVFormatContext *ctx)
 static av_cold int mpeg_mux_init(AVFormatContext *ctx)
 {
     MpegMuxContext *s = ctx->priv_data;
-    int bitrate, i, mpa_id, mpv_id, mps_id, ac3_id, dts_id, lpcm_id, j;
+    int bitrate, i, mpa_id, mpv_id, h264_id, mps_id, ac3_id, dts_id, lpcm_id, j;
     AVStream *st;
     StreamInfo *stream;
     int audio_bitrate;
@@ -337,6 +334,7 @@ static av_cold int mpeg_mux_init(AVFormatContext *ctx)
     ac3_id  = AC3_ID;
     dts_id  = DTS_ID;
     mpv_id  = VIDEO_ID;
+    h264_id = H264_ID;
     mps_id  = SUB_ID;
     lpcm_id = LPCM_ID;
 
@@ -388,7 +386,10 @@ static av_cold int mpeg_mux_init(AVFormatContext *ctx)
             s->audio_bound++;
             break;
         case AVMEDIA_TYPE_VIDEO:
-            stream->id = mpv_id++;
+            if (st->codec->codec_id == AV_CODEC_ID_H264)
+                stream->id = h264_id++;
+            else
+                stream->id = mpv_id++;
             if (st->codec->rc_buffer_size)
                 stream->max_buffer_size = 6 * 1024 + st->codec->rc_buffer_size / 8;
             else {
@@ -424,7 +425,8 @@ static av_cold int mpeg_mux_init(AVFormatContext *ctx)
         st     = ctx->streams[i];
         stream = (StreamInfo *)st->priv_data;
 
-        if (st->codec->rc_max_rate || stream->id == VIDEO_ID)
+        if (st->codec->rc_max_rate ||
+            st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
             codec_rate = st->codec->rc_max_rate;
         else
             codec_rate = st->codec->bit_rate;
@@ -436,7 +438,7 @@ static av_cold int mpeg_mux_init(AVFormatContext *ctx)
 
         if ((stream->id & 0xe0) == AUDIO_ID)
             audio_bitrate += codec_rate;
-        else if (stream->id == VIDEO_ID)
+        else if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO)
             video_bitrate += codec_rate;
     }
 
@@ -515,7 +517,7 @@ static av_cold int mpeg_mux_init(AVFormatContext *ctx)
 
 fail:
     for (i = 0; i < ctx->nb_streams; i++)
-        av_free(ctx->streams[i]->priv_data);
+        av_freep(&ctx->streams[i]->priv_data);
     return AVERROR(ENOMEM);
 }
 
@@ -869,7 +871,7 @@ static int flush_packet(AVFormatContext *ctx, int stream_index,
         }
 
         /* output data */
-        assert(payload_size - stuffing_size <= av_fifo_size(stream->fifo));
+        av_assert0(payload_size - stuffing_size <= av_fifo_size(stream->fifo));
         av_fifo_generic_read(stream->fifo, ctx->pb,
                              payload_size - stuffing_size,
                              (void (*)(void*, void*, int))avio_write);
@@ -1023,14 +1025,14 @@ retry:
         goto retry;
     }
 
-    assert(best_i >= 0);
+    av_assert0(best_i >= 0);
 
     st     = ctx->streams[best_i];
     stream = st->priv_data;
 
-    assert(av_fifo_size(stream->fifo) > 0);
+    av_assert0(av_fifo_size(stream->fifo) > 0);
 
-    assert(avail_space >= s->packet_size || ignore_constraints);
+    av_assert0(avail_space >= s->packet_size || ignore_constraints);
 
     timestamp_packet = stream->premux_packet;
     if (timestamp_packet->unwritten_size == timestamp_packet->size) {
@@ -1048,7 +1050,7 @@ retry:
         es_size = flush_packet(ctx, best_i, timestamp_packet->pts,
                                timestamp_packet->dts, scr, trailer_size);
     } else {
-        assert(av_fifo_size(stream->fifo) == trailer_size);
+        av_assert0(av_fifo_size(stream->fifo) == trailer_size);
         es_size = flush_packet(ctx, best_i, AV_NOPTS_VALUE, AV_NOPTS_VALUE, scr,
                                trailer_size);
     }
@@ -1075,8 +1077,10 @@ retry:
         es_size              -= stream->premux_packet->unwritten_size;
         stream->premux_packet = stream->premux_packet->next;
     }
-    if (es_size)
+    if (es_size) {
+        av_assert0(stream->premux_packet);
         stream->premux_packet->unwritten_size -= es_size;
+    }
 
     if (remove_decoded_packets(ctx, s->last_scr) < 0)
         return -1;
@@ -1179,7 +1183,7 @@ static int mpeg_mux_end(AVFormatContext *ctx)
     for (i = 0; i < ctx->nb_streams; i++) {
         stream = ctx->streams[i]->priv_data;
 
-        assert(av_fifo_size(stream->fifo) == 0);
+        av_assert0(av_fifo_size(stream->fifo) == 0);
         av_fifo_freep(&stream->fifo);
     }
     return 0;

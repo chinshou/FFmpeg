@@ -361,7 +361,8 @@ static void mpeg_er_decode_mb(void *opaque, int ref, int mv_dir, int mv_type,
     s->dest[2] = s->current_picture.f->data[2] + (s->mb_y * (16 >> s->chroma_y_shift) * s->uvlinesize) + s->mb_x * (16 >> s->chroma_x_shift);
 
     if (ref)
-        av_log(s->avctx, AV_LOG_DEBUG, "Interlaced error concealment is not fully implemented\n");
+        av_log(s->avctx, AV_LOG_DEBUG,
+               "Interlaced error concealment is not fully implemented\n");
     ff_mpv_decode_mb(s, s->block);
 }
 
@@ -460,10 +461,10 @@ static int frame_size_alloc(MpegEncContext *s, int linesize)
     // at uvlinesize. It supports only YUV420 so 24x24 is enough
     // linesize * interlaced * MBsize
     // we also use this buffer for encoding in encode_mb_internal() needig an additional 32 lines
-    FF_ALLOCZ_OR_GOTO(s->avctx, s->edge_emu_buffer, alloc_size * 4 * 68,
+    FF_ALLOCZ_ARRAY_OR_GOTO(s->avctx, s->edge_emu_buffer, alloc_size, 4 * 68,
                       fail);
 
-    FF_ALLOCZ_OR_GOTO(s->avctx, s->me.scratchpad, alloc_size * 4 * 16 * 2,
+    FF_ALLOCZ_ARRAY_OR_GOTO(s->avctx, s->me.scratchpad, alloc_size, 4 * 16 * 2,
                       fail)
     s->me.temp         = s->me.scratchpad;
     s->rd_scratchpad   = s->me.scratchpad;
@@ -956,6 +957,7 @@ int ff_mpeg_update_thread_context(AVCodecContext *dst,
     // FIXME can parameters change on I-frames?
     // in that case dst may need a reinit
     if (!s->context_initialized) {
+        int err;
         memcpy(s, s1, sizeof(MpegEncContext));
 
         s->avctx                 = dst;
@@ -966,10 +968,10 @@ int ff_mpeg_update_thread_context(AVCodecContext *dst,
 //             s->picture_range_start  += MAX_PICTURE_COUNT;
 //             s->picture_range_end    += MAX_PICTURE_COUNT;
             ff_mpv_idct_init(s);
-            if((ret = ff_mpv_common_init(s)) < 0){
+            if((err = ff_mpv_common_init(s)) < 0){
                 memset(s, 0, sizeof(MpegEncContext));
                 s->avctx = dst;
-                return ret;
+                return err;
             }
         }
     }
@@ -1013,6 +1015,11 @@ do {\
     UPDATE_PICTURE(current_picture);
     UPDATE_PICTURE(last_picture);
     UPDATE_PICTURE(next_picture);
+
+#define REBASE_PICTURE(pic, new_ctx, old_ctx)                                 \
+    ((pic && pic >= old_ctx->picture &&                                       \
+      pic < old_ctx->picture + MAX_PICTURE_COUNT) ?                           \
+        &new_ctx->picture[pic - old_ctx->picture] : NULL)
 
     s->last_picture_ptr    = REBASE_PICTURE(s1->last_picture_ptr,    s, s1);
     s->current_picture_ptr = REBASE_PICTURE(s1->current_picture_ptr, s, s1);
@@ -1107,6 +1114,22 @@ void ff_mpv_common_defaults(MpegEncContext *s)
 void ff_mpv_decode_defaults(MpegEncContext *s)
 {
     ff_mpv_common_defaults(s);
+}
+
+void ff_mpv_decode_init(MpegEncContext *s, AVCodecContext *avctx)
+{
+    s->avctx           = avctx;
+    s->width           = avctx->coded_width;
+    s->height          = avctx->coded_height;
+    s->codec_id        = avctx->codec->id;
+    s->workaround_bugs = avctx->workaround_bugs;
+    s->flags           = avctx->flags;
+    s->flags2          = avctx->flags2;
+
+    /* convert fourcc to upper case */
+    s->codec_tag          = avpriv_toupper4(avctx->codec_tag);
+
+    s->stream_codec_tag   = avpriv_toupper4(avctx->stream_codec_tag);
 }
 
 static int init_er(MpegEncContext *s)
@@ -1319,10 +1342,6 @@ av_cold int ff_mpv_common_init(MpegEncContext *s)
                                   &s->chroma_x_shift,
                                   &s->chroma_y_shift);
 
-    /* convert fourcc to upper case */
-    s->codec_tag          = avpriv_toupper4(s->avctx->codec_tag);
-
-    s->stream_codec_tag   = avpriv_toupper4(s->avctx->stream_codec_tag);
 
     FF_ALLOCZ_OR_GOTO(s->avctx, s->picture,
                       MAX_PICTURE_COUNT * sizeof(Picture), fail);
@@ -1391,7 +1410,7 @@ av_cold int ff_mpv_common_init(MpegEncContext *s)
  * Is used during resolution changes to avoid a full reinitialization of the
  * codec.
  */
-static int free_context_frame(MpegEncContext *s)
+static void free_context_frame(MpegEncContext *s)
 {
     int i, j, k;
 
@@ -1438,13 +1457,14 @@ static int free_context_frame(MpegEncContext *s)
     av_freep(&s->bits_tab);
 
     s->linesize = s->uvlinesize = 0;
-
-    return 0;
 }
 
 int ff_mpv_common_frame_size_change(MpegEncContext *s)
 {
     int i, err = 0;
+
+    if (!s->context_initialized)
+        return AVERROR(EINVAL);
 
     if (s->slice_context_count > 1) {
         for (i = 0; i < s->slice_context_count; i++) {
@@ -1456,8 +1476,7 @@ int ff_mpv_common_frame_size_change(MpegEncContext *s)
     } else
         free_duplicate_context(s);
 
-    if ((err = free_context_frame(s)) < 0)
-        return err;
+    free_context_frame(s);
 
     if (s->picture)
         for (i = 0; i < MAX_PICTURE_COUNT; i++) {
@@ -1475,8 +1494,8 @@ int ff_mpv_common_frame_size_change(MpegEncContext *s)
         s->mb_height = (s->height + 15) / 16;
 
     if ((s->width || s->height) &&
-        av_image_check_size(s->width, s->height, 0, s->avctx))
-        return AVERROR_INVALIDDATA;
+        (err = av_image_check_size(s->width, s->height, 0, s->avctx)) < 0)
+        goto fail;
 
     if ((err = init_context_frame(s)))
         goto fail;
@@ -1492,7 +1511,7 @@ int ff_mpv_common_frame_size_change(MpegEncContext *s)
             }
 
             for (i = 0; i < nb_slices; i++) {
-                if (init_duplicate_context(s->thread_context[i]) < 0)
+                if ((err = init_duplicate_context(s->thread_context[i])) < 0)
                     goto fail;
                     s->thread_context[i]->start_mb_y =
                         (s->mb_height * (i) + nb_slices / 2) / nb_slices;
@@ -1618,9 +1637,13 @@ av_cold void ff_init_rl(RLTable *rl,
     }
 }
 
-av_cold void ff_init_vlc_rl(RLTable *rl)
+av_cold void ff_init_vlc_rl(RLTable *rl, unsigned static_size)
 {
     int i, q;
+    VLC_TYPE table[1500][2] = {{0}};
+    VLC vlc = { .table = table, .table_allocated = static_size };
+    av_assert0(static_size <= FF_ARRAY_ELEMS(table));
+    init_vlc(&vlc, 9, rl->n + 1, &rl->table_vlc[0][1], 4, 2, &rl->table_vlc[0][0], 4, 2, INIT_VLC_USE_NEW_STATIC);
 
     for (q = 0; q < 32; q++) {
         int qmul = q * 2;
@@ -1630,9 +1653,9 @@ av_cold void ff_init_vlc_rl(RLTable *rl)
             qmul = 1;
             qadd = 0;
         }
-        for (i = 0; i < rl->vlc.table_size; i++) {
-            int code = rl->vlc.table[i][0];
-            int len  = rl->vlc.table[i][1];
+        for (i = 0; i < vlc.table_size; i++) {
+            int code = vlc.table[i][0];
+            int len  = vlc.table[i][1];
             int level, run;
 
             if (len == 0) { // illegal code
@@ -1983,6 +2006,7 @@ void ff_mpv_frame_end(MpegEncContext *s)
 }
 
 
+#if FF_API_VISMV
 static int clip_line(int *sx, int *sy, int *ex, int *ey, int maxx)
 {
     if(*sx > *ex)
@@ -2107,6 +2131,7 @@ static void draw_arrow(uint8_t *buf, int sx, int sy, int ex,
     }
     draw_line(buf, sx, sy, ex, ey, w, h, stride, color);
 }
+#endif
 
 static int add_mb(AVMotionVector *mb, uint32_t mb_type,
                   int dst_x, int dst_y,
@@ -2292,13 +2317,15 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict, uint8_t *mbskip_
 
     if ((avctx->debug & (FF_DEBUG_VIS_QP | FF_DEBUG_VIS_MB_TYPE)) ||
         (avctx->debug_mv)) {
-        const int shift = 1 + quarter_sample;
         int mb_y;
-        uint8_t *ptr;
         int i;
         int h_chroma_shift, v_chroma_shift, block_height;
+#if FF_API_VISMV
+        const int shift = 1 + quarter_sample;
+        uint8_t *ptr;
         const int width          = avctx->width;
         const int height         = avctx->height;
+#endif
         const int mv_sample_log2 = avctx->codec_id == AV_CODEC_ID_H264 || avctx->codec_id == AV_CODEC_ID_SVQ3 ? 2 : 1;
         const int mv_stride      = (mb_width << mv_sample_log2) +
                                    (avctx->codec->id == AV_CODEC_ID_H264 ? 0 : 1);
@@ -2310,13 +2337,16 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict, uint8_t *mbskip_
         av_frame_make_writable(pict);
 
         pict->opaque = NULL;
+#if FF_API_VISMV
         ptr          = pict->data[0];
+#endif
         block_height = 16 >> v_chroma_shift;
 
         for (mb_y = 0; mb_y < mb_height; mb_y++) {
             int mb_x;
             for (mb_x = 0; mb_x < mb_width; mb_x++) {
                 const int mb_index = mb_x + mb_y * mb_stride;
+#if FF_API_VISMV
                 if ((avctx->debug_mv) && motion_val[0]) {
                     int type;
                     for (type = 0; type < 3; type++) {
@@ -2396,6 +2426,7 @@ void ff_print_debug_info2(AVCodecContext *avctx, AVFrame *pict, uint8_t *mbskip_
                         }
                     }
                 }
+#endif
                 if ((avctx->debug & FF_DEBUG_VIS_QP)) {
                     uint64_t c = (qscale_table[mb_index] * 128 / 31) *
                                  0x0101010101010101ULL;
