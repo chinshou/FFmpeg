@@ -94,6 +94,18 @@ enum AVFrameSideDataType {
      * libavutil/motion_vector.h.
      */
     AV_FRAME_DATA_MOTION_VECTORS,
+    /**
+     * Recommmends skipping the specified number of samples. This is exported
+     * only if the "skip_manual" AVOption is set in libavcodec.
+     * This has the same format as AV_PKT_DATA_SKIP_SAMPLES.
+     * @code
+     * u32le number of samples to skip from start of this packet
+     * u32le number of samples to skip from end of this packet
+     * u8    reason for start skip
+     * u8    reason for end   skip (0=padding silence, 1=convergence)
+     * @endcode
+     */
+    AV_FRAME_DATA_SKIP_SAMPLES,
 };
 
 enum AVActiveFormatDescription {
@@ -162,7 +174,7 @@ typedef struct AVFrame {
      * For audio, only linesize[0] may be set. For planar audio, each channel
      * plane must be the same size.
      *
-     * For video the linesizes should be multiplies of the CPUs alignment
+     * For video the linesizes should be multiples of the CPUs alignment
      * preference, this is 16 or 32 for modern desktop CPUs.
      * Some code requires such alignment other code can be slower without
      * correct alignment, for yet other it makes no difference.

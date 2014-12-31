@@ -72,7 +72,7 @@ int8_t *av_frame_get_qp_table(AVFrame *f, int *stride, int *type)
 
 const char *av_get_colorspace_name(enum AVColorSpace val)
 {
-    static const char *name[] = {
+    static const char * const name[] = {
         [AVCOL_SPC_RGB]       = "GBR",
         [AVCOL_SPC_BT709]     = "bt709",
         [AVCOL_SPC_FCC]       = "fcc",
@@ -118,6 +118,18 @@ static void free_side_data(AVFrameSideData **ptr_sd)
     av_freep(&sd->data);
     av_dict_free(&sd->metadata);
     av_freep(ptr_sd);
+}
+
+static void wipe_side_data(AVFrame *frame)
+{
+    int i;
+
+    for (i = 0; i < frame->nb_side_data; i++) {
+        free_side_data(&frame->side_data[i]);
+    }
+    frame->nb_side_data = 0;
+
+    av_freep(&frame->side_data);
 }
 
 AVFrame *av_frame_alloc(void)
@@ -366,10 +378,7 @@ void av_frame_unref(AVFrame *frame)
 {
     int i;
 
-    for (i = 0; i < frame->nb_side_data; i++) {
-        free_side_data(&frame->side_data[i]);
-    }
-    av_freep(&frame->side_data);
+    wipe_side_data(frame);
 
     for (i = 0; i < FF_ARRAY_ELEMS(frame->buf); i++)
         av_buffer_unref(&frame->buf[i]);
@@ -499,10 +508,7 @@ int av_frame_copy_props(AVFrame *dst, const AVFrame *src)
         sd_dst = av_frame_new_side_data(dst, sd_src->type,
                                                          sd_src->size);
         if (!sd_dst) {
-            for (i = 0; i < dst->nb_side_data; i++) {
-                free_side_data(&dst->side_data[i]);
-            }
-            av_freep(&dst->side_data);
+            wipe_side_data(dst);
             return AVERROR(ENOMEM);
         }
         memcpy(sd_dst->data, sd_src->data, sd_src->size);

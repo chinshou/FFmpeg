@@ -142,7 +142,7 @@ static int scan_file(AVFormatContext *avctx, AVStream *vst, AVStream *ast, int f
             vst->codec->codec_tag = MKTAG('B', 'I', 'T', 16);
             size -= 164;
         } else if (ast && type == MKTAG('W', 'A', 'V', 'I') && size >= 16) {
-            ret = ff_get_wav_header(pb, ast->codec, 16);
+            ret = ff_get_wav_header(pb, ast->codec, 16, 0);
             if (ret < 0)
                 return ret;
             size -= 16;
@@ -204,8 +204,8 @@ static int scan_file(AVFormatContext *avctx, AVStream *vst, AVStream *ast, int f
             time.tm_yday   = avio_rl16(pb);
             time.tm_isdst  = avio_rl16(pb);
             avio_skip(pb, 2);
-            strftime(str, sizeof(str), "%Y-%m-%d %H:%M:%S", &time);
-            av_dict_set(&avctx->metadata, "time", str, 0);
+            if (strftime(str, sizeof(str), "%Y-%m-%d %H:%M:%S", &time))
+                av_dict_set(&avctx->metadata, "time", str, 0);
             size -= 20;
         } else if (type == MKTAG('E','X','P','O') && size >= 16) {
             av_dict_set(&avctx->metadata, "isoMode", avio_rl32(pb) ? "auto" : "manual", 0);

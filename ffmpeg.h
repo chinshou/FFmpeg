@@ -243,7 +243,10 @@ typedef struct InputStream {
     AVStream *st;
     int discard;             /* true if stream data should be discarded */
     int user_set_discard;
-    int decoding_needed;     /* true if the packets must be decoded in 'raw_fifo' */
+    int decoding_needed;     /* non zero if the packets must be decoded in 'raw_fifo', see DECODING_FOR_* */
+#define DECODING_FOR_OST    1
+#define DECODING_FOR_FILTER 2
+
     AVCodecContext *dec_ctx;
     AVCodec *dec;
     AVFrame *decoded_frame;
@@ -385,6 +388,8 @@ typedef struct OutputStream {
     AVCodec *enc;
     int64_t max_frames;
     AVFrame *filtered_frame;
+    AVFrame *last_frame;
+    int last_droped;
 
     /* video only */
     AVRational frame_rate;
@@ -417,6 +422,7 @@ typedef struct OutputStream {
     AVDictionary *encoder_opts;
     AVDictionary *swr_opts;
     AVDictionary *resample_opts;
+    AVDictionary *bsf_args;
     char *apad;
     OSTFinished finished;        /* no more packets should be written for this stream */
     int unavailable;                     /* true if the steram is unavailable (possibly temporarily) */
@@ -478,6 +484,7 @@ extern int do_deinterlace;
 extern int do_hex_dump;
 extern int do_pkt_dump;
 extern int copy_ts;
+extern int start_at_zero;
 extern int copy_tb;
 extern int debug_ts;
 extern int exit_on_error;
@@ -487,6 +494,7 @@ extern int stdin_interaction;
 extern int frame_bits_per_raw_sample;
 extern AVIOContext *progress_avio;
 extern float max_error_rate;
+extern int vdpau_api_ver;
 
 extern const AVIOInterruptCB int_cb;
 
