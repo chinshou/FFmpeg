@@ -36,6 +36,7 @@
 #include "riff.h"
 #include "libavcodec/bytestream.h"
 #include "libavcodec/exif.h"
+#include "libavformat/isom.h"
 
 typedef struct AVIStream {
     int64_t frame_offset;   /* current frame (video) or byte (audio) counter
@@ -43,6 +44,7 @@ typedef struct AVIStream {
     int remaining;
     int packet_size;
 
+    uint32_t handler;
     uint32_t scale;
     uint32_t rate;
     int sample_size;        /* size of one sample (or packet)
@@ -63,7 +65,7 @@ typedef struct AVIStream {
     int64_t seek_pos;
 } AVIStream;
 
-typedef struct {
+typedef struct AVIContext {
     const AVClass *class;
     int64_t riff_end;
     int64_t movi_end;
@@ -135,7 +137,7 @@ static inline int get_duration(AVIStream *ast, int len)
 static int get_riff(AVFormatContext *s, AVIOContext *pb)
 {
     AVIContext *avi = s->priv_data;
-    char header[8];
+    char header[8] = {0};
     int i;
 
     /* check RIFF header */
@@ -307,7 +309,8 @@ static int avi_read_tag(AVFormatContext *s, AVStream *st, uint32_t tag,
     value = av_malloc(size + 1);
     if (!value)
         return AVERROR(ENOMEM);
-    avio_read(pb, value, size);
+    if (avio_read(pb, value, size) != size)
+        return AVERROR_INVALIDDATA;
     value[size] = 0;
 
     AV_WL32(key, tag);
@@ -627,7 +630,7 @@ static int avi_read_header(AVFormatContext *s)
             }
 
             av_assert0(stream_index < s->nb_streams);
-            st->codec->stream_codec_tag = handler;
+            ast->handler = handler;
 
             avio_rl32(pb); /* flags */
             avio_rl16(pb); /* priority */
@@ -771,9 +774,20 @@ static int avi_read_header(AVFormatContext *s)
                     st->codec->codec_tag  = tag1;
                     st->codec->codec_id   = ff_codec_get_id(ff_codec_bmp_tags,
                                                             tag1);
+                    if (!st->codec->codec_id) {
+                        st->codec->codec_id = ff_codec_get_id(ff_codec_movvideo_tags,
+                                                              tag1);
+                        if (st->codec->codec_id)
+                           av_log(s, AV_LOG_WARNING, "mov tag found in avi\n");
+                    }
                     /* This is needed to get the pict type which is necessary
                      * for generating correct pts. */
                     st->need_parsing = AVSTREAM_PARSE_HEADERS;
+
+                    if (st->codec->codec_id == AV_CODEC_ID_MPEG4 &&
+                        ast->handler == MKTAG('X', 'V', 'I', 'D'))
+                        st->codec->codec_tag = MKTAG('X', 'V', 'I', 'D');
+
                     if (st->codec->codec_tag == MKTAG('V', 'S', 'S', 'H'))
                         st->need_parsing = AVSTREAM_PARSE_FULL;
 
@@ -822,7 +836,7 @@ static int avi_read_header(AVFormatContext *s)
                         st->need_parsing = AVSTREAM_PARSE_NONE;
                     /* AVI files with Xan DPCM audio (wrongly) declare PCM
                      * audio in the header but have Axan as stream_code_tag. */
-                    if (st->codec->stream_codec_tag == AV_RL32("Axan")) {
+                    if (ast->handler == AV_RL32("Axan")) {
                         st->codec->codec_id  = AV_CODEC_ID_XAN_DPCM;
                         st->codec->codec_tag = 0;
                         ast->dshow_block_align = 0;

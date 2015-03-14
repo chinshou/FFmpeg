@@ -130,6 +130,8 @@ static int cdxl_read_packet(AVFormatContext *s, AVPacket *pkt)
     height       = AV_RB16(&cdxl->header[16]);
     palette_size = AV_RB16(&cdxl->header[20]);
     audio_size   = AV_RB16(&cdxl->header[22]);
+    if (FFALIGN(width, 16) * (uint64_t)height * cdxl->header[19] > INT_MAX)
+        return AVERROR_INVALIDDATA;
     image_size   = FFALIGN(width, 16) * height * cdxl->header[19] / 8;
     video_size   = palette_size + image_size;
 
@@ -185,7 +187,7 @@ static int cdxl_read_packet(AVFormatContext *s, AVPacket *pkt)
                 if(cdxl->framerate)
                     st->duration = frames;
                 else
-                    st->duration = frames * audio_size;
+                    st->duration = frames * (int64_t)audio_size;
             }
             st->start_time           = 0;
             cdxl->video_stream_index = st->index;

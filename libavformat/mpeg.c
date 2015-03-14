@@ -28,8 +28,6 @@
 # include "libavutil/bprint.h"
 #endif
 
-#undef NDEBUG
-#include <assert.h>
 #include "libavutil/avassert.h"
 
 /*********************************************/
@@ -210,7 +208,7 @@ static long mpegps_psm_parse(MpegDemuxContext *m, AVIOContext *pb)
 
     /* skip program_stream_info */
     avio_skip(pb, ps_info_length);
-    es_map_length = avio_rb16(pb);
+    /*es_map_length = */avio_rb16(pb);
     /* Ignore es_map_length, trust psm_length */
     es_map_length = psm_length - ps_info_length - 10;
 
