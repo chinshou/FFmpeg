@@ -246,7 +246,7 @@ int ff_set_sar(AVCodecContext *avctx, AVRational sar)
     int ret = av_image_check_sar(avctx->width, avctx->height, sar);
 
     if (ret < 0) {
-        av_log(avctx, AV_LOG_WARNING, "ignoring invalid SAR: %u/%u\n",
+        av_log(avctx, AV_LOG_WARNING, "ignoring invalid SAR: %d/%d\n",
                sar.num, sar.den);
         avctx->sample_aspect_ratio = (AVRational){ 0, 1 };
         return ret;
@@ -297,8 +297,8 @@ void avcodec_align_dimensions2(AVCodecContext *s, int *width, int *height,
     case AV_PIX_FMT_YUV422P:
     case AV_PIX_FMT_YUV440P:
     case AV_PIX_FMT_YUV444P:
-    case AV_PIX_FMT_GBRAP:
     case AV_PIX_FMT_GBRP:
+    case AV_PIX_FMT_GBRAP:
     case AV_PIX_FMT_GRAY8:
     case AV_PIX_FMT_GRAY16BE:
     case AV_PIX_FMT_GRAY16LE:
@@ -374,7 +374,7 @@ void avcodec_align_dimensions2(AVCodecContext *s, int *width, int *height,
     case AV_PIX_FMT_YUVJ411P:
     case AV_PIX_FMT_UYYVYY411:
         w_align = 32;
-        h_align = 8;
+        h_align = 16 * 2;
         break;
     case AV_PIX_FMT_YUV410P:
         if (s->codec_id == AV_CODEC_ID_SVQ1) {
@@ -746,6 +746,7 @@ int ff_init_buffer_info(AVCodecContext *avctx, AVFrame *frame)
         { AV_PKT_DATA_REPLAYGAIN ,   AV_FRAME_DATA_REPLAYGAIN },
         { AV_PKT_DATA_DISPLAYMATRIX, AV_FRAME_DATA_DISPLAYMATRIX },
         { AV_PKT_DATA_STEREO3D,      AV_FRAME_DATA_STEREO3D },
+        { AV_PKT_DATA_AUDIO_SERVICE_TYPE, AV_FRAME_DATA_AUDIO_SERVICE_TYPE },
     };
 
     if (pkt) {
@@ -890,10 +891,13 @@ static int get_buffer_internal(AVCodecContext *avctx, AVFrame *frame, int flags)
     if ((ret = ff_init_buffer_info(avctx, frame)) < 0)
         return ret;
 
-    if (hwaccel && hwaccel->alloc_frame) {
-        ret = hwaccel->alloc_frame(avctx, frame);
-        goto end;
-    }
+    if (hwaccel) {
+        if (hwaccel->alloc_frame) {
+            ret = hwaccel->alloc_frame(avctx, frame);
+            goto end;
+        }
+    } else
+        avctx->sw_pix_fmt = avctx->pix_fmt;
 
 #if FF_API_GET_BUFFER
 FF_DISABLE_DEPRECATION_WARNINGS
@@ -1196,6 +1200,10 @@ int ff_get_format(AVCodecContext *avctx, const enum AVPixelFormat *fmt)
     while (fmt[n] != AV_PIX_FMT_NONE)
         ++n;
 
+    av_assert0(n >= 1);
+    avctx->sw_pix_fmt = fmt[n - 1];
+    av_assert2(!is_hwaccel_pix_fmt(avctx->sw_pix_fmt));
+
     choices = av_malloc_array(n + 1, sizeof(*choices));
     if (!choices)
         return AV_PIX_FMT_NONE;
@@ -1310,7 +1318,7 @@ int attribute_align_arg ff_codec_open2_recursive(AVCodecContext *avctx, const AV
 
     ret = avcodec_open2(avctx, codec, options);
 
-    ff_lock_avcodec(avctx);
+    ff_lock_avcodec(avctx, codec);
     return ret;
 }
 
@@ -1340,7 +1348,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     if (options)
         av_dict_copy(&tmp, *options, 0);
 
-    ret = ff_lock_avcodec(avctx);
+    ret = ff_lock_avcodec(avctx, codec);
     if (ret < 0)
         return ret;
 
@@ -1469,7 +1477,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
     if (CONFIG_FRAME_THREAD_ENCODER) {
         ff_unlock_avcodec(); //we will instanciate a few encoders thus kick the counter to prevent false detection of a problem
         ret = ff_frame_thread_encoder_init(avctx, options ? *options : NULL);
-        ff_lock_avcodec(avctx);
+        ff_lock_avcodec(avctx, codec);
         if (ret < 0)
             goto free_and_end;
     }
@@ -1696,6 +1704,10 @@ end:
 
     return ret;
 free_and_end:
+    if (avctx->codec &&
+        (avctx->codec->caps_internal & FF_CODEC_CAP_INIT_CLEANUP))
+        avctx->codec->close(avctx);
+
     av_dict_free(&tmp);
     if (codec->priv_class && codec->priv_data_size)
         av_opt_free(avctx->priv_data);
@@ -1847,6 +1859,13 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
         memcpy(extended_frame, frame, sizeof(AVFrame));
         extended_frame->extended_data = extended_frame->data;
         frame = extended_frame;
+    }
+
+    /* extract audio service type metadata */
+    if (frame) {
+        AVFrameSideData *sd = av_frame_get_side_data(frame, AV_FRAME_DATA_AUDIO_SERVICE_TYPE);
+        if (sd && sd->size >= sizeof(enum AVAudioServiceType))
+            avctx->audio_service_type = *(enum AVAudioServiceType*)sd->data;
     }
 
     /* check for valid frame size */
@@ -3009,6 +3028,12 @@ void avcodec_string(char *buf, int buf_size, AVCodecContext *enc, int encode)
 
     if (profile)
         snprintf(buf + strlen(buf), buf_size - strlen(buf), " (%s)", profile);
+    if (   enc->codec_type == AVMEDIA_TYPE_VIDEO
+        && av_log_get_level() >= AV_LOG_VERBOSE
+        && enc->refs)
+        snprintf(buf + strlen(buf), buf_size - strlen(buf),
+                 ", %d reference frame%s",
+                 enc->refs, enc->refs > 1 ? "s" : "");
 
     if (enc->codec_tag) {
         char tag_buf[32];
@@ -3579,15 +3604,19 @@ int av_lockmgr_register(int (*cb)(void **mutex, enum AVLockOp op))
     return 0;
 }
 
-int ff_lock_avcodec(AVCodecContext *log_ctx)
+int ff_lock_avcodec(AVCodecContext *log_ctx, AVCodec *codec)
 {
     if (lockmgr_cb) {
         if ((*lockmgr_cb)(&codec_mutex, AV_LOCK_OBTAIN))
             return -1;
     }
-    entangled_thread_counter++;
-    if (entangled_thread_counter != 1) {
-        av_log(log_ctx, AV_LOG_ERROR, "Insufficient thread locking around avcodec_open/close()\n");
+
+    if (avpriv_atomic_int_add_and_fetch(&entangled_thread_counter, 1) != 1 &&
+        !(codec->caps_internal & FF_CODEC_CAP_INIT_THREADSAFE)) {
+        av_log(log_ctx, AV_LOG_ERROR,
+               "Insufficient thread locking. At least %d threads are "
+               "calling avcodec_open2() at the same time right now.\n",
+               entangled_thread_counter);
         if (!lockmgr_cb)
             av_log(log_ctx, AV_LOG_ERROR, "No lock manager is set, please see av_lockmgr_register()\n");
         ff_avcodec_locked = 1;
@@ -3603,7 +3632,7 @@ int ff_unlock_avcodec(void)
 {
     av_assert0(ff_avcodec_locked);
     ff_avcodec_locked = 0;
-    entangled_thread_counter--;
+    avpriv_atomic_int_add_and_fetch(&entangled_thread_counter, -1);
     if (lockmgr_cb) {
         if ((*lockmgr_cb)(&codec_mutex, AV_LOCK_RELEASE))
             return -1;
@@ -3647,6 +3676,8 @@ int ff_thread_ref_frame(ThreadFrame *dst, ThreadFrame *src)
     ret = av_frame_ref(dst->f, src->f);
     if (ret < 0)
         return ret;
+
+    av_assert0(!dst->progress);
 
     if (src->progress &&
         !(dst->progress = av_buffer_ref(src->progress))) {

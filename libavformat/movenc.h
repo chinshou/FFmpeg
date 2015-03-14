@@ -137,9 +137,10 @@ typedef struct MOVTrack {
     unsigned    frag_info_capacity;
 
     struct {
-        int64_t struct_offset;
         int     first_packet_seq;
         int     first_packet_entry;
+        int     first_packet_seen;
+        int     first_frag_written;
         int     packet_seq;
         int     packet_entry;
         int     slices;
@@ -167,6 +168,7 @@ typedef struct MOVMuxContext {
     int iods_video_profile;
     int iods_audio_profile;
 
+    int moov_written;
     int fragments;
     int max_fragment_duration;
     int min_fragment_duration;
@@ -186,6 +188,7 @@ typedef struct MOVMuxContext {
     AVFormatContext *fc;
 
     int use_editlist;
+    float gamma;
 } MOVMuxContext;
 
 #define FF_MOV_FLAG_RTP_HINT              (1 <<  0)
@@ -201,6 +204,9 @@ typedef struct MOVMuxContext {
 #define FF_MOV_FLAG_DEFAULT_BASE_MOOF     (1 << 10)
 #define FF_MOV_FLAG_DASH                  (1 << 11)
 #define FF_MOV_FLAG_FRAG_DISCONT          (1 << 12)
+#define FF_MOV_FLAG_DELAY_MOOV            (1 << 13)
+#define FF_MOV_FLAG_WRITE_COLR            (1 << 14)
+#define FF_MOV_FLAG_WRITE_GAMA            (1 << 15)
 
 int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt);
 
