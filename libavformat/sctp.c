@@ -143,7 +143,7 @@ static int ff_sctp_send(int s, const void *msg, size_t len,
         memcpy(CMSG_DATA(cmsg), sinfo, sizeof(struct sctp_sndrcvinfo));
     }
 
-    return sendmsg(s, &outmsg, flags);
+    return sendmsg(s, &outmsg, flags | MSG_NOSIGNAL);
 }
 
 typedef struct SCTPContext {
@@ -298,11 +298,11 @@ static int sctp_write(URLContext *h, const uint8_t *buf, int size)
         info.sinfo_stream           = AV_RB16(buf);
         if (info.sinfo_stream > s->max_streams) {
             av_log(h, AV_LOG_ERROR, "bad input data\n");
-            return AVERROR(EINVAL);
+            return AVERROR_BUG;
         }
         ret = ff_sctp_send(s->fd, buf + 2, size - 2, &info, MSG_EOR);
     } else
-        ret = send(s->fd, buf, size, 0);
+        ret = send(s->fd, buf, size, MSG_NOSIGNAL);
 
     return ret < 0 ? ff_neterrno() : ret;
 }

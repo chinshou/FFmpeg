@@ -40,6 +40,7 @@
 #define MAX_PLANES 4
 
 enum {
+    PRORES_PROFILE_AUTO  = -1,
     PRORES_PROFILE_PROXY = 0,
     PRORES_PROFILE_LT,
     PRORES_PROFILE_STANDARD,
@@ -823,10 +824,9 @@ static int find_slice_quant(AVCodecContext *avctx, const AVFrame *pic,
         if (ctx->alpha_bits)
             bits += estimate_alpha_plane(ctx, &error, src, linesize[3],
                                          mbs_per_slice, q, td->blocks[3]);
-        if (bits > 65000 * 8) {
+        if (bits > 65000 * 8)
             error = SCORE_LIMIT;
-            break;
-        }
+
         slice_bits[q]  = bits;
         slice_score[q] = error;
     }
@@ -914,7 +914,7 @@ static int find_quant_thread(AVCodecContext *avctx, void *arg,
     for (x = mb = 0; x < ctx->mb_width; x += mbs_per_slice, mb++) {
         while (ctx->mb_width - x < mbs_per_slice)
             mbs_per_slice >>= 1;
-        q = find_slice_quant(avctx, avctx->coded_frame,
+        q = find_slice_quant(avctx, arg,
                              (mb + 1) * TRELLIS_WIDTH, x, y,
                              mbs_per_slice, td);
     }
@@ -941,10 +941,6 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     int pkt_size, ret;
     int max_slice_size = (ctx->frame_size_upper_bound - 200) / (ctx->pictures_per_frame * ctx->slices_per_picture + 1);
     uint8_t frame_flags;
-
-    *avctx->coded_frame           = *pic;
-    avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
-    avctx->coded_frame->key_frame = 1;
 
     pkt_size = ctx->frame_size_upper_bound;
 
@@ -1006,7 +1002,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 
         // slices
         if (!ctx->force_quant) {
-            ret = avctx->execute2(avctx, find_quant_thread, NULL, NULL,
+            ret = avctx->execute2(avctx, find_quant_thread, (void*)pic, NULL,
                                   ctx->mb_height);
             if (ret)
                 return ret;
@@ -1057,7 +1053,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
                     slice_hdr        = pkt->data + (slice_hdr        - start);
                     tmp              = pkt->data + (tmp              - start);
                 }
-                init_put_bits(&pb, buf, (pkt_size - (buf - orig_buf)) * 8);
+                init_put_bits(&pb, buf, (pkt_size - (buf - orig_buf)));
                 ret = encode_slice(avctx, pic, &pb, sizes, x, y, q,
                                    mbs_per_slice);
                 if (ret < 0)
@@ -1096,11 +1092,11 @@ static av_cold int encode_close(AVCodecContext *avctx)
     ProresContext *ctx = avctx->priv_data;
     int i;
 
-    av_freep(&avctx->coded_frame);
+    av_frame_free(&avctx->coded_frame);
 
     if (ctx->tdata) {
         for (i = 0; i < avctx->thread_count; i++)
-            av_free(ctx->tdata[i].nodes);
+            av_freep(&ctx->tdata[i].nodes);
     }
     av_freep(&ctx->tdata);
     av_freep(&ctx->slice_q);
@@ -1134,6 +1130,8 @@ static av_cold int encode_init(AVCodecContext *avctx)
     avctx->coded_frame = av_frame_alloc();
     if (!avctx->coded_frame)
         return AVERROR(ENOMEM);
+    avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
+    avctx->coded_frame->key_frame = 1;
 
     ctx->fdct      = prores_fdct;
     ctx->scantable = interlaced ? ff_prores_interlaced_scan
@@ -1146,7 +1144,23 @@ static av_cold int encode_init(AVCodecContext *avctx)
                "there should be an integer power of two MBs per slice\n");
         return AVERROR(EINVAL);
     }
+    if (ctx->profile == PRORES_PROFILE_AUTO) {
+        const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(avctx->pix_fmt);
+        ctx->profile = (desc->flags & AV_PIX_FMT_FLAG_ALPHA ||
+                        !(desc->log2_chroma_w + desc->log2_chroma_h))
+                     ? PRORES_PROFILE_4444 : PRORES_PROFILE_HQ;
+        av_log(avctx, AV_LOG_INFO, "Autoselected %s. It can be overridden "
+               "through -profile option.\n", ctx->profile == PRORES_PROFILE_4444
+               ? "4:4:4:4 profile because of the used input colorspace"
+               : "HQ profile to keep best quality");
+    }
     if (av_pix_fmt_desc_get(avctx->pix_fmt)->flags & AV_PIX_FMT_FLAG_ALPHA) {
+        if (ctx->profile != PRORES_PROFILE_4444) {
+            // force alpha and warn
+            av_log(avctx, AV_LOG_WARNING, "Profile selected will not "
+                   "encode alpha. Override with -profile if needed.\n");
+            ctx->alpha_bits = 0;
+        }
         if (ctx->alpha_bits & 7) {
             av_log(avctx, AV_LOG_ERROR, "alpha bits should be 0, 8 or 16\n");
             return AVERROR(EINVAL);
@@ -1280,8 +1294,10 @@ static const AVOption options[] = {
     { "mbs_per_slice", "macroblocks per slice", OFFSET(mbs_per_slice),
         AV_OPT_TYPE_INT, { .i64 = 8 }, 1, MAX_MBS_PER_SLICE, VE },
     { "profile",       NULL, OFFSET(profile), AV_OPT_TYPE_INT,
-        { .i64 = PRORES_PROFILE_STANDARD },
-        PRORES_PROFILE_PROXY, PRORES_PROFILE_4444, VE, "profile" },
+        { .i64 = PRORES_PROFILE_AUTO },
+        PRORES_PROFILE_AUTO, PRORES_PROFILE_4444, VE, "profile" },
+    { "auto",         NULL, 0, AV_OPT_TYPE_CONST, { .i64 = PRORES_PROFILE_AUTO },
+        0, 0, VE, "profile" },
     { "proxy",         NULL, 0, AV_OPT_TYPE_CONST, { .i64 = PRORES_PROFILE_PROXY },
         0, 0, VE, "profile" },
     { "lt",            NULL, 0, AV_OPT_TYPE_CONST, { .i64 = PRORES_PROFILE_LT },

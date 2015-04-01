@@ -22,31 +22,50 @@
 #include "libavutil/x86/cpu.h"
 #include "libavcodec/idctdsp.h"
 #include "libavcodec/xvididct.h"
-#include "idct_xvid.h"
-#include "idctdsp.h"
 
-av_cold void ff_xvididct_init_x86(IDCTDSPContext *c)
+#include "idctdsp.h"
+#include "xvididct.h"
+
+static void xvid_idct_sse2_put(uint8_t *dest, int line_size, short *block)
+{
+    ff_xvid_idct_sse2(block);
+    ff_put_pixels_clamped(block, dest, line_size);
+}
+
+static void xvid_idct_sse2_add(uint8_t *dest, int line_size, short *block)
+{
+    ff_xvid_idct_sse2(block);
+    ff_add_pixels_clamped(block, dest, line_size);
+}
+
+av_cold void ff_xvid_idct_init_x86(IDCTDSPContext *c, AVCodecContext *avctx,
+                                   unsigned high_bit_depth)
 {
     int cpu_flags = av_get_cpu_flags();
 
+    if (high_bit_depth ||
+        !(avctx->idct_algo == FF_IDCT_AUTO ||
+          avctx->idct_algo == FF_IDCT_XVID))
+        return;
+
     if (INLINE_MMX(cpu_flags)) {
-        c->idct_put  = ff_idct_xvid_mmx_put;
-        c->idct_add  = ff_idct_xvid_mmx_add;
-        c->idct      = ff_idct_xvid_mmx;
+        c->idct_put  = ff_xvid_idct_mmx_put;
+        c->idct_add  = ff_xvid_idct_mmx_add;
+        c->idct      = ff_xvid_idct_mmx;
         c->perm_type = FF_IDCT_PERM_NONE;
     }
 
     if (INLINE_MMXEXT(cpu_flags)) {
-        c->idct_put  = ff_idct_xvid_mmxext_put;
-        c->idct_add  = ff_idct_xvid_mmxext_add;
-        c->idct      = ff_idct_xvid_mmxext;
+        c->idct_put  = ff_xvid_idct_mmxext_put;
+        c->idct_add  = ff_xvid_idct_mmxext_add;
+        c->idct      = ff_xvid_idct_mmxext;
         c->perm_type = FF_IDCT_PERM_NONE;
     }
 
-    if (INLINE_SSE2(cpu_flags)) {
-        c->idct_put  = ff_idct_xvid_sse2_put;
-        c->idct_add  = ff_idct_xvid_sse2_add;
-        c->idct      = ff_idct_xvid_sse2;
+    if (EXTERNAL_SSE2(cpu_flags)) {
+        c->idct_put  = xvid_idct_sse2_put;
+        c->idct_add  = xvid_idct_sse2_add;
+        c->idct      = ff_xvid_idct_sse2;
         c->perm_type = FF_IDCT_PERM_SSE2;
     }
 }

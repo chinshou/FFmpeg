@@ -198,8 +198,8 @@ static int read_packet(AVFormatContext* ctx, AVPacket *pkt)
         else
     	    break;
     }
-    
-    av_new_packet(pkt, nb_samples*ad->sample_step);
+    if ((error = av_new_packet(pkt, nb_samples*ad->sample_step)) < 0)
+        goto fail;
     pkt->pts = av_gettime();
 
     /* Fill the packet with the available samples */

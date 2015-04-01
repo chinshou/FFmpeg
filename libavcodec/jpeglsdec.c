@@ -28,6 +28,7 @@
 #include "avcodec.h"
 #include "get_bits.h"
 #include "golomb.h"
+#include "internal.h"
 #include "mathops.h"
 #include "mjpeg.h"
 #include "mjpegdec.h"
@@ -269,6 +270,11 @@ static inline void ls_decode_line(JLSState *state, MJpegDecodeContext *s,
                 x += stride;
             }
 
+            if (x >= w) {
+                av_log(NULL, AV_LOG_ERROR, "run overflow\n");
+                return;
+            }
+
             /* decode run termination value */
             Rb     = R(last, x);
             RItype = (FFABS(Ra - Rb) <= state->near) ? 1 : 0;
@@ -503,4 +509,5 @@ AVCodec ff_jpegls_decoder = {
     .close          = ff_mjpeg_decode_end,
     .decode         = ff_mjpeg_decode_frame,
     .capabilities   = CODEC_CAP_DR1,
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE,
 };
