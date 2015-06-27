@@ -44,6 +44,7 @@ OBJS-$(CONFIG_CAVS_DECODER)            += x86/cavsdsp.o
 OBJS-$(CONFIG_DCA_DECODER)             += x86/dcadsp_init.o
 OBJS-$(CONFIG_DNXHD_ENCODER)           += x86/dnxhdenc_init.o
 OBJS-$(CONFIG_HEVC_DECODER)            += x86/hevcdsp_init.o
+OBJS-$(CONFIG_JPEG2000_DECODER)        += x86/jpeg2000dsp_init.o
 OBJS-$(CONFIG_MLP_DECODER)             += x86/mlpdsp_init.o
 OBJS-$(CONFIG_MPEG4_DECODER)           += x86/xvididct_init.o
 OBJS-$(CONFIG_PNG_DECODER)             += x86/pngdsp_init.o
@@ -73,7 +74,6 @@ MMX-OBJS-$(CONFIG_FDCTDSP)             += x86/fdct.o
 MMX-OBJS-$(CONFIG_IDCTDSP)             += x86/simple_idct.o
 
 # decoders/encoders
-MMX-OBJS-$(CONFIG_MPEG4_DECODER)       += x86/xvididct_mmx.o
 MMX-OBJS-$(CONFIG_SNOW_DECODER)        += x86/snowdsp.o
 MMX-OBJS-$(CONFIG_SNOW_ENCODER)        += x86/snowdsp.o
 MMX-OBJS-$(CONFIG_VC1_DECODER)         += x86/vc1dsp_mmx.o
@@ -139,6 +139,7 @@ YASM-OBJS-$(CONFIG_HEVC_DECODER)       += x86/hevc_mc.o                 \
                                           x86/hevc_idct.o               \
                                           x86/hevc_res_add.o            \
                                           x86/hevc_sao.o
+YASM-OBJS-$(CONFIG_JPEG2000_DECODER)   += x86/jpeg2000dsp.o
 YASM-OBJS-$(CONFIG_MLP_DECODER)        += x86/mlpdsp.o
 YASM-OBJS-$(CONFIG_MPEG4_DECODER)      += x86/xvididct.o
 YASM-OBJS-$(CONFIG_PNG_DECODER)        += x86/pngdsp.o
