@@ -18,7 +18,9 @@
  * License along with FFmpeg; if not, write to the Free Software                                                                                     
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA                                                                      
  */                                                                                                                                                  
-                                                                                                                                                     
+#include "libavutil/log.h"
+#include "libavutil/opt.h"
+#include "libavutil/parseutils.h"                                                                                                                                                     
 #include "libavformat/avformat.h"
 #include "libavutil/samplefmt.h"            
 #include "libavformat/internal.h"                                                                                                        
@@ -53,7 +55,8 @@ struct {
 #endif                                                                                                                                               
 };                                                                                                                                                   
                                                                                                                                                      
-struct waveform_ctx {                                                                                                                                
+struct waveform_ctx {     
+    const AVClass *class;	
     HWAVEIN wi;                                                                                                                                      
     HANDLE mutex;                                                                                                                                    
     HANDLE event;                                                                                                                                    
@@ -64,7 +67,9 @@ struct waveform_ctx {
     int needs_pts[AUDIO_BLOCK_COUNT];                                                                                                                
     int next_buffer_write;                                                                                                                           
     int next_buffer_read;                                                                                                                            
-    int started;                                                                                                                                     
+    int started;    
+	int samplerate;
+	int channels;
 };                                                                                                                                                   
                                                                                                                                                      
 static void CALLBACK waveInProc(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance,                                                                        
@@ -238,8 +243,8 @@ static int waveform_read_header(AVFormatContext *s)
     ctx->needs_pts[ctx->next_buffer_write] = 1;                                                                                                      
                                                                                                                                                      
     fx.wFormatTag      = WAVE_FORMAT_PCM;                                                                                                            
-    fx.nChannels       = 2;//ap->channels;                                                                                                               
-    fx.nSamplesPerSec  = 44100;//ap->sample_rate;                                                                                                            
+    fx.nChannels       = ctx->channels;//ap->channels;                                                                                                               
+    fx.nSamplesPerSec  = ctx->samplerate;                                                                                                         
     fx.wBitsPerSample  = av_get_bytes_per_sample(AV_SAMPLE_FMT_S16) << 3;//av_get_bits_per_sample_fmt(AV_SAMPLE_FMT_S16);//(ap->sample_fmt);                                                                              
     fx.nBlockAlign     = fx.nChannels * (fx.wBitsPerSample >> 3);                                                                                    
     fx.nAvgBytesPerSec = fx.nSamplesPerSec * fx.nBlockAlign;                                                                                         
@@ -340,7 +345,15 @@ static int waveform_read_packet(AVFormatContext *s, AVPacket *pkt)
     waveInAddBuffer(ctx->wi, header, sizeof(*header));                                                                                               
                                                                                                                                                      
     return pkt->size;                                                                                                                                
-}                                                                                                                                                    
+}            
+
+#define OFFSET(x) offsetof(struct waveform_ctx, x)
+#define DEC AV_OPT_FLAG_DECODING_PARAM
+static const AVOption options[] = {
+    { "samplerate", "A string describing samplerate.", OFFSET(samplerate), AV_OPT_TYPE_INT, {.i64 = 44100}, 8000, 96000, DEC },
+    { "channels",   "A string describing samplerate.", OFFSET(channels), AV_OPT_TYPE_INT, {.i64 = 2}, 1, 2, DEC },
+	{ NULL },
+};
                                                                                                                                                      
 AVInputFormat ff_waveform_demuxer = {                                                                                                                   
     .name ="waveform",                                                                                                                                      
