@@ -125,19 +125,20 @@ typedef struct RL_VLC_ELEM {
 #   define MIN_CACHE_BITS 25
 #endif
 
-#if UNCHECKED_BITSTREAM_READER
-#define OPEN_READER(name, gb)                   \
+#define OPEN_READER_NOSIZE(name, gb)            \
     unsigned int name ## _index = (gb)->index;  \
     unsigned int av_unused name ## _cache
 
-#define HAVE_BITS_REMAINING(name, gb) 1
+#if UNCHECKED_BITSTREAM_READER
+#define OPEN_READER(name, gb) OPEN_READER_NOSIZE(name, gb)
+
+#define BITS_AVAILABLE(name, gb) 1
 #else
 #define OPEN_READER(name, gb)                   \
-    unsigned int name ## _index = (gb)->index;  \
-    unsigned int av_unused name ## _cache = 0;  \
-    unsigned int av_unused name ## _size_plus8 = (gb)->size_in_bits_plus8
+    OPEN_READER_NOSIZE(name, gb);               \
+    unsigned int name ## _size_plus8 = (gb)->size_in_bits_plus8
 
-#define HAVE_BITS_REMAINING(name, gb) name ## _index < name ## _size_plus8
+#define BITS_AVAILABLE(name, gb) name ## _index < name ## _size_plus8
 #endif
 
 #define CLOSE_READER(name, gb) (gb)->index = name ## _index
@@ -286,7 +287,7 @@ static inline unsigned int get_bits_le(GetBitContext *s, int n)
 static inline unsigned int show_bits(GetBitContext *s, int n)
 {
     register int tmp;
-    OPEN_READER(re, s);
+    OPEN_READER_NOSIZE(re, s);
     av_assert2(n>0 && n<=25);
     UPDATE_CACHE(re, s);
     tmp = SHOW_UBITS(re, s, n);
@@ -393,7 +394,7 @@ static inline int check_marker(GetBitContext *s, const char *msg)
 {
     int bit = get_bits1(s);
     if (!bit)
-        av_log(NULL, AV_LOG_INFO, "Marker bit missing %s\n", msg);
+        av_log(NULL, AV_LOG_INFO, "Marker bit missing at %d of %d %s\n", get_bits_count(s) - 1, s->size_in_bits, msg);
 
     return bit;
 }
@@ -684,11 +685,7 @@ static inline int get_xbits_trace(GetBitContext *s, int n, const char *file,
 
 #define get_vlc(s, vlc)             get_vlc_trace(s, (vlc)->table, (vlc)->bits,   3, __FILE__, __PRETTY_FUNCTION__, __LINE__)
 #define get_vlc2(s, tab, bits, max) get_vlc_trace(s,          tab,        bits, max, __FILE__, __PRETTY_FUNCTION__, __LINE__)
-
-#define tprintf(p, ...) av_log(p, AV_LOG_DEBUG, __VA_ARGS__)
-
 #else //TRACE
-#define tprintf(p, ...) { }
 #define GET_RL_VLC GET_RL_VLC_INTERNAL
 #endif
 

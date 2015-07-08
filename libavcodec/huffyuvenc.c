@@ -220,8 +220,6 @@ static av_cold int encode_init(AVCodecContext *avctx)
     ff_huffyuvencdsp_init(&s->hencdsp);
 
     avctx->extradata = av_mallocz(3*MAX_N + 4);
-    if (!avctx->extradata)
-        return AVERROR(ENOMEM);
     if (s->flags&CODEC_FLAG_PASS1) {
 #define STATS_OUT_SIZE 21*MAX_N*3 + 4
         avctx->stats_out = av_mallocz(STATS_OUT_SIZE); // 21*256*3(%llu ) + 3(\n) + 1(0) = 16132
@@ -231,7 +229,7 @@ static av_cold int encode_init(AVCodecContext *avctx)
     s->version = 2;
 
     avctx->coded_frame = av_frame_alloc();
-    if (!avctx->coded_frame)
+    if (!avctx->extradata || !avctx->coded_frame)
         return AVERROR(ENOMEM);
 
     avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
@@ -488,14 +486,30 @@ static int encode_422_bitstream(HYuvContext *s, int offset, int count)
     return 0;
 }
 
-static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
+static int encode_plane_bitstream(HYuvContext *s, int width, int plane)
 {
-    int i;
+    int i, count = width/2;
 
     if (s->pb.buf_end - s->pb.buf - (put_bits_count(&s->pb) >> 3) < count * s->bps / 2) {
         av_log(s->avctx, AV_LOG_ERROR, "encoded frame too large\n");
         return -1;
     }
+
+#define LOADEND\
+            int y0 = s->temp[0][width-1];
+#define LOADEND_14\
+            int y0 = s->temp16[0][width-1] & mask;
+#define LOADEND_16\
+            int y0 = s->temp16[0][width-1];
+#define STATEND\
+            s->stats[plane][y0]++;
+#define STATEND_16\
+            s->stats[plane][y0>>2]++;
+#define WRITEEND\
+            put_bits(&s->pb, s->len[plane][y0], s->bits[plane][y0]);
+#define WRITEEND_16\
+            put_bits(&s->pb, s->len[plane][y0>>2], s->bits[plane][y0>>2]);\
+            put_bits(&s->pb, 2, y0&3);
 
 #define LOAD2\
             int y0 = s->temp[0][2 * i];\
@@ -521,13 +535,15 @@ static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
             put_bits(&s->pb, s->len[plane][y1>>2], s->bits[plane][y1>>2]);\
             put_bits(&s->pb, 2, y1&3);
 
-    count /= 2;
-
     if (s->bps <= 8) {
     if (s->flags & CODEC_FLAG_PASS1) {
         for (i = 0; i < count; i++) {
             LOAD2;
             STAT2;
+        }
+        if (width&1) {
+            LOADEND;
+            STATEND;
         }
     }
     if (s->avctx->flags2 & CODEC_FLAG2_NO_OUTPUT)
@@ -539,10 +555,19 @@ static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
             STAT2;
             WRITE2;
         }
+        if (width&1) {
+            LOADEND;
+            STATEND;
+            WRITEEND;
+        }
     } else {
         for (i = 0; i < count; i++) {
             LOAD2;
             WRITE2;
+        }
+        if (width&1) {
+            LOADEND;
+            WRITEEND;
         }
     }
     } else if (s->bps <= 14) {
@@ -552,6 +577,10 @@ static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
                 LOAD2_14;
                 STAT2;
             }
+            if (width&1) {
+                LOADEND_14;
+                STATEND;
+            }
         }
         if (s->avctx->flags2 & CODEC_FLAG2_NO_OUTPUT)
             return 0;
@@ -562,10 +591,19 @@ static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
                 STAT2;
                 WRITE2;
             }
+            if (width&1) {
+                LOADEND_14;
+                STATEND;
+                WRITEEND;
+            }
         } else {
             for (i = 0; i < count; i++) {
                 LOAD2_14;
                 WRITE2;
+            }
+            if (width&1) {
+                LOADEND_14;
+                WRITEEND;
             }
         }
     } else {
@@ -573,6 +611,10 @@ static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
             for (i = 0; i < count; i++) {
                 LOAD2_16;
                 STAT2_16;
+            }
+            if (width&1) {
+                LOADEND_16;
+                STATEND_16;
             }
         }
         if (s->avctx->flags2 & CODEC_FLAG2_NO_OUTPUT)
@@ -584,10 +626,19 @@ static int encode_plane_bitstream(HYuvContext *s, int count, int plane)
                 STAT2_16;
                 WRITE2_16;
             }
+            if (width&1) {
+                LOADEND_16;
+                STATEND_16;
+                WRITEEND_16;
+            }
         } else {
             for (i = 0; i < count; i++) {
                 LOAD2_16;
                 WRITE2_16;
+            }
+            if (width&1) {
+                LOADEND_16;
+                WRITEEND_16;
             }
         }
     }
@@ -1027,6 +1078,8 @@ AVCodec ff_huffyuv_encoder = {
         AV_PIX_FMT_YUV422P, AV_PIX_FMT_RGB24,
         AV_PIX_FMT_RGB32, AV_PIX_FMT_NONE
     },
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE |
+                      FF_CODEC_CAP_INIT_CLEANUP,
 };
 
 #if CONFIG_FFVHUFF_ENCODER
@@ -1059,5 +1112,7 @@ AVCodec ff_ffvhuff_encoder = {
         AV_PIX_FMT_RGB24,
         AV_PIX_FMT_RGB32, AV_PIX_FMT_NONE
     },
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE |
+                      FF_CODEC_CAP_INIT_CLEANUP,
 };
 #endif
