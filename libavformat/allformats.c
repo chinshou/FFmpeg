@@ -357,7 +357,7 @@ void av_register_all(void)
     REGISTER_PROTOCOL(ASYNC,            async);
     REGISTER_PROTOCOL(BLURAY,           bluray);
     REGISTER_PROTOCOL(CACHE,            cache);
-    REGISTER_PROTOCOL(CACHE2,           cache2);
+    //REGISTER_PROTOCOL(CACHE2,           cache2);
     REGISTER_PROTOCOL(CONCAT,           concat);
     REGISTER_PROTOCOL(CRYPTO,           crypto);
     REGISTER_PROTOCOL(DATA,             data);
