@@ -12,6 +12,7 @@ LIBAVFORMAT_$MAJOR {
                 ffurl_close;
                 ffurl_open;
                 ffurl_read_complete;
+                ff*;
                 ffurl_seek;
                 ffurl_size;
                 ffurl_write;
