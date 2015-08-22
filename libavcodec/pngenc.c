@@ -495,14 +495,14 @@ static int encode_png(AVCodecContext *avctx, AVPacket *pkt,
 
     enc_row_size    = deflateBound(&s->zstream, (avctx->width * s->bits_per_pixel + 7) >> 3);
     max_packet_size =
-        FF_MIN_BUFFER_SIZE + // headers
+        AV_INPUT_BUFFER_MIN_SIZE + // headers
         avctx->height * (
             enc_row_size +
             12 * (((int64_t)enc_row_size + IOBUF_SIZE - 1) / IOBUF_SIZE) // IDAT * ceil(enc_row_size / IOBUF_SIZE)
         );
     if (max_packet_size > INT_MAX)
         return AVERROR(ENOMEM);
-    ret = ff_alloc_packet2(avctx, pkt, max_packet_size);
+    ret = ff_alloc_packet2(avctx, pkt, max_packet_size, 0);
     if (ret < 0)
         return ret;
 
@@ -553,14 +553,14 @@ static int encode_apng(AVCodecContext *avctx, AVPacket *pkt,
 
     enc_row_size    = deflateBound(&s->zstream, (avctx->width * s->bits_per_pixel + 7) >> 3);
     max_packet_size =
-        FF_MIN_BUFFER_SIZE + // headers
+        AV_INPUT_BUFFER_MIN_SIZE + // headers
         avctx->height * (
             enc_row_size +
             (4 + 12) * (((int64_t)enc_row_size + IOBUF_SIZE - 1) / IOBUF_SIZE) // fdAT * ceil(enc_row_size / IOBUF_SIZE)
         );
     if (max_packet_size > INT_MAX)
         return AVERROR(ENOMEM);
-    ret = ff_alloc_packet2(avctx, pkt, max_packet_size);
+    ret = ff_alloc_packet2(avctx, pkt, max_packet_size, 0);
     if (ret < 0)
         return ret;
 
@@ -627,12 +627,12 @@ static av_cold int png_enc_init(AVCodecContext *avctx)
         avctx->bits_per_coded_sample = 8;
     }
 
-    avctx->coded_frame = av_frame_alloc();
-    if (!avctx->coded_frame)
-        return AVERROR(ENOMEM);
-
+#if FF_API_CODED_FRAME
+FF_DISABLE_DEPRECATION_WARNINGS
     avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
     avctx->coded_frame->key_frame = 1;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     ff_huffyuvencdsp_init(&s->hdsp);
 
@@ -649,7 +649,7 @@ static av_cold int png_enc_init(AVCodecContext *avctx)
       s->dpm = s->dpi * 10000 / 254;
     }
 
-    s->is_progressive = !!(avctx->flags & CODEC_FLAG_INTERLACED_DCT);
+    s->is_progressive = !!(avctx->flags & AV_CODEC_FLAG_INTERLACED_DCT);
     switch (avctx->pix_fmt) {
     case AV_PIX_FMT_RGBA64BE:
         s->bit_depth = 16;
@@ -713,7 +713,6 @@ static av_cold int png_enc_close(AVCodecContext *avctx)
     PNGEncContext *s = avctx->priv_data;
 
     deflateEnd(&s->zstream);
-    av_frame_free(&avctx->coded_frame);
     return 0;
 }
 
@@ -748,7 +747,7 @@ AVCodec ff_png_encoder = {
     .init           = png_enc_init,
     .close          = png_enc_close,
     .encode2        = encode_png,
-    .capabilities   = CODEC_CAP_FRAME_THREADS | CODEC_CAP_INTRA_ONLY,
+    .capabilities   = AV_CODEC_CAP_FRAME_THREADS | AV_CODEC_CAP_INTRA_ONLY,
     .pix_fmts       = (const enum AVPixelFormat[]) {
         AV_PIX_FMT_RGB24, AV_PIX_FMT_RGBA,
         AV_PIX_FMT_RGB48BE, AV_PIX_FMT_RGBA64BE,

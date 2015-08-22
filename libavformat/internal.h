@@ -31,6 +31,8 @@
 #define PROBE_BUF_MIN 2048
 #define PROBE_BUF_MAX (1 << 20)
 
+#define MAX_PROBE_PACKETS 2500
+
 #ifdef DEBUG
 #    define hex_dump_debug(class, buf, size) av_hex_dump_log(class, AV_LOG_DEBUG, buf, size)
 #else
@@ -254,6 +256,8 @@ int ff_add_index_entry(AVIndexEntry **index_entries,
                        unsigned int *index_entries_allocated_size,
                        int64_t pos, int64_t timestamp, int size, int distance, int flags);
 
+void ff_configure_buffers_for_index(AVFormatContext *s, int64_t time_tolerance);
+
 /**
  * Add a new chapter.
  *
@@ -447,7 +451,7 @@ uint8_t *ff_stream_new_side_data(AVStream *st, enum AVPacketSideDataType type,
                                  int size);
 
 /**
- * Allocate extradata with additional FF_INPUT_BUFFER_PADDING_SIZE at end
+ * Allocate extradata with additional AV_INPUT_BUFFER_PADDING_SIZE at end
  * which is always set to 0.
  *
  * @param size size of extradata
@@ -456,7 +460,7 @@ uint8_t *ff_stream_new_side_data(AVStream *st, enum AVPacketSideDataType type,
 int ff_alloc_extradata(AVCodecContext *avctx, int size);
 
 /**
- * Allocate extradata with additional FF_INPUT_BUFFER_PADDING_SIZE at end
+ * Allocate extradata with additional AV_INPUT_BUFFER_PADDING_SIZE at end
  * which is always set to 0 and fill it from pb.
  *
  * @param size size of extradata

@@ -54,7 +54,7 @@ enum DDSPostProc {
     DDS_SWIZZLE_XGBR,
     DDS_SWIZZLE_XRBG,
     DDS_SWIZZLE_XGXR,
-} DDSPostProc;
+};
 
 enum DDSDXGIFormat {
     DXGI_FORMAT_R16G16B16A16_TYPELESS       =  9,
@@ -93,7 +93,7 @@ enum DDSDXGIFormat {
     DXGI_FORMAT_B8G8R8A8_UNORM_SRGB         = 91,
     DXGI_FORMAT_B8G8R8X8_TYPELESS           = 92,
     DXGI_FORMAT_B8G8R8X8_UNORM_SRGB         = 93,
-} DDSDXGIFormat;
+};
 
 typedef struct DDSContext {
     TextureDSPContext texdsp;
@@ -105,6 +105,7 @@ typedef struct DDSContext {
 
     const uint8_t *tex_data; // Compressed texture
     int tex_ratio;           // Compression ratio
+    int slice_count;         // Number of slices for threaded operations
 
     /* Pointer to the selected compress or decompress function. */
     int (*tex_funct)(uint8_t *dst, ptrdiff_t stride, const uint8_t *block);
@@ -357,13 +358,13 @@ static int parse_pixel_format(AVCodecContext *avctx)
             avctx->pix_fmt = AV_PIX_FMT_BGR24;
         /* 32 bpp */
         else if (bpp == 32 && r == 0xff0000 && g == 0xff00 && b == 0xff && a == 0)
-            avctx->pix_fmt = AV_PIX_FMT_RGBA; // opaque
+            avctx->pix_fmt = AV_PIX_FMT_BGR0; // opaque
         else if (bpp == 32 && r == 0xff && g == 0xff00 && b == 0xff0000 && a == 0)
-            avctx->pix_fmt = AV_PIX_FMT_BGRA; // opaque
+            avctx->pix_fmt = AV_PIX_FMT_RGB0; // opaque
         else if (bpp == 32 && r == 0xff0000 && g == 0xff00 && b == 0xff && a == 0xff000000)
-            avctx->pix_fmt = AV_PIX_FMT_RGBA;
-        else if (bpp == 32 && r == 0xff && g == 0xff00 && b == 0xff0000 && a == 0xff000000)
             avctx->pix_fmt = AV_PIX_FMT_BGRA;
+        else if (bpp == 32 && r == 0xff && g == 0xff00 && b == 0xff0000 && a == 0xff000000)
+            avctx->pix_fmt = AV_PIX_FMT_RGBA;
         /* give up */
         else {
             av_log(avctx, AV_LOG_ERROR, "Unknown pixel format "
@@ -414,16 +415,39 @@ static int parse_pixel_format(AVCodecContext *avctx)
 }
 
 static int decompress_texture_thread(AVCodecContext *avctx, void *arg,
-                                     int block_nb, int thread_nb)
+                                     int slice, int thread_nb)
 {
     DDSContext *ctx = avctx->priv_data;
     AVFrame *frame = arg;
-    int x = (TEXTURE_BLOCK_W * block_nb) % avctx->coded_width;
-    int y = TEXTURE_BLOCK_H * (TEXTURE_BLOCK_W * block_nb / avctx->coded_width);
-    uint8_t *p = frame->data[0] + x * 4 + y * frame->linesize[0];
-    const uint8_t *d = ctx->tex_data + block_nb * ctx->tex_ratio;
+    const uint8_t *d = ctx->tex_data;
+    int w_block = avctx->coded_width / TEXTURE_BLOCK_W;
+    int h_block = avctx->coded_height / TEXTURE_BLOCK_H;
+    int x, y;
+    int start_slice, end_slice;
+    int base_blocks_per_slice = h_block / ctx->slice_count;
+    int remainder_blocks = h_block % ctx->slice_count;
 
-    ctx->tex_funct(p, frame->linesize[0], d);
+    /* When the frame height (in blocks) doesn't divide evenly between the
+     * number of slices, spread the remaining blocks evenly between the first
+     * operations */
+    start_slice = slice * base_blocks_per_slice;
+    /* Add any extra blocks (one per slice) that have been added before this slice */
+    start_slice += FFMIN(slice, remainder_blocks);
+
+    end_slice = start_slice + base_blocks_per_slice;
+    /* Add an extra block if there are still remainder blocks to be accounted for */
+    if (slice < remainder_blocks)
+        end_slice++;
+
+    for (y = start_slice; y < end_slice; y++) {
+        uint8_t *p = frame->data[0] + y * frame->linesize[0] * TEXTURE_BLOCK_H;
+        int off  = y * w_block;
+        for (x = 0; x < w_block; x++) {
+            ctx->tex_funct(p + x * 16, frame->linesize[0],
+                           d + (off + x) * ctx->tex_ratio);
+        }
+    }
+
     return 0;
 }
 
@@ -568,7 +592,7 @@ static int dds_decode(AVCodecContext *avctx, void *data,
     DDSContext *ctx = avctx->priv_data;
     GetByteContext *gbc = &ctx->gbc;
     AVFrame *frame = data;
-    int blocks, mipmap;
+    int mipmap;
     int ret;
 
     ff_texturedsp_init(&ctx->texdsp);
@@ -618,10 +642,12 @@ static int dds_decode(AVCodecContext *avctx, void *data,
         return ret;
 
     if (ctx->compressed) {
+        ctx->slice_count = av_clip(avctx->thread_count, 1,
+                                   avctx->coded_height / TEXTURE_BLOCK_H);
+
         /* Use the decompress function on the texture, one block per thread. */
         ctx->tex_data = gbc->buffer;
-        blocks = avctx->coded_width * avctx->coded_height / (TEXTURE_BLOCK_W * TEXTURE_BLOCK_H);
-        avctx->execute2(avctx, decompress_texture_thread, frame, NULL, blocks);
+        avctx->execute2(avctx, decompress_texture_thread, frame, NULL, ctx->slice_count);
     } else {
         int linesize = av_image_get_linesize(avctx->pix_fmt, frame->width, 0);
 
@@ -629,9 +655,13 @@ static int dds_decode(AVCodecContext *avctx, void *data,
             int i;
             /* Use the first 1024 bytes as palette, then copy the rest. */
             bytestream2_get_buffer(gbc, frame->data[1], 256 * 4);
-            if (HAVE_BIGENDIAN)
-                for (i = 0; i < 256; i++)
-                    AV_WB32(frame->data[1] + i*4, AV_RL32(frame->data[1] + i*4));
+            for (i = 0; i < 256; i++)
+                AV_WN32(frame->data[1] + i*4,
+                        (frame->data[1][2+i*4]<<0)+
+                        (frame->data[1][1+i*4]<<8)+
+                        (frame->data[1][0+i*4]<<16)+
+                        (frame->data[1][3+i*4]<<24)
+                );
 
             frame->palette_has_changed = 1;
         }
@@ -642,7 +672,11 @@ static int dds_decode(AVCodecContext *avctx, void *data,
     }
 
     /* Run any post processing here if needed. */
-    if (avctx->pix_fmt == AV_PIX_FMT_RGBA || avctx->pix_fmt == AV_PIX_FMT_YA8)
+    if (avctx->pix_fmt == AV_PIX_FMT_BGRA ||
+        avctx->pix_fmt == AV_PIX_FMT_RGBA ||
+        avctx->pix_fmt == AV_PIX_FMT_RGB0 ||
+        avctx->pix_fmt == AV_PIX_FMT_BGR0 ||
+        avctx->pix_fmt == AV_PIX_FMT_YA8)
         run_postproc(avctx, frame);
 
     /* Frame is ready to be output. */
@@ -660,6 +694,6 @@ AVCodec ff_dds_decoder = {
     .id             = AV_CODEC_ID_DDS,
     .decode         = dds_decode,
     .priv_data_size = sizeof(DDSContext),
-    .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_SLICE_THREADS,
+    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS,
     .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE
 };
