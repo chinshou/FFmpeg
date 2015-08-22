@@ -233,6 +233,7 @@ typedef struct MXFIndexTable {
     int nb_segments;
     MXFIndexTableSegment **segments;    /* sorted by IndexStartPosition */
     AVIndexEntry *fake_index;   /* used for calling ff_index_search_timestamp() */
+    int8_t *offsets;            /* temporal offsets for display order to stored order conversion */
 } MXFIndexTable;
 
 typedef struct MXFContext {
@@ -1334,6 +1335,7 @@ static int mxf_compute_ptses_fake_index(MXFContext *mxf, MXFIndexTable *index_ta
 {
     int i, j, x;
     int8_t max_temporal_offset = -128;
+    uint8_t *flags;
 
     /* first compute how many entries we have */
     for (i = 0; i < index_table->nb_segments; i++) {
@@ -1352,8 +1354,12 @@ static int mxf_compute_ptses_fake_index(MXFContext *mxf, MXFIndexTable *index_ta
         return 0;
 
     if (!(index_table->ptses      = av_calloc(index_table->nb_ptses, sizeof(int64_t))) ||
-        !(index_table->fake_index = av_calloc(index_table->nb_ptses, sizeof(AVIndexEntry)))) {
+        !(index_table->fake_index = av_calloc(index_table->nb_ptses, sizeof(AVIndexEntry))) ||
+        !(index_table->offsets    = av_calloc(index_table->nb_ptses, sizeof(int8_t))) ||
+        !(flags                   = av_calloc(index_table->nb_ptses, sizeof(uint8_t)))) {
         av_freep(&index_table->ptses);
+        av_freep(&index_table->fake_index);
+        av_freep(&index_table->offsets);
         return AVERROR(ENOMEM);
     }
 
@@ -1411,8 +1417,7 @@ static int mxf_compute_ptses_fake_index(MXFContext *mxf, MXFIndexTable *index_ta
                 break;
             }
 
-            index_table->fake_index[x].timestamp = x;
-            index_table->fake_index[x].flags = !(s->flag_entries[j] & 0x30) ? AVINDEX_KEYFRAME : 0;
+            flags[x] = !(s->flag_entries[j] & 0x30) ? AVINDEX_KEYFRAME : 0;
 
             if (index < 0 || index >= index_table->nb_ptses) {
                 av_log(mxf->fc, AV_LOG_ERROR,
@@ -1421,10 +1426,19 @@ static int mxf_compute_ptses_fake_index(MXFContext *mxf, MXFIndexTable *index_ta
                 continue;
             }
 
+            index_table->offsets[x] = offset;
             index_table->ptses[index] = x;
             max_temporal_offset = FFMAX(max_temporal_offset, offset);
         }
     }
+
+    /* calculate the fake index table in display order */
+    for (x = 0; x < index_table->nb_ptses; x++) {
+        index_table->fake_index[x].timestamp = x;
+        if (index_table->ptses[x] != AV_NOPTS_VALUE)
+            index_table->fake_index[index_table->ptses[x]].flags = flags[x];
+    }
+    av_freep(&flags);
 
     index_table->first_dts = -max_temporal_offset;
 
@@ -1988,10 +2002,6 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
             st->codec->width = descriptor->width;
             st->codec->height = descriptor->height; /* Field height, not frame height */
             switch (descriptor->frame_layout) {
-                case SegmentedFrame:
-                    /* This one is a weird layout I don't fully understand. */
-                    av_log(mxf->fc, AV_LOG_INFO, "SegmentedFrame layout isn't currently supported\n");
-                    break;
                 case FullFrame:
                     st->codec->field_order = AV_FIELD_PROGRESSIVE;
                     break;
@@ -2003,6 +2013,8 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
                               It's also for compatibility with the old behavior. */
                 case MixedFields:
                     break;
+                case SegmentedFrame:
+                    st->codec->field_order = AV_FIELD_PROGRESSIVE;
                 case SeparateFields:
                     switch (descriptor->field_dominance) {
                     case MXF_TFF:
@@ -2031,12 +2043,16 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
                                                   &descriptor->essence_codec_ul);
                     st->codec->pix_fmt = (enum AVPixelFormat)pix_fmt_ul->id;
                     if (st->codec->pix_fmt == AV_PIX_FMT_NONE) {
-                        /* support files created before RP224v10 by defaulting to UYVY422
-                           if subsampling is 4:2:2 and component depth is 8-bit */
-                        if (descriptor->horiz_subsampling == 2 &&
-                            descriptor->vert_subsampling == 1 &&
-                            descriptor->component_depth == 8) {
-                            st->codec->pix_fmt = AV_PIX_FMT_UYVY422;
+                        st->codec->codec_tag = mxf_get_codec_ul(ff_mxf_codec_tag_uls,
+                                                                &descriptor->essence_codec_ul)->id;
+                        if (!st->codec->codec_tag) {
+                            /* support files created before RP224v10 by defaulting to UYVY422
+                               if subsampling is 4:2:2 and component depth is 8-bit */
+                            if (descriptor->horiz_subsampling == 2 &&
+                                descriptor->vert_subsampling == 1 &&
+                                descriptor->component_depth == 8) {
+                                st->codec->pix_fmt = AV_PIX_FMT_UYVY422;
+                            }
                         }
                     }
                 }
@@ -3085,6 +3101,7 @@ static int mxf_read_close(AVFormatContext *s)
             av_freep(&mxf->index_tables[i].segments);
             av_freep(&mxf->index_tables[i].ptses);
             av_freep(&mxf->index_tables[i].fake_index);
+            av_freep(&mxf->index_tables[i].offsets);
         }
     }
     av_freep(&mxf->index_tables);
@@ -3158,6 +3175,8 @@ static int mxf_read_seek(AVFormatContext *s, int stream_index, int64_t sample_ti
             /* behave as if we have a proper index */
             if ((sample_time = ff_index_search_timestamp(t->fake_index, t->nb_ptses, sample_time, flags)) < 0)
                 return sample_time;
+            /* get the stored order index from the display order index */
+            sample_time += t->offsets[sample_time];
         } else {
             /* no IndexEntryArray (one or more CBR segments)
              * make sure we don't seek past the end */
@@ -3191,6 +3210,7 @@ static int mxf_read_seek(AVFormatContext *s, int stream_index, int64_t sample_ti
 AVInputFormat ff_mxf_demuxer = {
     .name           = "mxf",
     .long_name      = NULL_IF_CONFIG_SMALL("MXF (Material eXchange Format)"),
+    .flags          = AVFMT_SEEK_TO_PTS,
     .priv_data_size = sizeof(MXFContext),
     .read_probe     = mxf_probe,
     .read_header    = mxf_read_header,

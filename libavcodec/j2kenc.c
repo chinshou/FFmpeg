@@ -317,6 +317,25 @@ static int put_qcd(Jpeg2000EncoderContext *s, int compno)
     return 0;
 }
 
+static int put_com(Jpeg2000EncoderContext *s, int compno)
+{
+    int size = 4 + strlen(LIBAVCODEC_IDENT);
+
+    if (s->avctx->flags & AV_CODEC_FLAG_BITEXACT)
+        return 0;
+
+    if (s->buf_end - s->buf < size + 2)
+        return -1;
+
+    bytestream_put_be16(&s->buf, JPEG2000_COM);
+    bytestream_put_be16(&s->buf, size);
+    bytestream_put_be16(&s->buf, 1); // General use (ISO/IEC 8859-15 (Latin) values)
+
+    bytestream_put_buffer(&s->buf, LIBAVCODEC_IDENT, strlen(LIBAVCODEC_IDENT));
+
+    return 0;
+}
+
 static uint8_t *put_sot(Jpeg2000EncoderContext *s, int tileno)
 {
     uint8_t *psotptr;
@@ -936,7 +955,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     Jpeg2000EncoderContext *s = avctx->priv_data;
     uint8_t *chunkstart, *jp2cstart, *jp2hstart;
 
-    if ((ret = ff_alloc_packet2(avctx, pkt, avctx->width*avctx->height*9 + FF_MIN_BUFFER_SIZE)) < 0)
+    if ((ret = ff_alloc_packet2(avctx, pkt, avctx->width*avctx->height*9 + AV_INPUT_BUFFER_MIN_SIZE, 0)) < 0)
         return ret;
 
     // init:
@@ -962,6 +981,7 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         bytestream_put_buffer(&s->buf, "ftyp", 4);
         bytestream_put_buffer(&s->buf, "jp2\040\040", 4);
         bytestream_put_be32(&s->buf, 0);
+        bytestream_put_buffer(&s->buf, "jp2\040", 4);
         update_size(chunkstart, s->buf);
 
         jp2hstart = s->buf;
@@ -1009,6 +1029,8 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     if ((ret = put_cod(s)) < 0)
         return ret;
     if ((ret = put_qcd(s, 0)) < 0)
+        return ret;
+    if ((ret = put_com(s, 0)) < 0)
         return ret;
 
     for (tileno = 0; tileno < s->numXtiles * s->numYtiles; tileno++){
@@ -1059,8 +1081,10 @@ static av_cold int j2kenc_init(AVCodecContext *avctx)
 
     qntsty->nguardbits       = 1;
 
-    s->tile_width            = 256;
-    s->tile_height           = 256;
+    if ((s->tile_width  & (s->tile_width -1)) ||
+        (s->tile_height & (s->tile_height-1))) {
+        av_log(avctx, AV_LOG_WARNING, "Tile dimension not a power of 2\n");
+    }
 
     if (codsty->transform == FF_DWT53)
         qntsty->quantsty = JPEG2000_QSTY_NONE;
@@ -1113,6 +1137,9 @@ static const AVOption options[] = {
     { "format",        "Codec Format",      OFFSET(format),        AV_OPT_TYPE_INT,   { .i64 = CODEC_JP2   }, CODEC_J2K, CODEC_JP2,   VE, "format"      },
     { "j2k",           NULL,                0,                     AV_OPT_TYPE_CONST, { .i64 = CODEC_J2K   }, 0,         0,           VE, "format"      },
     { "jp2",           NULL,                0,                     AV_OPT_TYPE_CONST, { .i64 = CODEC_JP2   }, 0,         0,           VE, "format"      },
+    { "tile_width",    "Tile Width",        OFFSET(tile_width),    AV_OPT_TYPE_INT,   { .i64 = 256         }, 1,     1<<30,           VE, },
+    { "tile_height",   "Tile Height",       OFFSET(tile_height),   AV_OPT_TYPE_INT,   { .i64 = 256         }, 1,     1<<30,           VE, },
+
     { NULL }
 };
 
@@ -1132,12 +1159,11 @@ AVCodec ff_jpeg2000_encoder = {
     .init           = j2kenc_init,
     .encode2        = encode_frame,
     .close          = j2kenc_destroy,
-    .capabilities   = CODEC_CAP_EXPERIMENTAL,
+    .capabilities   = AV_CODEC_CAP_EXPERIMENTAL,
     .pix_fmts       = (const enum AVPixelFormat[]) {
         AV_PIX_FMT_RGB24, AV_PIX_FMT_YUV444P, AV_PIX_FMT_GRAY8,
-/*      AV_PIX_FMT_YUV420P,
-        AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P,
-        AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,*/
+        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
+        AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
         AV_PIX_FMT_NONE
     },
     .priv_class     = &j2k_class,

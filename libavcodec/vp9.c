@@ -425,7 +425,7 @@ static av_always_inline int inv_recenter_nonneg(int v, int m)
 // differential forward probability updates
 static int update_prob(VP56RangeCoder *c, int p)
 {
-    static const int inv_map_table[254] = {
+    static const int inv_map_table[255] = {
           7,  20,  33,  46,  59,  72,  85,  98, 111, 124, 137, 150, 163, 176,
         189, 202, 215, 228, 241, 254,   1,   2,   3,   4,   5,   6,   8,   9,
          10,  11,  12,  13,  14,  15,  16,  17,  18,  19,  21,  22,  23,  24,
@@ -444,7 +444,7 @@ static int update_prob(VP56RangeCoder *c, int p)
         207, 208, 209, 210, 211, 212, 213, 214, 216, 217, 218, 219, 220, 221,
         222, 223, 224, 225, 226, 227, 229, 230, 231, 232, 233, 234, 235, 236,
         237, 238, 239, 240, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251,
-        252, 253,
+        252, 253, 253,
     };
     int d;
 
@@ -474,6 +474,7 @@ static int update_prob(VP56RangeCoder *c, int p)
         if (d >= 65)
             d = (d << 1) - 65 + vp8_rac_get(c);
         d += 64;
+        av_assert2(d < FF_ARRAY_ELEMS(inv_map_table));
     }
 
     return p <= 128 ? 1 + inv_recenter_nonneg(inv_map_table[d], p - 1) :
@@ -732,6 +733,8 @@ static int decode_frame_header(AVCodecContext *ctx,
     s->uvac_qdelta = get_bits1(&s->gb) ? get_sbits_inv(&s->gb, 4) : 0;
     s->lossless    = s->yac_qi == 0 && s->ydc_qdelta == 0 &&
                      s->uvdc_qdelta == 0 && s->uvac_qdelta == 0;
+    if (s->lossless)
+        ctx->properties |= FF_CODEC_PROPERTY_LOSSLESS;
 
     /* segmentation header info */
     s->segmentation.ignore_refmap = 0;
@@ -4355,7 +4358,7 @@ AVCodec ff_vp9_decoder = {
     .init                  = vp9_decode_init,
     .close                 = vp9_decode_free,
     .decode                = vp9_decode_frame,
-    .capabilities          = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS,
+    .capabilities          = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,
     .flush                 = vp9_decode_flush,
     .init_thread_copy      = ONLY_IF_THREADS_ENABLED(vp9_decode_init_thread_copy),
     .update_thread_context = ONLY_IF_THREADS_ENABLED(vp9_decode_update_thread_context),

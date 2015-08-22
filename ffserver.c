@@ -316,12 +316,12 @@ static char *ctime1(char *buf2, int buf_size)
 static void http_vlog(const char *fmt, va_list vargs)
 {
     static int print_prefix = 1;
+    char buf[32];
 
     if (!logfile)
         return;
 
     if (print_prefix) {
-        char buf[32];
         ctime1(buf, sizeof(buf));
         fprintf(logfile, "%s ", buf);
     }
@@ -703,13 +703,9 @@ static void start_wait_request(HTTPContext *c, int is_rtsp)
     c->buffer_ptr = c->buffer;
     c->buffer_end = c->buffer + c->buffer_size - 1; /* leave room for '\0' */
 
-    if (is_rtsp) {
-        c->timeout = cur_time + RTSP_REQUEST_TIMEOUT;
-        c->state = RTSPSTATE_WAIT_REQUEST;
-    } else {
-        c->timeout = cur_time + HTTP_REQUEST_TIMEOUT;
-        c->state = HTTPSTATE_WAIT_REQUEST;
-    }
+    c->state = is_rtsp ? RTSPSTATE_WAIT_REQUEST : HTTPSTATE_WAIT_REQUEST;
+    c->timeout = cur_time +
+                 (is_rtsp ? RTSP_REQUEST_TIMEOUT : HTTP_REQUEST_TIMEOUT);
 }
 
 static void http_send_too_busy_reply(int fd)
@@ -1940,7 +1936,7 @@ static void compute_status(HTTPContext *c)
 
         avio_printf(pb, "<h2>Feed %s</h2>", stream->filename);
         if (stream->pid) {
-            avio_printf(pb, "Running as pid %d.\n", stream->pid);
+            avio_printf(pb, "Running as pid %"PRId64".\n", (int64_t) stream->pid);
 
 #if defined(linux)
             {
@@ -1949,8 +1945,8 @@ static void compute_status(HTTPContext *c)
 
                 /* This is somewhat linux specific I guess */
                 snprintf(ps_cmd, sizeof(ps_cmd),
-                         "ps -o \"%%cpu,cputime\" --no-headers %d",
-                         stream->pid);
+                         "ps -o \"%%cpu,cputime\" --no-headers %"PRId64"",
+                         (int64_t) stream->pid);
 
                  pid_stat = popen(ps_cmd, "r");
                  if (pid_stat) {
@@ -2545,9 +2541,8 @@ static int http_start_receive_data(HTTPContext *c)
             http_log("Error reading write index from feed file '%s': %s\n",
                      c->stream->feed_filename, strerror(errno));
             return ret;
-        } else {
-            c->stream->feed_write_index = ret;
         }
+        c->stream->feed_write_index = ret;
     }
 
     c->stream->feed_write_index = FFMAX(ffm_read_write_index(fd),
@@ -3515,7 +3510,7 @@ static void extract_mpeg4_header(AVFormatContext *infile)
                 if (p[0] == 0x00 && p[1] == 0x00 &&
                     p[2] == 0x01 && p[3] == 0xb6) {
                     size = p - pkt.data;
-                    st->codec->extradata = av_mallocz(size + FF_INPUT_BUFFER_PADDING_SIZE);
+                    st->codec->extradata = av_mallocz(size + AV_INPUT_BUFFER_PADDING_SIZE);
                     st->codec->extradata_size = size;
                     memcpy(st->codec->extradata, pkt.data, size);
                     break;
@@ -3783,8 +3778,8 @@ static void handle_child_exit(int sig)
             uptime = time(0) - feed->pid_start;
             feed->pid = 0;
             fprintf(stderr,
-                    "%s: Pid %d exited with status %d after %d seconds\n",
-                    feed->filename, pid, status, uptime);
+                    "%s: Pid %"PRId64" exited with status %d after %d seconds\n",
+                    feed->filename, (int64_t) pid, status, uptime);
 
             if (uptime < 30)
                 /* Turn off any more restarts */
