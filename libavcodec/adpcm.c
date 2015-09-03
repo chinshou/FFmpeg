@@ -654,11 +654,9 @@ static int get_nb_samples(AVCodecContext *avctx, GetByteContext *gb,
         buf_size       -= 8 + 36 * ch;
         buf_size       /= ch;
         nb_samples      = buf_size / 8 * 14;
-        if (buf_size % 8 > 1) {
+        if (buf_size % 8 > 1)
             nb_samples     += (buf_size % 8 - 1) * 2;
-            if (*coded_samples & 1)
-                nb_samples -= 1;
-        }
+        *approx_nb_samples = 1;
         break;
     case AV_CODEC_ID_ADPCM_AFC:
         nb_samples = buf_size / (9 * ch) * 16;
@@ -1593,7 +1591,7 @@ AVCodec ff_ ## name_ ## _decoder = {                        \
     .init           = adpcm_decode_init,                    \
     .decode         = adpcm_decode_frame,                   \
     .flush          = adpcm_flush,                          \
-    .capabilities   = CODEC_CAP_DR1,                        \
+    .capabilities   = AV_CODEC_CAP_DR1,                     \
     .sample_fmts    = sample_fmts_,                         \
 }
 

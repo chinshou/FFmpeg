@@ -251,7 +251,7 @@ static int init_muxer(AVFormatContext *s, AVDictionary **options)
         goto fail;
 
 #if FF_API_LAVF_BITEXACT
-    if (s->nb_streams && s->streams[0]->codec->flags & CODEC_FLAG_BITEXACT)
+    if (s->nb_streams && s->streams[0]->codec->flags & AV_CODEC_FLAG_BITEXACT)
         s->flags |= AVFMT_FLAG_BITEXACT;
 #endif
 
@@ -348,7 +348,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
 
         if (of->flags & AVFMT_GLOBALHEADER &&
-            !(codec->flags & CODEC_FLAG_GLOBAL_HEADER))
+            !(codec->flags & AV_CODEC_FLAG_GLOBAL_HEADER))
             av_log(s, AV_LOG_WARNING,
                    "Codec for stream %d does not use global headers "
                    "but container format requires global headers\n", i);
@@ -1043,6 +1043,8 @@ int ff_write_chained(AVFormatContext *dst, int dst_stream, AVPacket *pkt,
     if (interleave) ret = av_interleaved_write_frame(dst, &local_pkt);
     else            ret = av_write_frame(dst, &local_pkt);
     pkt->buf = local_pkt.buf;
+    pkt->side_data       = local_pkt.side_data;
+    pkt->side_data_elems = local_pkt.side_data_elems;
     pkt->destruct = local_pkt.destruct;
     return ret;
 }

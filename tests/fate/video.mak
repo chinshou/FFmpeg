@@ -177,6 +177,9 @@ fate-hap5: CMD = framecrc -i $(TARGET_SAMPLES)/hap/hap5.mov
 FATE_HAP += fate-hapy
 fate-hapy: CMD = framecrc -i $(TARGET_SAMPLES)/hap/hapy.mov
 
+FATE_HAP += fate-hap-chunk
+fate-hap-chunk: CMD = framecrc -i $(TARGET_SAMPLES)/hap/hapy-12-chunks.mov
+
 FATE_SAMPLES_AVCONV-$(call DEMDEC, MOV, HAP) += $(FATE_HAP)
 fate-hap: $(FATE_HAP)
 
@@ -290,10 +293,10 @@ FATE_VIDEO-$(call DEMDEC, TMV, TMV) += fate-tmv
 fate-tmv: CMD = framecrc -i $(TARGET_SAMPLES)/tmv/pop-partial.tmv -pix_fmt rgb24
 
 FATE_TXD += fate-txd-16bpp
-fate-txd-16bpp: CMD = framecrc -i $(TARGET_SAMPLES)/txd/misc.txd -pix_fmt bgra -an
+fate-txd-16bpp: CMD = framecrc -i $(TARGET_SAMPLES)/txd/misc.txd -an
 
 FATE_TXD += fate-txd-odd
-fate-txd-odd: CMD = framecrc -i $(TARGET_SAMPLES)/txd/odd.txd -pix_fmt bgra -an
+fate-txd-odd: CMD = framecrc -i $(TARGET_SAMPLES)/txd/odd.txd -an
 
 FATE_TXD += fate-txd-pal8
 fate-txd-pal8: CMD = framecrc -i $(TARGET_SAMPLES)/txd/outro.txd -pix_fmt rgb24 -an

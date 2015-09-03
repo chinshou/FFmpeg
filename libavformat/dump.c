@@ -377,6 +377,9 @@ static void dump_sidedata(void *ctx, AVStream *st, const char *indent)
             av_log(ctx, AV_LOG_INFO, "audio service type: ");
             dump_audioservicetype(ctx, &sd);
             break;
+        case AV_PKT_DATA_QUALITY_STATS:
+            av_log(ctx, AV_LOG_INFO, "quality factor: %d, pict_type: %c", AV_RL32(sd.data), av_get_picture_type_char(sd.data[4]));
+            break;
         default:
             av_log(ctx, AV_LOG_WARNING,
                    "unknown side data type %d (%d bytes)", sd.type, sd.size);
@@ -509,7 +512,7 @@ void av_dump_format(AVFormatContext *ic, int index,
             int secs, us;
             av_log(NULL, AV_LOG_INFO, ", start: ");
             secs = ic->start_time / AV_TIME_BASE;
-            us   = abs(ic->start_time % AV_TIME_BASE);
+            us   = llabs(ic->start_time % AV_TIME_BASE);
             av_log(NULL, AV_LOG_INFO, "%d.%06d",
                    secs, (int) av_rescale(us, 1000000, AV_TIME_BASE));
         }
