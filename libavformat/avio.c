@@ -31,6 +31,13 @@
 #endif
 #include "url.h"
 
+static URLProtocol *first_protocol = NULL;
+
+URLProtocol *ffurl_protocol_next(const URLProtocol *prev)
+{
+    return prev ? prev->next : first_protocol;
+}
+
 /** @name Logging context. */
 /*@{*/
 static const char *urlcontext_to_name(void *ptr)
@@ -68,6 +75,17 @@ const AVClass ffurl_context_class = {
     .child_class_next = ff_urlcontext_child_class_next,
 };
 /*@}*/
+
+int ffurl_register_protocol(URLProtocol *protocol)
+{
+    URLProtocol **p;
+    p = &first_protocol;
+    while (*p)
+        p = &(*p)->next;
+    *p             = protocol;
+    protocol->next = NULL;
+    return 0;
+}
 
 static int url_alloc_for_protocol(URLContext **puc, const URLProtocol *up,
                                   const char *filename, int flags,
@@ -268,6 +286,17 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     av_strlcpy(proto_nested, proto_str, sizeof(proto_nested));
     if ((ptr = strchr(proto_nested, '+')))
         *ptr = '\0';
+
+    while (up = ffurl_protocol_next(up)) {
+        if (!strcmp(proto_str, up->name))
+            break;
+        if (up->flags & URL_PROTOCOL_FLAG_NESTED_SCHEME &&
+            !strcmp(proto_nested, up->name))
+            break;
+    }
+    
+    if (up)
+      return up;
 
     protocols = ffurl_get_protocols(NULL, NULL);
     for (i = 0; protocols[i]; i++) {
