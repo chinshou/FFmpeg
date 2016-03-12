@@ -448,7 +448,7 @@ real_parse_asm_rule(AVStream *st, const char *p, const char *end)
 {
     do {
         /* can be either averagebandwidth= or AverageBandwidth= */
-        if (sscanf(p, " %*1[Aa]verage%*1[Bb]andwidth=%d", &st->codec->bit_rate) == 1)
+        if (sscanf(p, " %*1[Aa]verage%*1[Bb]andwidth=%"SCNd64, &st->codec->bit_rate) == 1)
             break;
         if (!(p = strchr(p, ',')) || p > end)
             p = end;
@@ -531,7 +531,7 @@ static av_cold int rdt_init(AVFormatContext *s, int st_index, PayloadContext *rd
     if (!rdt->rmctx)
         return AVERROR(ENOMEM);
 
-    if ((ret = ff_copy_whitelists(rdt->rmctx, s)) < 0)
+    if ((ret = ff_copy_whiteblacklists(rdt->rmctx, s)) < 0)
         return ret;
 
     return avformat_open_input(&rdt->rmctx, "", &ff_rdt_demuxer, NULL);

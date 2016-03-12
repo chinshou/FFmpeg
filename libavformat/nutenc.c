@@ -201,9 +201,16 @@ static void build_frame_code(AVFormatContext *s)
         key_frame = intra_only;
 #if 1
         if (is_audio) {
-            int frame_bytes = codec->frame_size * (int64_t)codec->bit_rate /
-                              (8 * codec->sample_rate);
+            int frame_bytes;
             int pts;
+
+            if (codec->block_align > 0) {
+                frame_bytes = codec->block_align;
+            } else {
+                int frame_size = av_get_audio_frame_duration(codec, 0);
+                frame_bytes = frame_size * (int64_t)codec->bit_rate / (8 * codec->sample_rate);
+            }
+
             for (pts = 0; pts < 2; pts++) {
                 for (pred = 0; pred < 2; pred++) {
                     FrameCode *ft  = &nut->frame_code[start2];
@@ -489,6 +496,7 @@ static int write_globalinfo(NUTContext *nut, AVIOContext *bc)
     if (ret < 0)
         return ret;
 
+    ff_standardize_creation_time(s);
     while ((t = av_dict_get(s->metadata, "", t, AV_DICT_IGNORE_SUFFIX)))
         count += add_info(dyn_bc, t->key, t->value);
 
@@ -587,7 +595,7 @@ static int write_index(NUTContext *nut, AVIOContext *bc) {
     ff_put_v(bc, nut->sp_count);
 
     for (i=0; i<nut->sp_count; i++) {
-        av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pos_cmp, (void**)next_node);
+        av_tree_find(nut->syncpoints, &dummy, ff_nut_sp_pos_cmp, (void**)next_node);
         ff_put_v(bc, (next_node[1]->pos >> 4) - (dummy.pos>>4));
         dummy.pos = next_node[1]->pos;
     }
@@ -1174,7 +1182,7 @@ static int nut_write_trailer(AVFormatContext *s)
 {
     NUTContext *nut = s->priv_data;
     AVIOContext *bc = s->pb, *dyn_bc;
-    int i, ret;
+    int ret;
 
     while (nut->header_count < 3)
         write_headers(s, bc);
@@ -1186,15 +1194,22 @@ static int nut_write_trailer(AVFormatContext *s)
         put_packet(nut, bc, dyn_bc, 1, INDEX_STARTCODE);
     }
 
+    return 0;
+}
+
+static void nut_write_deinit(AVFormatContext *s)
+{
+    NUTContext *nut = s->priv_data;
+    int i;
+
     ff_nut_free_sp(nut);
-    for (i=0; i<s->nb_streams; i++)
-        av_freep(&nut->stream[i].keyframe_pts);
+    if (nut->stream)
+        for (i=0; i<s->nb_streams; i++)
+            av_freep(&nut->stream[i].keyframe_pts);
 
     av_freep(&nut->stream);
     av_freep(&nut->chapter);
     av_freep(&nut->time_base);
-
-    return 0;
 }
 
 #define OFFSET(x) offsetof(NUTContext, x)
@@ -1204,7 +1219,7 @@ static const AVOption options[] = {
     { "default",     "",                                                0,             AV_OPT_TYPE_CONST, {.i64 = 0},             INT_MIN, INT_MAX, E, "syncpoints" },
     { "none",        "Disable syncpoints, low overhead and unseekable", 0,             AV_OPT_TYPE_CONST, {.i64 = NUT_PIPE},      INT_MIN, INT_MAX, E, "syncpoints" },
     { "timestamped", "Extend syncpoints with a wallclock timestamp",    0,             AV_OPT_TYPE_CONST, {.i64 = NUT_BROADCAST}, INT_MIN, INT_MAX, E, "syncpoints" },
-    { "write_index", "Write index",                               OFFSET(write_index), AV_OPT_TYPE_INT,   {.i64 = 1},                   0,       1, E, },
+    { "write_index", "Write index",                               OFFSET(write_index), AV_OPT_TYPE_BOOL,  {.i64 = 1},                   0,       1, E, },
     { NULL },
 };
 
@@ -1227,6 +1242,7 @@ AVOutputFormat ff_nut_muxer = {
     .write_header   = nut_write_header,
     .write_packet   = nut_write_packet,
     .write_trailer  = nut_write_trailer,
+    .deinit         = nut_write_deinit,
     .flags          = AVFMT_GLOBALHEADER | AVFMT_VARIABLE_FPS,
     .codec_tag      = ff_nut_codec_tags,
     .priv_class     = &class,

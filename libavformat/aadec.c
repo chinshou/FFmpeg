@@ -65,7 +65,7 @@ static int get_second_size(char *codec_name)
 static int aa_read_header(AVFormatContext *s)
 {
     int i, j, idx, largest_idx = -1;
-    uint32_t nkey, nval, toc_size, npairs, header_seed, start;
+    uint32_t nkey, nval, toc_size, npairs, header_seed = 0, start;
     char key[128], val[128], codec_name[64] = {0};
     uint8_t output[24], dst[8], src[8];
     int64_t largest_size = -1, current_size = -1;
@@ -74,7 +74,7 @@ static int aa_read_header(AVFormatContext *s)
         uint32_t size;
     } TOC[MAX_TOC_ENTRIES];
     uint32_t header_key_part[4];
-    uint8_t header_key[16];
+    uint8_t header_key[16] = {0};
     AADemuxContext *c = s->priv_data;
     AVIOContext *pb = s->pb;
     AVStream *st;
@@ -112,16 +112,23 @@ static int aa_read_header(AVFormatContext *s)
             avio_read(pb, val, nval); // value string
         }
         if (!strcmp(key, "codec")) {
+            av_log(s, AV_LOG_DEBUG, "Codec is <%s>\n", val);
             strncpy(codec_name, val, sizeof(codec_name) - 1);
         }
         if (!strcmp(key, "HeaderSeed")) {
+            av_log(s, AV_LOG_DEBUG, "HeaderSeed is <%s>\n", val);
             header_seed = atoi(val);
         }
         if (!strcmp(key, "HeaderKey")) { // this looks like "1234567890 1234567890 1234567890 1234567890"
-            sscanf(val, "%d%d%d%d", &header_key_part[0], &header_key_part[1], &header_key_part[2], &header_key_part[3]);
+            av_log(s, AV_LOG_DEBUG, "HeaderKey is <%s>\n", val);
+            sscanf(val, "%u%u%u%u", &header_key_part[0], &header_key_part[1], &header_key_part[2], &header_key_part[3]);
             for (idx = 0; idx < 4; idx++) {
                 AV_WB32(&header_key[idx * 4], header_key_part[idx]); // convert each part to BE!
             }
+            av_log(s, AV_LOG_DEBUG, "Processed HeaderKey is ");
+            for (i = 0; i < 16; i++)
+                av_log(s, AV_LOG_DEBUG, "%02x", header_key[i]);
+            av_log(s, AV_LOG_DEBUG, "\n");
         }
     }
 
@@ -143,7 +150,7 @@ static int aa_read_header(AVFormatContext *s)
         return AVERROR(ENOMEM);
     av_tea_init(c->tea_ctx, c->aa_fixed_key, 16);
     output[0] = output[1] = 0; // purely for padding purposes
-    memcpy(output + 2, &header_key, 16);
+    memcpy(output + 2, header_key, 16);
     idx = 0;
     for (i = 0; i < 3; i++) { // TEA CBC with weird mixed endianness
         AV_WB32(src, header_seed);
@@ -155,6 +162,10 @@ static int aa_read_header(AVFormatContext *s)
         }
     }
     memcpy(c->file_key, output + 2, 16); // skip first 2 bytes of output
+    av_log(s, AV_LOG_DEBUG, "File key is ");
+    for (i = 0; i < 16; i++)
+        av_log(s, AV_LOG_DEBUG, "%02x", c->file_key[i]);
+    av_log(s, AV_LOG_DEBUG, "\n");
 
     /* decoder setup */
     st = avformat_new_stream(s, NULL);

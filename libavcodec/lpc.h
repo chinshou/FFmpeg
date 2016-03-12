@@ -100,6 +100,9 @@ int ff_lpc_calc_coefs(LPCContext *s,
 int ff_lpc_calc_ref_coefs(LPCContext *s,
                           const int32_t *samples, int order, double *ref);
 
+double ff_lpc_calc_ref_coefs_f(LPCContext *s, const float *samples, int len,
+                               int order, double *ref);
+
 /**
  * Initialize LPCContext.
  */
@@ -113,12 +116,12 @@ void ff_lpc_init_x86(LPCContext *s);
 void ff_lpc_end(LPCContext *s);
 
 #if USE_FIXED
-#define LPC_TYPE int
+typedef int LPC_TYPE;
 #else
 #ifdef LPC_USE_DOUBLE
-#define LPC_TYPE double
+typedef double LPC_TYPE;
 #else
-#define LPC_TYPE float
+typedef float LPC_TYPE;
 #endif
 #endif // USE_FIXED
 
