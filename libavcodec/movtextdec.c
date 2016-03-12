@@ -99,6 +99,7 @@ typedef struct {
     uint64_t tracksize;
     int size_var;
     int count_s, count_f;
+    int readorder;
 } MovTextContext;
 
 typedef struct {
@@ -121,6 +122,9 @@ static void mov_text_cleanup(MovTextContext *m)
 static void mov_text_cleanup_ftab(MovTextContext *m)
 {
     int i;
+    if (m->ftab_temp)
+        av_freep(&m->ftab_temp->font);
+    av_freep(&m->ftab_temp);
     if (m->ftab) {
         for(i = 0; i < m->count_f; i++) {
             av_freep(&m->ftab[i]->font);
@@ -132,7 +136,7 @@ static void mov_text_cleanup_ftab(MovTextContext *m)
 
 static int mov_text_tx3g(AVCodecContext *avctx, MovTextContext *m)
 {
-    char *tx3g_ptr = avctx->extradata;
+    uint8_t *tx3g_ptr = avctx->extradata;
     int i, box_size, font_length;
     int8_t v_align, h_align;
     int style_fontID;
@@ -210,7 +214,7 @@ static int mov_text_tx3g(AVCodecContext *avctx, MovTextContext *m)
             m->ftab_entries = 0;
             return -1;
         }
-        m->ftab_temp = av_malloc(sizeof(*m->ftab_temp));
+        m->ftab_temp = av_mallocz(sizeof(*m->ftab_temp));
         if (!m->ftab_temp) {
             mov_text_cleanup_ftab(m);
             return AVERROR(ENOMEM);
@@ -237,6 +241,7 @@ static int mov_text_tx3g(AVCodecContext *avctx, MovTextContext *m)
             mov_text_cleanup_ftab(m);
             return AVERROR(ENOMEM);
         }
+        m->ftab_temp = NULL;
         tx3g_ptr = tx3g_ptr + font_length;
     }
     for (i = 0; i < m->ftab_entries; i++) {
@@ -409,7 +414,8 @@ static int mov_text_init(AVCodecContext *avctx) {
     if (ret == 0) {
         return ff_ass_subtitle_header(avctx, m->d.font, m->d.fontsize, m->d.color,
                                 m->d.back_color, m->d.bold, m->d.italic,
-                                m->d.underline, m->d.alignment);
+                                m->d.underline, ASS_DEFAULT_BORDERSTYLE,
+                                m->d.alignment);
     } else
         return ff_ass_subtitle_header_default(avctx);
 }
@@ -419,7 +425,7 @@ static int mov_text_decode_frame(AVCodecContext *avctx,
 {
     AVSubtitle *sub = data;
     MovTextContext *m = avctx->priv_data;
-    int ret, ts_start, ts_end;
+    int ret;
     AVBPrint buf;
     char *ptr = avpkt->data;
     char *end;
@@ -448,13 +454,6 @@ static int mov_text_decode_frame(AVCodecContext *avctx,
     text_length = AV_RB16(ptr);
     end = ptr + FFMIN(2 + text_length, avpkt->size);
     ptr += 2;
-
-    ts_start = av_rescale_q(avpkt->pts,
-                            avctx->time_base,
-                            (AVRational){1,100});
-    ts_end   = av_rescale_q(avpkt->pts + avpkt->duration,
-                            avctx->time_base,
-                            (AVRational){1,100});
 
     tsmb_size = 0;
     m->tracksize = 2 + text_length;
@@ -501,7 +500,7 @@ static int mov_text_decode_frame(AVCodecContext *avctx,
     } else
         text_to_ass(&buf, ptr, end, m);
 
-    ret = ff_ass_add_rect_bprint(sub, &buf, ts_start, ts_end - ts_start);
+    ret = ff_ass_add_rect(sub, buf.str, m->readorder++, 0, NULL, NULL);
     av_bprint_finalize(&buf, NULL);
     if (ret < 0)
         return ret;
@@ -516,6 +515,13 @@ static int mov_text_decode_close(AVCodecContext *avctx)
     return 0;
 }
 
+static void mov_text_flush(AVCodecContext *avctx)
+{
+    MovTextContext *m = avctx->priv_data;
+    if (!(avctx->flags2 & AV_CODEC_FLAG2_RO_FLUSH_NOOP))
+        m->readorder = 0;
+}
+
 AVCodec ff_movtext_decoder = {
     .name         = "mov_text",
     .long_name    = NULL_IF_CONFIG_SMALL("3GPP Timed Text subtitle"),
@@ -525,4 +531,5 @@ AVCodec ff_movtext_decoder = {
     .init         = mov_text_init,
     .decode       = mov_text_decode_frame,
     .close        = mov_text_decode_close,
+    .flush        = mov_text_flush,
 };

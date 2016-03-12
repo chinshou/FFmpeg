@@ -631,6 +631,8 @@ static int epic_decode_run_length(ePICContext *dc, int x, int y, int tile_width,
               (NN  != N)  << 1 |
               (NNW != NW);
         WWneW = ff_els_decode_bit(&dc->els_ctx, &dc->W_ctx_rung[idx]);
+        if (WWneW < 0)
+            return WWneW;
     }
 
     if (WWneW)
@@ -837,10 +839,13 @@ static int epic_decode_tile(ePICContext *dc, uint8_t *out, int tile_height,
                 if (y < 2 || x < 2 || x == tile_width - 1) {
                     run       = 1;
                     got_pixel = epic_handle_edges(dc, x, y, curr_row, above_row, &pix);
-                } else
+                } else {
                     got_pixel = epic_decode_run_length(dc, x, y, tile_width,
                                                        curr_row, above_row,
                                                        above2_row, &pix, &run);
+                    if (got_pixel < 0)
+                        return got_pixel;
+                }
 
                 if (!got_pixel && !epic_predict_from_NW_NE(dc, x, y, run,
                                                            tile_width, curr_row,
@@ -895,7 +900,7 @@ static int epic_jb_decode_tile(G2MContext *c, int tile_x, int tile_y,
     }
 
     if (src_size < els_dsize) {
-        av_log(avctx, AV_LOG_ERROR, "ePIC: data too short, needed %zu, got %zu\n",
+        av_log(avctx, AV_LOG_ERROR, "ePIC: data too short, needed %"SIZE_SPECIFIER", got %"SIZE_SPECIFIER"\n",
                els_dsize, src_size);
         return AVERROR_INVALIDDATA;
     }
@@ -1423,8 +1428,7 @@ static int g2m_decode_frame(AVCodecContext *avctx, void *data,
             }
             c->width  = bytestream2_get_be32(&bc);
             c->height = bytestream2_get_be32(&bc);
-            if (c->width  < 16 || c->width  > c->orig_width ||
-                c->height < 16 || c->height > c->orig_height) {
+            if (c->width < 16 || c->height < 16) {
                 av_log(avctx, AV_LOG_ERROR,
                        "Invalid frame dimensions %dx%d\n",
                        c->width, c->height);
@@ -1448,7 +1452,7 @@ static int g2m_decode_frame(AVCodecContext *avctx, void *data,
             c->tile_height = bytestream2_get_be32(&bc);
             if (c->tile_width <= 0 || c->tile_height <= 0 ||
                 ((c->tile_width | c->tile_height) & 0xF) ||
-                c->tile_width * 4LL * c->tile_height >= INT_MAX
+                c->tile_width * (uint64_t)c->tile_height >= INT_MAX / 4
             ) {
                 av_log(avctx, AV_LOG_ERROR,
                        "Invalid tile dimensions %dx%d\n",
@@ -1580,6 +1584,8 @@ header_fail:
     c->height  = 0;
     c->tiles_x =
     c->tiles_y = 0;
+    c->tile_width =
+    c->tile_height = 0;
     return ret;
 }
 

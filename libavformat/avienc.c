@@ -34,6 +34,7 @@
 #include "libavutil/dict.h"
 #include "libavutil/avassert.h"
 #include "libavutil/timestamp.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavcodec/raw.h"
 
@@ -48,6 +49,8 @@ typedef struct AVIIentry {
 
 #define AVI_INDEX_CLUSTER_SIZE 16384
 
+#define AVISF_VIDEO_PALCHANGES 0x00010000
+
 typedef struct AVIIndex {
     int64_t     indx_start;
     int64_t     audio_strm_offset;
@@ -58,9 +61,11 @@ typedef struct AVIIndex {
 } AVIIndex;
 
 typedef struct AVIContext {
+    const AVClass *class;
     int64_t riff_start, movi_list, odml_list;
     int64_t frames_hdr_all;
     int riff_id;
+    int write_channel_mask;
 } AVIContext;
 
 typedef struct AVIStream {
@@ -74,9 +79,15 @@ typedef struct AVIStream {
     int64_t last_dts;
 
     AVIIndex indexes;
+
+    int64_t strh_flags_offset;
+
+    uint32_t palette[AVPALETTE_COUNT];
+    uint32_t old_palette[AVPALETTE_COUNT];
+    int64_t pal_offset;
 } AVIStream;
 
-static int avi_write_packet(AVFormatContext *s, AVPacket *pkt);
+static int avi_write_packet_internal(AVFormatContext *s, AVPacket *pkt);
 
 static inline AVIIentry *avi_get_ientry(const AVIIndex *idx, int ent_id)
 {
@@ -295,6 +306,7 @@ static int avi_write_header(AVFormatContext *s)
             avio_wl32(pb, enc->codec_tag);
         else
             avio_wl32(pb, 1);
+        avist->strh_flags_offset = avio_tell(pb);
         avio_wl32(pb, 0); /* flags */
         avio_wl16(pb, 0); /* priority */
         avio_wl16(pb, 0); /* language */
@@ -339,7 +351,7 @@ static int avi_write_header(AVFormatContext *s)
         ff_end_tag(pb, strh);
 
         if (enc->codec_type != AVMEDIA_TYPE_DATA) {
-            int ret;
+            int ret, flags;
             enum AVPixelFormat pix_fmt;
 
             strf = ff_start_tag(pb, "strf");
@@ -356,6 +368,7 @@ static int avi_write_header(AVFormatContext *s)
                     && enc->pix_fmt == AV_PIX_FMT_RGB555LE
                     && enc->bits_per_coded_sample == 15)
                     enc->bits_per_coded_sample = 16;
+                avist->pal_offset = avio_tell(pb) + 40;
                 ff_put_bmp_header(pb, enc, ff_codec_bmp_tags, 0, 0);
                 pix_fmt = avpriv_find_pix_fmt(avpriv_pix_fmt_bps_avi,
                                               enc->bits_per_coded_sample);
@@ -367,7 +380,8 @@ static int avi_write_header(AVFormatContext *s)
                           av_get_pix_fmt_name(enc->pix_fmt));
                 break;
             case AVMEDIA_TYPE_AUDIO:
-                if ((ret = ff_put_wav_header(pb, enc, 0)) < 0)
+                flags = (avi->write_channel_mask == 0) ? FF_PUT_WAV_HEADER_SKIP_CHANNELMASK : 0;
+                if ((ret = ff_put_wav_header(pb, enc, flags)) < 0)
                     return ret;
                 break;
             default:
@@ -633,7 +647,7 @@ static int write_skip_frames(AVFormatContext *s, int stream_index, int64_t dts)
         empty_packet.size         = 0;
         empty_packet.data         = NULL;
         empty_packet.stream_index = stream_index;
-        avi_write_packet(s, &empty_packet);
+        avi_write_packet_internal(s, &empty_packet);
         ff_dlog(s, "dup dts:%s packet_count:%d\n", av_ts2str(dts), avist->packet_count);
     }
 
@@ -642,13 +656,7 @@ static int write_skip_frames(AVFormatContext *s, int stream_index, int64_t dts)
 
 static int avi_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
-    unsigned char tag[5];
-    unsigned int flags = 0;
     const int stream_index = pkt->stream_index;
-    int size               = pkt->size;
-    AVIContext *avi     = s->priv_data;
-    AVIOContext *pb     = s->pb;
-    AVIStream *avist    = s->streams[stream_index]->priv_data;
     AVCodecContext *enc = s->streams[stream_index]->codec;
     int ret;
 
@@ -660,6 +668,87 @@ static int avi_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if ((ret = write_skip_frames(s, stream_index, pkt->dts)) < 0)
         return ret;
+
+    if (!pkt->size)
+        return avi_write_packet_internal(s, pkt); /* Passthrough */
+
+    if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
+        AVIStream *avist = s->streams[stream_index]->priv_data;
+        AVIOContext *pb  = s->pb;
+        AVPacket *opkt   = pkt;
+        if (enc->codec_id == AV_CODEC_ID_RAWVIDEO && enc->codec_tag == 0) {
+            int64_t bpc = enc->bits_per_coded_sample != 15 ? enc->bits_per_coded_sample : 16;
+            int expected_stride = ((enc->width * bpc + 31) >> 5)*4;
+            ret = ff_reshuffle_raw_rgb(s, &pkt, enc, expected_stride);
+            if (ret < 0)
+                return ret;
+        } else
+            ret = 0;
+        if (enc->pix_fmt == AV_PIX_FMT_PAL8) {
+            int ret2 = ff_get_packet_palette(s, opkt, ret, avist->palette);
+            if (ret2 < 0)
+                return ret2;
+            if (ret2) {
+                int pal_size = 1 << enc->bits_per_coded_sample;
+                int pc_tag, i;
+
+                av_assert0(enc->bits_per_coded_sample >= 0 && enc->bits_per_coded_sample <= 8);
+
+                if (pb->seekable && avist->pal_offset) {
+                    int64_t cur_offset = avio_tell(pb);
+                    avio_seek(pb, avist->pal_offset, SEEK_SET);
+                    for (i = 0; i < pal_size; i++) {
+                        uint32_t v = avist->palette[i];
+                        avio_wl32(pb, v & 0xffffff);
+                    }
+                    avio_seek(pb, cur_offset, SEEK_SET);
+                    memcpy(avist->old_palette, avist->palette, pal_size * 4);
+                    avist->pal_offset = 0;
+                }
+                if (memcmp(avist->palette, avist->old_palette, pal_size * 4)) {
+                    unsigned char tag[5];
+                    avi_stream2fourcc(tag, stream_index, enc->codec_type);
+                    tag[2] = 'p'; tag[3] = 'c';
+                    pc_tag = ff_start_tag(pb, tag);
+                    avio_w8(pb, 0);
+                    avio_w8(pb, pal_size & 0xFF);
+                    avio_wl16(pb, 0); // reserved
+                    for (i = 0; i < pal_size; i++) {
+                        uint32_t v = avist->palette[i];
+                        avio_wb32(pb, v<<8);
+                    }
+                    ff_end_tag(pb, pc_tag);
+                    memcpy(avist->old_palette, avist->palette, pal_size * 4);
+                    if (pb->seekable && avist->strh_flags_offset) {
+                        int64_t cur_offset = avio_tell(pb);
+                        avio_seek(pb, avist->strh_flags_offset, SEEK_SET);
+                        avio_wl32(pb, AVISF_VIDEO_PALCHANGES);
+                        avio_seek(pb, cur_offset, SEEK_SET);
+                        avist->strh_flags_offset = 0;
+                    }
+                }
+            }
+        }
+        if (ret) {
+            ret = avi_write_packet_internal(s, pkt);
+            av_packet_free(&pkt);
+            return ret;
+        }
+    }
+
+    return avi_write_packet_internal(s, pkt);
+}
+
+static int avi_write_packet_internal(AVFormatContext *s, AVPacket *pkt)
+{
+    unsigned char tag[5];
+    unsigned int flags = 0;
+    const int stream_index = pkt->stream_index;
+    int size               = pkt->size;
+    AVIContext *avi     = s->priv_data;
+    AVIOContext *pb     = s->pb;
+    AVIStream *avist    = s->streams[stream_index]->priv_data;
+    AVCodecContext *enc = s->streams[stream_index]->codec;
 
     if (pkt->dts != AV_NOPTS_VALUE)
         avist->last_dts = pkt->dts + pkt->duration;
@@ -782,6 +871,20 @@ static int avi_write_trailer(AVFormatContext *s)
     return res;
 }
 
+#define OFFSET(x) offsetof(AVIContext, x)
+#define ENC AV_OPT_FLAG_ENCODING_PARAM
+static const AVOption options[] = {
+    { "write_channel_mask", "write channel mask into wave format header", OFFSET(write_channel_mask), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, ENC },
+    { NULL },
+};
+
+static const AVClass avi_muxer_class = {
+    .class_name = "AVI muxer",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
 AVOutputFormat ff_avi_muxer = {
     .name           = "avi",
     .long_name      = NULL_IF_CONFIG_SMALL("AVI (Audio Video Interleaved)"),
@@ -796,4 +899,5 @@ AVOutputFormat ff_avi_muxer = {
     .codec_tag      = (const AVCodecTag * const []) {
         ff_codec_bmp_tags, ff_codec_wav_tags, 0
     },
+    .priv_class     = &avi_muxer_class,
 };

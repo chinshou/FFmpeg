@@ -52,6 +52,7 @@ DECLARE_ALIGNED(8, static const uint8_t, sws_pb_64)[8] = {
     64, 64, 64, 64, 64, 64, 64, 64
 };
 
+#ifndef NEW_FILTER
 static void gamma_convert(uint8_t * src[], int width, uint16_t *gamma)
 {
     int i;
@@ -67,6 +68,7 @@ static void gamma_convert(uint8_t * src[], int width, uint16_t *gamma)
         AV_WL16(src1 + i*4 + 2, gamma[b]);
     }
 }
+#endif
 
 static av_always_inline void fillPlane(uint8_t *plane, int stride, int width,
                                        int height, int y, uint8_t val)
@@ -87,10 +89,10 @@ static void hScale16To19_c(SwsContext *c, int16_t *_dst, int dstW,
     int i;
     int32_t *dst        = (int32_t *) _dst;
     const uint16_t *src = (const uint16_t *) _src;
-    int bits            = desc->comp[0].depth_minus1;
+    int bits            = desc->comp[0].depth - 1;
     int sh              = bits - 4;
 
-    if((isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8) && desc->comp[0].depth_minus1<15)
+    if((isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8) && desc->comp[0].depth<16)
         sh= 9;
 
     for (i = 0; i < dstW; i++) {
@@ -113,10 +115,10 @@ static void hScale16To15_c(SwsContext *c, int16_t *dst, int dstW,
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(c->srcFormat);
     int i;
     const uint16_t *src = (const uint16_t *) _src;
-    int sh              = desc->comp[0].depth_minus1;
+    int sh              = desc->comp[0].depth - 1;
 
     if(sh<15)
-        sh= isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8 ? 13 : desc->comp[0].depth_minus1;
+        sh= isAnyRGB(c->srcFormat) || c->srcFormat==AV_PIX_FMT_PAL8 ? 13 : (desc->comp[0].depth - 1);
 
     for (i = 0; i < dstW; i++) {
         int j;
@@ -238,6 +240,7 @@ static void lumRangeFromJpeg16_c(int16_t *_dst, int width)
         dst[i] = (dst[i]*(14071/4) + (33561947<<4)/4)>>12;
 }
 
+#ifndef NEW_FILTER
 // *** horizontal scale Y line to temp buffer
 static av_always_inline void hyscale(SwsContext *c, int16_t *dst, int dstWidth,
                                      const uint8_t *src_in[4],
@@ -309,6 +312,7 @@ static av_always_inline void hcscale(SwsContext *c, int16_t *dst1,
     if (c->chrConvertRange)
         c->chrConvertRange(dst1, dst2, dstWidth);
 }
+#endif /* NEW_FILTER */
 
 #define DEBUG_SWSCALE_BUFFERS 0
 #define DEBUG_BUFFERS(...)                      \
@@ -359,6 +363,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 #ifndef NEW_FILTER
     uint8_t *formatConvBuffer        = c->formatConvBuffer;
     uint32_t *pal                    = c->pal_yuv;
+    int perform_gamma = c->is_internal_gamma;
 #endif
     yuv2planar1_fn yuv2plane1        = c->yuv2plane1;
     yuv2planarX_fn yuv2planeX        = c->yuv2planeX;
@@ -368,7 +373,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     yuv2packedX_fn yuv2packedX       = c->yuv2packedX;
     yuv2anyX_fn yuv2anyX             = c->yuv2anyX;
     const int chrSrcSliceY           =                srcSliceY >> c->chrSrcVSubSample;
-    const int chrSrcSliceH           = FF_CEIL_RSHIFT(srcSliceH,   c->chrSrcVSubSample);
+    const int chrSrcSliceH           = AV_CEIL_RSHIFT(srcSliceH,   c->chrSrcVSubSample);
     int should_dither                = is9_OR_10BPS(c->srcFormat) ||
                                        is16BPS(c->srcFormat);
     int lastDstY;
@@ -379,7 +384,6 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     int chrBufIndex  = c->chrBufIndex;
     int lastInLumBuf = c->lastInLumBuf;
     int lastInChrBuf = c->lastInChrBuf;
-//    int perform_gamma = c->is_internal_gamma;
 
 #ifdef NEW_FILTER
     int lumStart = 0;
@@ -392,9 +396,10 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     SwsSlice *hout_slice = &c->slice[c->numSlice-2];
     SwsSlice *vout_slice = &c->slice[c->numSlice-1];
     SwsFilterDescriptor *desc = c->desc;
-#endif
+
     int hasLumHoles = 1;
     int hasChrHoles = 1;
+#endif
 
 #ifndef NEW_FILTER
     if (!usePal(c->srcFormat)) {
@@ -470,32 +475,35 @@ static int swscale(SwsContext *c, const uint8_t *src[],
                    yuv2packed1, yuv2packed2, yuv2packedX, yuv2anyX, c->use_mmx_vfilter);
 
     ff_init_slice_from_src(src_slice, (uint8_t**)src, srcStride, c->srcW,
-            srcSliceY, srcSliceH, chrSrcSliceY, chrSrcSliceH);
+            srcSliceY, srcSliceH, chrSrcSliceY, chrSrcSliceH, 1);
 
     ff_init_slice_from_src(vout_slice, (uint8_t**)dst, dstStride, c->dstW,
             dstY, dstH, dstY >> c->chrDstVSubSample,
-            FF_CEIL_RSHIFT(dstH, c->chrDstVSubSample));
+            AV_CEIL_RSHIFT(dstH, c->chrDstVSubSample), 0);
+    if (srcSliceY == 0) {
+        hout_slice->plane[0].sliceY = lastInLumBuf + 1;
+        hout_slice->plane[1].sliceY = lastInChrBuf + 1;
+        hout_slice->plane[2].sliceY = lastInChrBuf + 1;
+        hout_slice->plane[3].sliceY = lastInLumBuf + 1;
 
-    hout_slice->plane[0].sliceY = lastInLumBuf + 1;
-    hout_slice->plane[1].sliceY = lastInChrBuf + 1;
-    hout_slice->plane[2].sliceY = lastInChrBuf + 1;
-    hout_slice->plane[3].sliceY = lastInLumBuf + 1;
-
-    hout_slice->plane[0].sliceH =
-    hout_slice->plane[1].sliceH =
-    hout_slice->plane[2].sliceH =
-    hout_slice->plane[3].sliceH = 0;
-    hout_slice->width = dstW;
+        hout_slice->plane[0].sliceH =
+        hout_slice->plane[1].sliceH =
+        hout_slice->plane[2].sliceH =
+        hout_slice->plane[3].sliceH = 0;
+        hout_slice->width = dstW;
+    }
 #endif
 
     for (; dstY < dstH; dstY++) {
         const int chrDstY = dstY >> c->chrDstVSubSample;
+#ifndef NEW_FILTER
         uint8_t *dest[4]  = {
             dst[0] + dstStride[0] * dstY,
             dst[1] + dstStride[1] * chrDstY,
             dst[2] + dstStride[2] * chrDstY,
             (CONFIG_SWSCALE_ALPHA && alpPixBuf) ? dst[3] + dstStride[3] * dstY : NULL,
         };
+#endif
         int use_mmx_vfilter= c->use_mmx_vfilter;
 
         // First line needed as input
@@ -519,8 +527,8 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 #ifdef NEW_FILTER
             hasLumHoles = lastInLumBuf != firstLumSrcY - 1;
             if (hasLumHoles) {
-                hout_slice->plane[0].sliceY = lastInLumBuf + 1;
-                hout_slice->plane[3].sliceY = lastInLumBuf + 1;
+                hout_slice->plane[0].sliceY = firstLumSrcY;
+                hout_slice->plane[3].sliceY = firstLumSrcY;
                 hout_slice->plane[0].sliceH =
                 hout_slice->plane[3].sliceH = 0;
             }
@@ -531,8 +539,8 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 #ifdef NEW_FILTER
             hasChrHoles = lastInChrBuf != firstChrSrcY - 1;
             if (hasChrHoles) {
-                hout_slice->plane[1].sliceY = lastInChrBuf + 1;
-                hout_slice->plane[2].sliceY = lastInChrBuf + 1;
+                hout_slice->plane[1].sliceY = firstChrSrcY;
+                hout_slice->plane[2].sliceY = firstChrSrcY;
                 hout_slice->plane[1].sliceH =
                 hout_slice->plane[2].sliceH = 0;
             }
@@ -550,7 +558,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 
         // Do we have enough lines in this slice to output the dstY line
         enough_lines = lastLumSrcY2 < srcSliceY + srcSliceH &&
-                       lastChrSrcY < FF_CEIL_RSHIFT(srcSliceY + srcSliceH, c->chrSrcVSubSample);
+                       lastChrSrcY < AV_CEIL_RSHIFT(srcSliceY + srcSliceH, c->chrSrcVSubSample);
 
         if (!enough_lines) {
             lastLumSrcY = srcSliceY + srcSliceH - 1;
@@ -572,7 +580,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
         cPosY = hout_slice->plane[1].sliceY + hout_slice->plane[1].sliceH;
         if (cPosY <= lastChrSrcY && !hasChrHoles) {
             firstCPosY = FFMAX(firstChrSrcY, cPosY);
-            lastCPosY = FFMIN(lastChrSrcY + MAX_LINES_AHEAD, FF_CEIL_RSHIFT(srcSliceY + srcSliceH, c->chrSrcVSubSample) - 1);
+            lastCPosY = FFMIN(lastChrSrcY + MAX_LINES_AHEAD, AV_CEIL_RSHIFT(srcSliceY + srcSliceH, c->chrSrcVSubSample) - 1);
         } else {
             firstCPosY = lastInChrBuf + 1;
             lastCPosY = lastChrSrcY;
@@ -610,8 +618,8 @@ static int swscale(SwsContext *c, const uint8_t *src[],
             av_assert0(lastInLumBuf + 1 - srcSliceY < srcSliceH);
             av_assert0(lastInLumBuf + 1 - srcSliceY >= 0);
 
-            //if (perform_gamma)
-            //    gamma_convert((uint8_t **)src1, srcW, c->inv_gamma);
+            if (perform_gamma)
+                gamma_convert((uint8_t **)src1, srcW, c->inv_gamma);
 
             hyscale(c, lumPixBuf[lumBufIndex], dstW, src1, srcW, lumXInc,
                     hLumFilter, hLumFilterPos, hLumFilterSize,
@@ -747,10 +755,8 @@ static int swscale(SwsContext *c, const uint8_t *src[],
                     }
                 }
             } else if (yuv2packedX) {
-#ifndef NEW_FILTER
                 av_assert1(lumSrcPtr  + vLumFilterSize - 1 < (const int16_t **)lumPixBuf  + vLumBufSize * 2);
                 av_assert1(chrUSrcPtr + vChrFilterSize - 1 < (const int16_t **)chrUPixBuf + vChrBufSize * 2);
-#endif
                 if (c->yuv2packed1 && vLumFilterSize == 1 &&
                     vChrFilterSize <= 2) { // unscaled RGB
                     int chrAlpha = vChrFilterSize == 1 ? 0 : vChrFilter[2 * dstY + 1];
@@ -783,9 +789,9 @@ static int swscale(SwsContext *c, const uint8_t *src[],
                          chrUSrcPtr, chrVSrcPtr, vChrFilterSize,
                          alpSrcPtr, dest, dstW, dstY);
             }
+            if (perform_gamma)
+                gamma_convert(dest, dstW, c->gamma);
 #endif
-            //if (perform_gamma)
-            //    gamma_convert(dest, dstW, c->gamma);
         }
     }
     if (isPlanar(dstFormat) && isALPHA(dstFormat) && !alpPixBuf) {
@@ -795,7 +801,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
         if (is16BPS(dstFormat) || isNBPS(dstFormat)) {
             const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(dstFormat);
             fillPlane16(dst[3], dstStride[3], length, height, lastDstY,
-                    1, desc->comp[3].depth_minus1,
+                    1, desc->comp[3].depth,
                     isBE(dstFormat));
         } else
             fillPlane(dst[3], dstStride[3], length, height, lastDstY, 255);
@@ -1042,10 +1048,18 @@ int attribute_align_arg sws_scale(struct SwsContext *c,
     const uint8_t *src2[4];
     uint8_t *dst2[4];
     uint8_t *rgb0_tmp = NULL;
+    int macro_height = isBayer(c->srcFormat) ? 2 : (1 << c->chrSrcVSubSample);
 
     if (!srcStride || !dstStride || !dst || !srcSlice) {
         av_log(c, AV_LOG_ERROR, "One of the input parameters to sws_scale() is NULL, please check the calling code\n");
         return 0;
+    }
+
+    if ((srcSliceY & (macro_height-1)) ||
+        ((srcSliceH& (macro_height-1)) && srcSliceY + srcSliceH != c->srcH) ||
+        srcSliceY + srcSliceH > c->srcH) {
+        av_log(c, AV_LOG_ERROR, "Slice parameters %d, %d are invalid\n", srcSliceY, srcSliceH);
+        return AVERROR(EINVAL);
     }
 
     if (c->gamma_flag && c->cascaded_context[0]) {

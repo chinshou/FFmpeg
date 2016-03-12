@@ -35,6 +35,16 @@
 #include "timefilter.h"
 #include "avdevice.h"
 
+#if HAVE_DISPATCH_DISPATCH_H
+#include <dispatch/dispatch.h>
+#define sem_t dispatch_semaphore_t
+#define sem_init(psem,x,val)  *psem = dispatch_semaphore_create(val)
+#define sem_post(psem)                dispatch_semaphore_signal(*psem)
+#define sem_wait(psem)                dispatch_semaphore_wait(*psem, DISPATCH_TIME_FOREVER)
+#define sem_timedwait(psem, val)      dispatch_semaphore_wait(*psem, dispatch_walltime(val, 0))
+#define sem_destroy(psem)             dispatch_release(*psem)
+#endif
+
 /**
  * Size of the internal FIFO buffers as a number of audio packets
  */
@@ -218,7 +228,7 @@ static void free_pkt_fifo(AVFifoBuffer **fifo)
     AVPacket pkt;
     while (av_fifo_size(*fifo)) {
         av_fifo_generic_read(*fifo, &pkt, sizeof(pkt), NULL);
-        av_free_packet(&pkt);
+        av_packet_unref(&pkt);
     }
     av_fifo_freep(fifo);
 }

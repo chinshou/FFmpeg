@@ -858,6 +858,7 @@ static av_cold int sonic_decode_init(AVCodecContext *avctx)
     SonicContext *s = avctx->priv_data;
     GetBitContext gb;
     int i;
+    int ret;
 
     s->channels = avctx->channels;
     s->samplerate = avctx->sample_rate;
@@ -868,7 +869,9 @@ static av_cold int sonic_decode_init(AVCodecContext *avctx)
         return AVERROR_INVALIDDATA;
     }
 
-    init_get_bits8(&gb, avctx->extradata, avctx->extradata_size);
+    ret = init_get_bits8(&gb, avctx->extradata, avctx->extradata_size);
+    if (ret < 0)
+        return ret;
 
     s->version = get_bits(&gb, 2);
     if (s->version >= 2) {
@@ -924,6 +927,13 @@ static av_cold int sonic_decode_init(AVCodecContext *avctx)
     s->block_align = 2048LL*s->samplerate/(44100*s->downsampling);
     s->frame_size = s->channels*s->block_align*s->downsampling;
 //    avctx->frame_size = s->block_align;
+
+    if (s->num_taps * s->channels > s->frame_size) {
+        av_log(avctx, AV_LOG_ERROR,
+               "number of taps times channels (%d * %d) larger than frame size %d\n",
+               s->num_taps, s->channels, s->frame_size);
+        return AVERROR_INVALIDDATA;
+    }
 
     av_log(avctx, AV_LOG_INFO, "Sonic: ver: %d.%d ls: %d dr: %d taps: %d block: %d frame: %d downsamp: %d\n",
         s->version, s->minor_version, s->lossless, s->decorrelation, s->num_taps, s->block_align, s->frame_size, s->downsampling);

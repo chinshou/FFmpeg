@@ -39,7 +39,7 @@ static void free_lines(SwsSlice *s)
 }
 
 /*
- slice lines contains extra bytes for vetorial code thus @size
+ slice lines contains extra bytes for vectorial code thus @size
  is the allocated memory size and @width is the number of pixels
 */
 static int alloc_lines(SwsSlice *s, int size, int width)
@@ -144,43 +144,45 @@ int ff_rotate_slice(SwsSlice *s, int lum, int chr)
     return 0;
 }
 
-int ff_init_slice_from_src(SwsSlice * s, uint8_t *src[4], int stride[4], int srcW, int lumY, int lumH, int chrY, int chrH)
+int ff_init_slice_from_src(SwsSlice * s, uint8_t *src[4], int stride[4], int srcW, int lumY, int lumH, int chrY, int chrH, int relative)
 {
     int i = 0;
 
     const int start[4] = {lumY,
-                    chrY,
-                    chrY,
-                    lumY};
+                          chrY,
+                          chrY,
+                          lumY};
 
     const int end[4] = {lumY +lumH,
                         chrY + chrH,
                         chrY + chrH,
                         lumY + lumH};
 
+    const uint8_t *src_[4] = {src[0] + (relative ? 0 : start[0]) * stride[0],
+                              src[1] + (relative ? 0 : start[1]) * stride[1],
+                              src[2] + (relative ? 0 : start[2]) * stride[2],
+                              src[3] + (relative ? 0 : start[3]) * stride[3]};
+
     s->width = srcW;
 
     for (i = 0; i < 4; ++i) {
         int j;
-        int lines = end[i];
-        lines = s->plane[i].available_lines < lines ? s->plane[i].available_lines : lines;
+        int first = s->plane[i].sliceY;
+        int n = s->plane[i].available_lines;
+        int lines = end[i] - start[i];
+        int tot_lines = end[i] - first;
 
-        if (end[i] > s->plane[i].sliceY+s->plane[i].sliceH) {
-            if (start[i] <= s->plane[i].sliceY+1)
-                s->plane[i].sliceY = FFMIN(start[i], s->plane[i].sliceY);
-            else
-                s->plane[i].sliceY = start[i];
-            s->plane[i].sliceH = end[i] - s->plane[i].sliceY;
+        if (start[i] >= first && n >= tot_lines) {
+            s->plane[i].sliceH = FFMAX(tot_lines, s->plane[i].sliceH);
+            for (j = 0; j < lines; j+= 1)
+                s->plane[i].line[start[i] - first + j] = src_[i] +  j * stride[i];
         } else {
-            if (end[i] >= s->plane[i].sliceY)
-                s->plane[i].sliceH = s->plane[i].sliceY + s->plane[i].sliceH - start[i];
-            else
-                s->plane[i].sliceH = end[i] - start[i];
             s->plane[i].sliceY = start[i];
+            lines = lines > n ? n : lines;
+            s->plane[i].sliceH = lines;
+            for (j = 0; j < lines; j+= 1)
+                s->plane[i].line[j] = src_[i] +  j * stride[i];
         }
-
-        for (j = start[i]; j < lines; j+= 1)
-            s->plane[i].line[j] = src[i] + (start[i] + j) * stride[i];
 
     }
 
@@ -217,6 +219,7 @@ int ff_init_filters(SwsContext * c)
     int num_vdesc = isPlanarYUV(c->dstFormat) && !isGray(c->dstFormat) ? 2 : 1;
     int need_lum_conv = c->lumToYV12 || c->readLumPlanar || c->alpToYV12 || c->readAlpPlanar;
     int need_chr_conv = c->chrToYV12 || c->readChrPlanar;
+    int need_gamma = c->is_internal_gamma;
     int srcIdx, dstIdx;
     int dst_stride = FFALIGN(c->dstW * sizeof(int16_t) + 66, 16);
 
@@ -230,9 +233,9 @@ int ff_init_filters(SwsContext * c)
     num_cdesc = need_chr_conv ? 2 : 1;
 
     c->numSlice = FFMAX(num_ydesc, num_cdesc) + 2;
-    c->numDesc = num_ydesc + num_cdesc + num_vdesc;
-    c->descIndex[0] = num_ydesc;
-    c->descIndex[1] = num_ydesc + num_cdesc;
+    c->numDesc = num_ydesc + num_cdesc + num_vdesc + (need_gamma ? 2 : 0);
+    c->descIndex[0] = num_ydesc + (need_gamma ? 1 : 0);
+    c->descIndex[1] = num_ydesc + num_cdesc + (need_gamma ? 1 : 0);
 
 
 
@@ -267,8 +270,15 @@ int ff_init_filters(SwsContext * c)
     srcIdx = 0;
     dstIdx = 1;
 
+    if (need_gamma) {
+        res = ff_init_gamma_convert(c->desc + index, c->slice + srcIdx, c->inv_gamma);
+        if (res < 0) goto cleanup;
+        ++index;
+    }
+
     if (need_lum_conv) {
-        ff_init_desc_fmt_convert(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], pal);
+        res = ff_init_desc_fmt_convert(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], pal);
+        if (res < 0) goto cleanup;
         c->desc[index].alpha = c->alpPixBuf != 0;
         ++index;
         srcIdx = dstIdx;
@@ -276,7 +286,8 @@ int ff_init_filters(SwsContext * c)
 
 
     dstIdx = FFMAX(num_ydesc, num_cdesc);
-    ff_init_desc_hscale(&c->desc[index], &c->slice[index], &c->slice[dstIdx], c->hLumFilter, c->hLumFilterPos, c->hLumFilterSize, c->lumXInc);
+    res = ff_init_desc_hscale(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], c->hLumFilter, c->hLumFilterPos, c->hLumFilterSize, c->lumXInc);
+    if (res < 0) goto cleanup;
     c->desc[index].alpha = c->alpPixBuf != 0;
 
 
@@ -285,23 +296,32 @@ int ff_init_filters(SwsContext * c)
         srcIdx = 0;
         dstIdx = 1;
         if (need_chr_conv) {
-            ff_init_desc_cfmt_convert(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], pal);
+            res = ff_init_desc_cfmt_convert(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], pal);
+            if (res < 0) goto cleanup;
             ++index;
             srcIdx = dstIdx;
         }
 
         dstIdx = FFMAX(num_ydesc, num_cdesc);
         if (c->needs_hcscale)
-            ff_init_desc_chscale(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], c->hChrFilter, c->hChrFilterPos, c->hChrFilterSize, c->chrXInc);
+            res = ff_init_desc_chscale(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx], c->hChrFilter, c->hChrFilterPos, c->hChrFilterSize, c->chrXInc);
         else
-            ff_init_desc_no_chr(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx]);
+            res = ff_init_desc_no_chr(&c->desc[index], &c->slice[srcIdx], &c->slice[dstIdx]);
+        if (res < 0) goto cleanup;
     }
 
     ++index;
     {
         srcIdx = c->numSlice - 2;
         dstIdx = c->numSlice - 1;
-        ff_init_vscale(c, c->desc + index, c->slice + srcIdx, c->slice + dstIdx);
+        res = ff_init_vscale(c, c->desc + index, c->slice + srcIdx, c->slice + dstIdx);
+        if (res < 0) goto cleanup;
+    }
+
+    ++index;
+    if (need_gamma) {
+        res = ff_init_gamma_convert(c->desc + index, c->slice + dstIdx, c->gamma);
+        if (res < 0) goto cleanup;
     }
 
     return 0;

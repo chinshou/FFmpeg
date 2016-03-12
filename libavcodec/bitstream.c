@@ -30,6 +30,7 @@
 
 #include "libavutil/atomic.h"
 #include "libavutil/avassert.h"
+#include "libavutil/qsort.h"
 #include "avcodec.h"
 #include "internal.h"
 #include "mathops.h"
@@ -316,7 +317,7 @@ int ff_init_vlc_sparse(VLC *vlc_arg, int nb_bits, int nb_codes,
         }                                                                   \
         GET_DATA(buf[j].code, codes, i, codes_wrap, codes_size);            \
         if (buf[j].code >= (1LL<<buf[j].bits)) {                            \
-            av_log(NULL, AV_LOG_ERROR, "Invalid code in init_vlc\n");       \
+            av_log(NULL, AV_LOG_ERROR, "Invalid code %x for %d in init_vlc\n", buf[j].code, i);\
             if (!(flags & INIT_VLC_USE_NEW_STATIC))                         \
                 av_free(buf);                                               \
             return -1;                                                      \
@@ -333,7 +334,7 @@ int ff_init_vlc_sparse(VLC *vlc_arg, int nb_bits, int nb_codes,
     }
     COPY(buf[j].bits > nb_bits);
     // qsort is the slowest part of init_vlc, and could probably be improved or avoided
-    qsort(buf, j, sizeof(VLCcode), compare_vlcspec);
+    AV_QSORT(buf, j, struct VLCcode, compare_vlcspec);
     COPY(buf[j].bits && buf[j].bits <= nb_bits);
     nb_codes = j;
 
