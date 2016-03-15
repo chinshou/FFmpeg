@@ -287,17 +287,6 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     if ((ptr = strchr(proto_nested, '+')))
         *ptr = '\0';
 
-    while (up = ffurl_protocol_next(up)) {
-        if (!strcmp(proto_str, up->name))
-            break;
-        if (up->flags & URL_PROTOCOL_FLAG_NESTED_SCHEME &&
-            !strcmp(proto_nested, up->name))
-            break;
-    }
-    
-    if (up)
-      return up;
-
     protocols = ffurl_get_protocols(NULL, NULL);
     for (i = 0; protocols[i]; i++) {
         up = protocols[i];
