@@ -31,8 +31,9 @@
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "avfilter.h"
-#include "internal.h"
-#include "audio.h"
+//#include "internal.h"
+//#include "audio.h"
+//#include "libavutil/channel_layout.h"
 #include "formats.h"
 
 static int soxinit = -1;
@@ -152,7 +153,7 @@ static int query_formats(AVFilterContext *ctx)
 
     if (sox->effect->handler.flags & SOX_EFF_CHAN) {
         layouts = NULL;
-        ff_add_channel_layout(&layouts, av_get_default_channel_layout(sox->effect->out_signal.channels));
+        //ff_add_channel_layout(&layouts, av_get_default_channel_layout(sox->effect->out_signal.channels));
 
         ff_channel_layouts_ref(layouts, &ctx->outputs[0]->in_channel_layouts);
         ff_channel_layouts_ref(ff_all_channel_layouts(), &ctx->inputs[0]->out_channel_layouts);
@@ -169,10 +170,10 @@ static int config_output(AVFilterLink *outlink)
     SoxContext *sox = ctx->priv;
     AVFilterLink *inlink = ctx->inputs[0];
 
-    sox->effect->in_signal.precision = 32;
-    sox->effect->in_signal.rate      = inlink->sample_rate;
-    sox->effect->in_signal.channels  =
-        av_get_channel_layout_nb_channels(inlink->channel_layout);
+    //sox->effect->in_signal.precision = 32;
+    //sox->effect->in_signal.rate      = inlink->sample_rate;
+    //sox->effect->in_signal.channels  =
+      //  av_get_channel_layout_nb_channels(inlink->channel_layout);
 
     if (!(sox->effect->handler.flags & SOX_EFF_CHAN))
         sox->effect->out_signal.channels = sox->effect->in_signal.channels;
@@ -198,7 +199,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
     if (av_frame_is_writable(insamples)) {
         outsamples = insamples;
     } else {
-        outsamples = ff_get_audio_buffer(inlink, insamples->nb_samples);
+        //outsamples = ff_get_audio_buffer(inlink, insamples->nb_samples);
         if (!outsamples)
             return AVERROR(ENOMEM);
         outsamples->pts = insamples->pts;
@@ -216,7 +217,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
     if (insamples != outsamples)
         av_frame_free(&insamples);
 
-    return ff_filter_frame(inlink->dst->outputs[0], outsamples);
+    //return ff_filter_frame(inlink->dst->outputs[0], outsamples);
+    return 0;
 }
 
 
@@ -228,16 +230,16 @@ static int request_frame(AVFilterLink *outlink)
     AVFrame *outsamples;
     int ret;
 
-    ret = ff_request_frame(outlink->src->inputs[0]);
+    //ret = ff_request_frame(outlink->src->inputs[0]);
     if (ret == AVERROR_EOF) {
         /* drain cached samples */
         while (0) {
-            outsamples =
-                ff_get_audio_buffer(outlink, out_nb_samples);
+            //outsamples =
+              //  ff_get_audio_buffer(outlink, out_nb_samples);
             ret = effect->handler.drain(sox->effect,
                                         (int32_t *)outsamples->data[0], &out_nb_samples);
             outsamples->nb_samples = out_nb_samples / effect->out_signal.channels;
-            ff_filter_frame(outlink, outsamples);
+            //ff_filter_frame(outlink, outsamples);
             if (ret == SOX_EOF)
                 break;
         }
@@ -246,11 +248,13 @@ static int request_frame(AVFilterLink *outlink)
     return ret;
 }
 
+AVFilter ff_af_sox;
+#if 0
 AVFilter ff_af_sox = {
     .name          = "sox",
     .description   = NULL_IF_CONFIG_SMALL("Apply SoX library effect."),
     .priv_size     = sizeof(SoxContext),
-    .priv_class    = &sox_class,
+    .priv_class    = NULL,//&sox_class,
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
@@ -260,7 +264,7 @@ AVFilter ff_af_sox = {
             .name             = "default",
             .type             = AVMEDIA_TYPE_AUDIO,
             .filter_frame   = filter_frame,
-            .min_perms        = AV_PERM_READ,
+            //.min_perms        = AV_PERM_READ,
         },
         { .name = NULL }
     },
@@ -274,3 +278,4 @@ AVFilter ff_af_sox = {
         { .name = NULL }
     },
 };
+#endif

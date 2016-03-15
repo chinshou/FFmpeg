@@ -78,6 +78,7 @@ typedef struct URLProtocol {
     int     (*url_write)(URLContext *h, const unsigned char *buf, int size);
     int64_t (*url_seek)( URLContext *h, int64_t pos, int whence);
     int     (*url_close)(URLContext *h);
+    struct URLProtocol *next;
     int (*url_read_pause)(URLContext *h, int pause);
     int64_t (*url_read_seek)(URLContext *h, int stream_index,
                              int64_t timestamp, int flags);
@@ -258,10 +259,22 @@ int ffurl_get_multi_file_handle(URLContext *h, int **handles, int *numhandles);
 int ffurl_shutdown(URLContext *h, int flags);
 
 /**
+ * Register the URLProtocol protocol.
+ */
+int ffurl_register_protocol(URLProtocol *protocol);
+
+/**
  * Check if the user has requested to interrup a blocking function
  * associated with cb.
  */
 int ff_check_interrupt(AVIOInterruptCB *cb);
+
+/**
+ * Iterate over all available protocols.
+ *
+ * @param prev result of the previous call to this functions or NULL.
+ */
+URLProtocol *ffurl_protocol_next(const URLProtocol *prev);
 
 /* udp.c */
 int ff_udp_set_remote_url(URLContext *h, const char *uri);
