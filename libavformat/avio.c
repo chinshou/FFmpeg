@@ -298,7 +298,7 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     }
     av_freep(&protocols);
 
-    if (!up)
+    if (strcmp(proto_str, up->name))
     {
       while (up = ffurl_protocol_next(up)) {
           if (!strcmp(proto_str, up->name))
