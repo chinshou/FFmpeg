@@ -327,8 +327,8 @@ static int config_input(AVFilterLink *link)
 
   //sub_free(context->subd);
 
-  //context->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
-  //context->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
+  context->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
+  context->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
 
 
   return 0;
@@ -428,8 +428,6 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
   return ff_filter_frame(output, picref);
 }
 
-AVFilter ff_vf_ass_old;
-#if 0
 AVFilter ff_vf_ass_old = {
     .name      = "ass_old",
     .description   = NULL_IF_CONFIG_SMALL("Render subtitles onto input video using the libass library."),
@@ -455,4 +453,3 @@ AVFilter ff_vf_ass_old = {
     },
     .priv_class    = &ass_old_class,
 };
-#endif
