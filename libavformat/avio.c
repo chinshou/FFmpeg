@@ -300,6 +300,7 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
 
     if (strcmp(proto_str, up->name))
     {
+      up = NULL;
       while (up = ffurl_protocol_next(up)) {
           if (!strcmp(proto_str, up->name))
               break;
