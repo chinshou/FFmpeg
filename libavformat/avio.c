@@ -298,6 +298,20 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     }
     av_freep(&protocols);
 
+    if (!up)
+    {
+      while (up = ffurl_protocol_next(up)) {
+          if (!strcmp(proto_str, up->name))
+              break;
+          if (up->flags & URL_PROTOCOL_FLAG_NESTED_SCHEME &&
+              !strcmp(proto_nested, up->name))
+              break;
+      }
+    
+      if (up)
+        return up;
+    }
+    
     return up;
 }
 
