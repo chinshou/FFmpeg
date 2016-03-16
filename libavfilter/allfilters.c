@@ -124,7 +124,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(VIBRATO,        vibrato,        af);
     REGISTER_FILTER(VOLUME,         volume,         af);
     REGISTER_FILTER(VOLUMEDETECT,   volumedetect,   af);
-    REGISTER_FILTER (SOX,         sox,         af);
+    //REGISTER_FILTER (SOX,         sox,         af);
 
     REGISTER_FILTER(AEVALSRC,       aevalsrc,       asrc);
     REGISTER_FILTER(ANOISESRC,      anoisesrc,      asrc);
@@ -138,7 +138,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(ALPHAMERGE,     alphamerge,     vf);
     REGISTER_FILTER(ATADENOISE,     atadenoise,     vf);
     REGISTER_FILTER(ASS,            ass,            vf);
-    REGISTER_FILTER(ASS_OLD,        ass_old,            vf);
+    //REGISTER_FILTER(ASS_OLD,        ass_old,            vf);
     REGISTER_FILTER(BENCH,          bench,          vf);
     REGISTER_FILTER(BBOX,           bbox,           vf);
     REGISTER_FILTER(BLACKDETECT,    blackdetect,    vf);
