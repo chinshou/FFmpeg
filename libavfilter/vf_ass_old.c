@@ -327,8 +327,8 @@ static int config_input(AVFilterLink *link)
 
   //sub_free(context->subd);
 
-  context->hsub = av_pix_fmt_descriptors[link->format].log2_chroma_w;
-  context->vsub = av_pix_fmt_descriptors[link->format].log2_chroma_h;
+  context->hsub = av_pix_fmt_desc_get(link->format)->log2_chroma_w;
+  context->vsub = av_pix_fmt_desc_get(link->format)->log2_chroma_h;
 
 
   return 0;
@@ -441,9 +441,7 @@ AVFilter ff_vf_ass_old = {
           .type             = AVMEDIA_TYPE_VIDEO,
           .get_video_buffer = ff_null_get_video_buffer,
           .filter_frame     = filter_frame,
-          .config_props     = config_input,
-          .min_perms        = AV_PERM_WRITE | AV_PERM_READ,
-          .rej_perms        = AV_PERM_PRESERVE },
+          .config_props     = config_input },
         { .name = NULL}
     },
     .outputs = (const AVFilterPad[]) {
