@@ -119,7 +119,7 @@ int ff_h264_parse_sprop_parameter_sets(AVFormatContext *s,
             uint8_t *dest = av_realloc(*data_ptr,
                                        packet_size + sizeof(start_sequence) +
                                        *size_ptr +
-                                       FF_INPUT_BUFFER_PADDING_SIZE);
+                                       AV_INPUT_BUFFER_PADDING_SIZE);
             if (!dest) {
                 av_log(s, AV_LOG_ERROR,
                        "Unable to allocate memory for extradata!\n");
@@ -132,7 +132,7 @@ int ff_h264_parse_sprop_parameter_sets(AVFormatContext *s,
             memcpy(dest + *size_ptr + sizeof(start_sequence),
                    decoded_packet, packet_size);
             memset(dest + *size_ptr + sizeof(start_sequence) +
-                   packet_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+                   packet_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
 
             *size_ptr += sizeof(start_sequence) + packet_size;
         }
@@ -166,6 +166,10 @@ static int sdp_parse_fmtp_config_h264(AVFormatContext *s,
             parse_profile_level_id(s, h264_data, value);
     } else if (!strcmp(attr, "sprop-parameter-sets")) {
         int ret;
+        if (value[strlen(value) - 1] == ',') {
+            av_log(s, AV_LOG_WARNING, "Missing PPS in sprop-parameter-sets, ignoring\n");
+            return 0;
+        }
         codec->extradata_size = 0;
         av_freep(&codec->extradata);
         ret = ff_h264_parse_sprop_parameter_sets(s, &codec->extradata,

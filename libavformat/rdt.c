@@ -86,7 +86,7 @@ struct PayloadContext {
     RMStream **rmst;
     uint8_t *mlti_data;
     unsigned int mlti_data_size;
-    char buffer[RTP_MAX_PACKET_LENGTH + FF_INPUT_BUFFER_PADDING_SIZE];
+    char buffer[RTP_MAX_PACKET_LENGTH + AV_INPUT_BUFFER_PADDING_SIZE];
     int audio_pkt_cnt; /**< remaining audio packets in rmdec */
 };
 
@@ -398,7 +398,7 @@ rdt_parse_b64buf (unsigned int *target_len, const char *p)
         len -= 2; /* skip embracing " at start/end */
     }
     *target_len = len * 3 / 4;
-    target = av_mallocz(*target_len + FF_INPUT_BUFFER_PADDING_SIZE);
+    target = av_mallocz(*target_len + AV_INPUT_BUFFER_PADDING_SIZE);
     if (!target)
         return NULL;
     av_base64_decode(target, p, *target_len);
@@ -448,7 +448,7 @@ real_parse_asm_rule(AVStream *st, const char *p, const char *end)
 {
     do {
         /* can be either averagebandwidth= or AverageBandwidth= */
-        if (sscanf(p, " %*1[Aa]verage%*1[Bb]andwidth=%d", &st->codec->bit_rate) == 1)
+        if (sscanf(p, " %*1[Aa]verage%*1[Bb]andwidth=%"SCNd64, &st->codec->bit_rate) == 1)
             break;
         if (!(p = strchr(p, ',')) || p > end)
             p = end;
@@ -531,7 +531,7 @@ static av_cold int rdt_init(AVFormatContext *s, int st_index, PayloadContext *rd
     if (!rdt->rmctx)
         return AVERROR(ENOMEM);
 
-    if ((ret = ff_copy_whitelists(rdt->rmctx, s)) < 0)
+    if ((ret = ff_copy_whiteblacklists(rdt->rmctx, s)) < 0)
         return ret;
 
     return avformat_open_input(&rdt->rmctx, "", &ff_rdt_demuxer, NULL);

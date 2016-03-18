@@ -55,7 +55,7 @@ static int ape_tag_read_field(AVFormatContext *s)
         av_log(s, AV_LOG_WARNING, "Invalid APE tag key '%s'.\n", key);
         return -1;
     }
-    if (size > INT32_MAX - FF_INPUT_BUFFER_PADDING_SIZE) {
+    if (size > INT32_MAX - AV_INPUT_BUFFER_PADDING_SIZE) {
         av_log(s, AV_LOG_ERROR, "APE tag size too large.\n");
         return AVERROR_INVALIDDATA;
     }
@@ -193,6 +193,7 @@ int ff_ape_write_tag(AVFormatContext *s)
                      APE_TAG_FLAG_IS_HEADER);
     ffio_fill(dyn_bc, 0, 8);             // reserved
 
+    ff_standardize_creation_time(s);
     while ((e = av_dict_get(s->metadata, "", e, AV_DICT_IGNORE_SUFFIX))) {
         int val_len;
 

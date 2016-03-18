@@ -4,9 +4,9 @@ NAME = avutil
 
 HEADERS = adler32.h                                                     \
           aes.h                                                         \
+          aes_ctr.h                                                     \
           attributes.h                                                  \
           audio_fifo.h                                                  \
-          audioconvert.h                                                \
           avassert.h                                                    \
           avstring.h                                                    \
           avutil.h                                                      \
@@ -21,6 +21,7 @@ HEADERS = adler32.h                                                     \
           common.h                                                      \
           cpu.h                                                         \
           crc.h                                                         \
+          des.h                                                         \
           display.h                                                     \
           downmix_info.h                                                \
           error.h                                                       \
@@ -30,6 +31,9 @@ HEADERS = adler32.h                                                     \
           frame.h                                                       \
           hash.h                                                        \
           hmac.h                                                        \
+          hwcontext.h                                                   \
+          hwcontext_cuda.h                                              \
+          hwcontext_vdpau.h                                             \
           imgutils.h                                                    \
           intfloat.h                                                    \
           intreadwrite.h                                                \
@@ -37,18 +41,19 @@ HEADERS = adler32.h                                                     \
           log.h                                                         \
           macros.h                                                      \
           mathematics.h                                                 \
+          mastering_display_metadata.h                                  \
           md5.h                                                         \
           mem.h                                                         \
           motion_vector.h                                               \
           murmur3.h                                                     \
           dict.h                                                        \
-          old_pix_fmts.h                                                \
           opt.h                                                         \
           parseutils.h                                                  \
           pixdesc.h                                                     \
           pixelutils.h                                                  \
           pixfmt.h                                                      \
           random_seed.h                                                 \
+          rc4.h                                                         \
           replaygain.h                                                  \
           rational.h                                                    \
           ripemd.h                                                      \
@@ -60,9 +65,11 @@ HEADERS = adler32.h                                                     \
           time.h                                                        \
           timecode.h                                                    \
           timestamp.h                                                   \
+          tree.h                                                        \
           twofish.h                                                     \
           version.h                                                     \
           xtea.h                                                        \
+          tea.h                                                         \
 
 HEADERS-$(CONFIG_LZO)                   += lzo.h
 
@@ -78,7 +85,7 @@ BUILT_HEADERS = avconfig.h                                              \
 
 OBJS = adler32.o                                                        \
        aes.o                                                            \
-       atomic.o                                                         \
+       aes_ctr.o                                                        \
        audio_fifo.o                                                     \
        avstring.o                                                       \
        base64.o                                                         \
@@ -104,13 +111,16 @@ OBJS = adler32.o                                                        \
        frame.o                                                          \
        hash.o                                                           \
        hmac.o                                                           \
+       hwcontext.o                                                      \
        imgutils.o                                                       \
+       integer.o                                                        \
        intmath.o                                                        \
        lfg.o                                                            \
        lls.o                                                            \
        log.o                                                            \
        log2_tab.o                                                       \
        mathematics.o                                                    \
+       mastering_display_metadata.o                                     \
        md5.o                                                            \
        mem.o                                                            \
        murmur3.o                                                        \
@@ -121,12 +131,12 @@ OBJS = adler32.o                                                        \
        pixelutils.o                                                     \
        random_seed.o                                                    \
        rational.o                                                       \
+       reverse.o                                                        \
        rc4.o                                                            \
        ripemd.o                                                         \
        samplefmt.o                                                      \
        sha.o                                                            \
        sha512.o                                                         \
-       softfloat.o                                                      \
        stereo3d.o                                                       \
        threadmessage.o                                                  \
        time.o                                                           \
@@ -136,17 +146,22 @@ OBJS = adler32.o                                                        \
        utils.o                                                          \
        xga_font_data.o                                                  \
        xtea.o                                                           \
+       tea.o                                                            \
+
+OBJS-$(!HAVE_ATOMICS_NATIVE)            += atomic.o                     \
 
 OBJS-$(CONFIG_LZO)                      += lzo.o
 OBJS-$(CONFIG_OPENCL)                   += opencl.o opencl_internal.o
+OBJS-$(CONFIG_CUDA)                     += hwcontext_cuda.o
+OBJS-$(CONFIG_VDPAU)                    += hwcontext_vdpau.o
 
 OBJS += $(COMPAT_OBJS:%=../compat/%)
 
 # Windows resource file
 SLIBOBJS-$(HAVE_GNU_WINDRES)            += avutilres.o
 
-SKIPHEADERS          = old_pix_fmts.h
-
+SKIPHEADERS-$(CONFIG_CUDA)             += hwcontext_cuda.h
+SKIPHEADERS-$(CONFIG_VDPAU)            += hwcontext_vdpau.h
 SKIPHEADERS-$(HAVE_ATOMICS_GCC)        += atomic_gcc.h
 SKIPHEADERS-$(HAVE_ATOMICS_SUNCC)      += atomic_suncc.h
 SKIPHEADERS-$(HAVE_ATOMICS_WIN32)      += atomic_win32.h
@@ -161,6 +176,7 @@ TESTPROGS = adler32                                                     \
             bprint                                                      \
             cast5                                                       \
             camellia                                                    \
+            color_utils                                                 \
             cpu                                                         \
             crc                                                         \
             des                                                         \
@@ -170,6 +186,7 @@ TESTPROGS = adler32                                                     \
             file                                                        \
             fifo                                                        \
             float_dsp                                                   \
+            hash                                                        \
             hmac                                                        \
             lfg                                                         \
             lls                                                         \
@@ -191,6 +208,7 @@ TESTPROGS = adler32                                                     \
             twofish                                                     \
             utf8                                                        \
             xtea                                                        \
+            tea                                                         \
 
 TESTPROGS-$(HAVE_LZO1X_999_COMPRESS) += lzo
 
