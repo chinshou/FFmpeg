@@ -143,7 +143,7 @@ static int decode_plane(UtvideoContext *c, int plane_no,
 
         memcpy(c->slice_bits, src + slice_data_start + c->slices * 4,
                slice_size);
-        memset(c->slice_bits + slice_size, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+        memset(c->slice_bits + slice_size, 0, AV_INPUT_BUFFER_PADDING_SIZE);
         c->bdsp.bswap_buf((uint32_t *) c->slice_bits,
                           (uint32_t *) c->slice_bits,
                           (slice_data_end - slice_data_start + 3) >> 2);
@@ -356,12 +356,12 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         slice_end   = 0;
         for (j = 0; j < c->slices; j++) {
             slice_end   = bytestream2_get_le32u(&gb);
-            slice_size  = slice_end - slice_start;
-            if (slice_end < 0 || slice_size < 0 ||
+            if (slice_end < 0 || slice_end < slice_start ||
                 bytestream2_get_bytes_left(&gb) < slice_end) {
                 av_log(avctx, AV_LOG_ERROR, "Incorrect slice size\n");
                 return AVERROR_INVALIDDATA;
             }
+            slice_size  = slice_end - slice_start;
             slice_start = slice_end;
             max_slice_size = FFMAX(max_slice_size, slice_size);
         }
@@ -385,7 +385,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     }
 
     av_fast_malloc(&c->slice_bits, &c->slice_bits_size,
-                   max_slice_size + FF_INPUT_BUFFER_PADDING_SIZE);
+                   max_slice_size + AV_INPUT_BUFFER_PADDING_SIZE);
 
     if (!c->slice_bits) {
         av_log(avctx, AV_LOG_ERROR, "Cannot allocate temporary buffer\n");
@@ -559,5 +559,5 @@ AVCodec ff_utvideo_decoder = {
     .init           = decode_init,
     .close          = decode_end,
     .decode         = decode_frame,
-    .capabilities   = CODEC_CAP_DR1 | CODEC_CAP_FRAME_THREADS,
+    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,
 };

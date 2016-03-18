@@ -1,3 +1,7 @@
+#FATE_LIBAVFORMAT-$(HAVE_PTHREADS) += fate-async
+#fate-async: libavformat/async-test$(EXESUF)
+#fate-async: CMD = run libavformat/async-test
+
 FATE_LIBAVFORMAT-$(CONFIG_NETWORK) += fate-noproxy
 fate-noproxy: libavformat/noproxy-test$(EXESUF)
 fate-noproxy: CMD = run libavformat/noproxy-test
@@ -14,9 +18,10 @@ FATE_LIBAVFORMAT-yes += fate-url
 fate-url: libavformat/url-test$(EXESUF)
 fate-url: CMD = run libavformat/url-test
 
-FATE_SAMPLES_AVCONV-$(call DEMDEC, H264, H264) += fate-api-h264
-fate-api-h264: libavformat/api-h264-test$(EXESUF)
-fate-api-h264: CMD = run libavformat/api-h264-test $(TARGET_SAMPLES)/h264-conformance/SVA_NL2_E.264
+FATE_LIBAVFORMAT-$(CONFIG_MOV_MUXER) += fate-movenc
+fate-movenc: libavformat/movenc-test$(EXESUF)
+fate-movenc: CMD = run libavformat/movenc-test
 
-FATE-$(CONFIG_AVFORMAT) += $(FATE_LIBAVFORMAT-yes)
+FATE_LIBAVFORMAT += $(FATE_LIBAVFORMAT-yes)
+FATE-$(CONFIG_AVFORMAT) += $(FATE_LIBAVFORMAT)
 fate-libavformat: $(FATE_LIBAVFORMAT)

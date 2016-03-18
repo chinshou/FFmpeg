@@ -57,6 +57,7 @@
  */
 
 #if HAVE_INLINE_ASM
+#if !HAVE_MIPS32R6 && !HAVE_MIPS64R6
 static void ff_fft_calc_mips(FFTContext *s, FFTComplex *z)
 {
     int nbits, i, n, num_transforms, offset, step;
@@ -494,20 +495,26 @@ static void ff_imdct_calc_mips(FFTContext *s, FFTSample *output, const FFTSample
         output[n-k-4] = output[n2+k+3];
     }
 }
+#endif /* !HAVE_MIPS32R6 && !HAVE_MIPS64R6 */
 #endif /* HAVE_INLINE_ASM */
 
 av_cold void ff_fft_init_mips(FFTContext *s)
 {
     int n=0;
 
-    ff_fft_lut_init(ff_fft_offsets_lut, 0, 1 << 16, &n);
+    if (s->nbits > 16)
+        return;
+
+    ff_fft_lut_init(ff_fft_offsets_lut, 0, 1 << 17, &n);
     ff_init_ff_cos_tabs(16);
 
 #if HAVE_INLINE_ASM
+#if !HAVE_MIPS32R6 && !HAVE_MIPS64R6
     s->fft_calc     = ff_fft_calc_mips;
 #if CONFIG_MDCT
     s->imdct_calc   = ff_imdct_calc_mips;
     s->imdct_half   = ff_imdct_half_mips;
+#endif
 #endif
 #endif
 }

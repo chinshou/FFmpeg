@@ -635,7 +635,6 @@ static void fill_coding_method_array(sb_int8_array tone_level_idx,
 }
 
 /**
- *
  * Called by process_subpacket_11 to process more data from subpacket 11
  * with sb 0-8.
  * Called by process_subpacket_12 to process data from subpacket 12 with
@@ -1888,5 +1887,5 @@ AVCodec ff_qdm2_decoder = {
     .init             = qdm2_decode_init,
     .close            = qdm2_decode_close,
     .decode           = qdm2_decode_frame,
-    .capabilities     = CODEC_CAP_DR1,
+    .capabilities     = AV_CODEC_CAP_DR1,
 };

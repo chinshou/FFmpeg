@@ -24,7 +24,6 @@
  * Microsoft Video-1 Decoder by Mike Melanson (melanson@pcisys.net)
  * For more information about the MS Video-1 format, visit:
  *   http://www.pcisys.net/~melanson/codecs/
- *
  */
 
 #include <stdio.h>
@@ -346,5 +345,5 @@ AVCodec ff_msvideo1_decoder = {
     .init           = msvideo1_decode_init,
     .close          = msvideo1_decode_end,
     .decode         = msvideo1_decode_frame,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
 };

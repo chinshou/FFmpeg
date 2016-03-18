@@ -48,6 +48,10 @@ FATE_LIBAVUTIL += fate-crc
 fate-crc: libavutil/crc-test$(EXESUF)
 fate-crc: CMD = run libavutil/crc-test
 
+FATE_LIBAVUTIL += fate-color_utils
+fate-color_utils: libavutil/color_utils-test$(EXESUF)
+fate-color_utils: CMD = run libavutil/color_utils-test
+
 FATE_LIBAVUTIL += fate-des
 fate-des: libavutil/des-test$(EXESUF)
 fate-des: CMD = run libavutil/des-test
@@ -70,6 +74,10 @@ fate-float-dsp: libavutil/float_dsp-test$(EXESUF)
 fate-float-dsp: CMD = run libavutil/float_dsp-test $(CPUFLAGS:%=-c%)
 fate-float-dsp: CMP = null
 fate-float-dsp: REF = /dev/null
+
+FATE_LIBAVUTIL += fate-hash
+fate-hash: libavutil/hash-test$(EXESUF)
+fate-hash: CMD = run libavutil/hash-test
 
 FATE_LIBAVUTIL += fate-hmac
 fate-hmac: libavutil/hmac-test$(EXESUF)
@@ -120,6 +128,10 @@ fate-twofish: REF = /dev/null
 FATE_LIBAVUTIL += fate-xtea
 fate-xtea: libavutil/xtea-test$(EXESUF)
 fate-xtea: CMD = run libavutil/xtea-test
+
+FATE_LIBAVUTIL += fate-tea
+fate-tea: libavutil/tea-test$(EXESUF)
+fate-tea: CMD = run libavutil/tea-test
 
 FATE_LIBAVUTIL += fate-opt
 fate-opt: libavutil/opt-test$(EXESUF)

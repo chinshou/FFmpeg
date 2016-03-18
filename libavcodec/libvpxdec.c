@@ -32,6 +32,7 @@
 #include "avcodec.h"
 #include "internal.h"
 #include "libvpx.h"
+#include "profiles.h"
 
 typedef struct VP8DecoderContext {
     struct vpx_codec_ctx decoder;
@@ -67,6 +68,12 @@ static int set_pix_fmt(AVCodecContext *avctx, struct vpx_image *img)
         AVCOL_SPC_UNSPECIFIED, AVCOL_SPC_BT470BG, AVCOL_SPC_BT709, AVCOL_SPC_SMPTE170M,
         AVCOL_SPC_SMPTE240M, AVCOL_SPC_BT2020_NCL, AVCOL_SPC_RESERVED, AVCOL_SPC_RGB,
     };
+#if VPX_IMAGE_ABI_VERSION >= 4
+    static const enum AVColorRange color_ranges[] = {
+        AVCOL_RANGE_MPEG, AVCOL_RANGE_JPEG
+    };
+    avctx->color_range = color_ranges[img->range];
+#endif
     avctx->colorspace = colorspaces[img->cs];
 #endif
     if (avctx->codec_id == AV_CODEC_ID_VP8 && img->fmt != VPX_IMG_FMT_I420)
@@ -90,16 +97,21 @@ static int set_pix_fmt(AVCodecContext *avctx, struct vpx_image *img)
 #endif
     case VPX_IMG_FMT_I444:
         avctx->profile = FF_PROFILE_VP9_1;
+#if VPX_IMAGE_ABI_VERSION >= 3
+        avctx->pix_fmt = avctx->colorspace == AVCOL_SPC_RGB ?
+                         AV_PIX_FMT_GBRP : AV_PIX_FMT_YUV444P;
+#else
         avctx->pix_fmt = AV_PIX_FMT_YUV444P;
+#endif
         return 0;
 #ifdef VPX_IMG_FMT_HIGHBITDEPTH
     case VPX_IMG_FMT_I42016:
         avctx->profile = FF_PROFILE_VP9_2;
         if (img->bit_depth == 10) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV420P10LE;
+            avctx->pix_fmt = AV_PIX_FMT_YUV420P10;
             return 0;
         } else if (img->bit_depth == 12) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV420P12LE;
+            avctx->pix_fmt = AV_PIX_FMT_YUV420P12;
             return 0;
         } else {
             return AVERROR_INVALIDDATA;
@@ -107,10 +119,10 @@ static int set_pix_fmt(AVCodecContext *avctx, struct vpx_image *img)
     case VPX_IMG_FMT_I42216:
         avctx->profile = FF_PROFILE_VP9_3;
         if (img->bit_depth == 10) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV422P10LE;
+            avctx->pix_fmt = AV_PIX_FMT_YUV422P10;
             return 0;
         } else if (img->bit_depth == 12) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV422P12LE;
+            avctx->pix_fmt = AV_PIX_FMT_YUV422P12;
             return 0;
         } else {
             return AVERROR_INVALIDDATA;
@@ -119,10 +131,10 @@ static int set_pix_fmt(AVCodecContext *avctx, struct vpx_image *img)
     case VPX_IMG_FMT_I44016:
         avctx->profile = FF_PROFILE_VP9_3;
         if (img->bit_depth == 10) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV440P10LE;
+            avctx->pix_fmt = AV_PIX_FMT_YUV440P10;
             return 0;
         } else if (img->bit_depth == 12) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV440P12LE;
+            avctx->pix_fmt = AV_PIX_FMT_YUV440P12;
             return 0;
         } else {
             return AVERROR_INVALIDDATA;
@@ -131,10 +143,20 @@ static int set_pix_fmt(AVCodecContext *avctx, struct vpx_image *img)
     case VPX_IMG_FMT_I44416:
         avctx->profile = FF_PROFILE_VP9_3;
         if (img->bit_depth == 10) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV444P10LE;
+#if VPX_IMAGE_ABI_VERSION >= 3
+            avctx->pix_fmt = avctx->colorspace == AVCOL_SPC_RGB ?
+                             AV_PIX_FMT_GBRP10 : AV_PIX_FMT_YUV444P10;
+#else
+            avctx->pix_fmt = AV_PIX_FMT_YUV444P10;
+#endif
             return 0;
         } else if (img->bit_depth == 12) {
-            avctx->pix_fmt = AV_PIX_FMT_YUV444P12LE;
+#if VPX_IMAGE_ABI_VERSION >= 3
+            avctx->pix_fmt = avctx->colorspace == AVCOL_SPC_RGB ?
+                             AV_PIX_FMT_GBRP12 : AV_PIX_FMT_YUV444P12;
+#else
+            avctx->pix_fmt = AV_PIX_FMT_YUV444P12;
+#endif
             return 0;
         } else {
             return AVERROR_INVALIDDATA;
@@ -217,7 +239,7 @@ AVCodec ff_libvpx_vp8_decoder = {
     .init           = vp8_init,
     .close          = vp8_free,
     .decode         = vp8_decode,
-    .capabilities   = CODEC_CAP_AUTO_THREADS | CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_AUTO_THREADS | AV_CODEC_CAP_DR1,
 };
 #endif /* CONFIG_LIBVPX_VP8_DECODER */
 
@@ -226,14 +248,6 @@ static av_cold int vp9_init(AVCodecContext *avctx)
 {
     return vpx_init(avctx, &vpx_codec_vp9_dx_algo);
 }
-
-static const AVProfile profiles[] = {
-    { FF_PROFILE_VP9_0, "Profile 0" },
-    { FF_PROFILE_VP9_1, "Profile 1" },
-    { FF_PROFILE_VP9_2, "Profile 2" },
-    { FF_PROFILE_VP9_3, "Profile 3" },
-    { FF_PROFILE_UNKNOWN },
-};
 
 AVCodec ff_libvpx_vp9_decoder = {
     .name           = "libvpx-vp9",
@@ -244,8 +258,8 @@ AVCodec ff_libvpx_vp9_decoder = {
     .init           = vp9_init,
     .close          = vp8_free,
     .decode         = vp8_decode,
-    .capabilities   = CODEC_CAP_AUTO_THREADS | CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_AUTO_THREADS | AV_CODEC_CAP_DR1,
     .init_static_data = ff_vp9_init_static,
-    .profiles       = NULL_IF_CONFIG_SMALL(profiles),
+    .profiles       = NULL_IF_CONFIG_SMALL(ff_vp9_profiles),
 };
 #endif /* CONFIG_LIBVPX_VP9_DECODER */

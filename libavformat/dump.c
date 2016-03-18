@@ -26,6 +26,7 @@
 #include "libavutil/display.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
+#include "libavutil/mastering_display_metadata.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/opt.h"
 #include "libavutil/avstring.h"
@@ -100,7 +101,7 @@ static void pkt_dump_internal(void *avcl, FILE *f, int level, const AVPacket *pk
     HEXDUMP_PRINT("\n");
     HEXDUMP_PRINT("  size=%d\n", pkt->size);
     if (dump_payload)
-        av_hex_dump(f, pkt->data, pkt->size);
+        hex_dump_internal(avcl, f, level, pkt->data, pkt->size);
 }
 
 void av_pkt_dump2(FILE *f, const AVPacket *pkt, int dump_payload, const AVStream *st)
@@ -336,6 +337,39 @@ static void dump_audioservicetype(void *ctx, AVPacketSideData *sd)
     }
 }
 
+static void dump_cpb(void *ctx, AVPacketSideData *sd)
+{
+    AVCPBProperties *cpb = (AVCPBProperties *)sd->data;
+
+    if (sd->size < sizeof(*cpb)) {
+        av_log(ctx, AV_LOG_INFO, "invalid data");
+        return;
+    }
+
+    av_log(ctx, AV_LOG_INFO,
+           "bitrate max/min/avg: %d/%d/%d buffer size: %d vbv_delay: %"PRId64,
+           cpb->max_bitrate, cpb->min_bitrate, cpb->avg_bitrate,
+           cpb->buffer_size,
+           cpb->vbv_delay);
+}
+
+static void dump_mastering_display_metadata(void *ctx, AVPacketSideData* sd) {
+    AVMasteringDisplayMetadata* metadata = (AVMasteringDisplayMetadata*)sd->data;
+    av_log(ctx, AV_LOG_INFO, "Mastering Display Metadata, "
+           "has_primaries:%d has_luminance:%d "
+           "r(%5.4f,%5.4f) g(%5.4f,%5.4f) b(%5.4f %5.4f) wp(%5.4f, %5.4f) "
+           "min_luminance=%f, max_luminance=%f\n",
+           metadata->has_primaries, metadata->has_luminance,
+           av_q2d(metadata->display_primaries[0][0]),
+           av_q2d(metadata->display_primaries[0][1]),
+           av_q2d(metadata->display_primaries[1][0]),
+           av_q2d(metadata->display_primaries[1][1]),
+           av_q2d(metadata->display_primaries[2][0]),
+           av_q2d(metadata->display_primaries[2][1]),
+           av_q2d(metadata->white_point[0]), av_q2d(metadata->white_point[1]),
+           av_q2d(metadata->min_luminance), av_q2d(metadata->max_luminance));
+}
+
 static void dump_sidedata(void *ctx, AVStream *st, const char *indent)
 {
     int i;
@@ -376,6 +410,16 @@ static void dump_sidedata(void *ctx, AVStream *st, const char *indent)
         case AV_PKT_DATA_AUDIO_SERVICE_TYPE:
             av_log(ctx, AV_LOG_INFO, "audio service type: ");
             dump_audioservicetype(ctx, &sd);
+            break;
+        case AV_PKT_DATA_QUALITY_STATS:
+            av_log(ctx, AV_LOG_INFO, "quality factor: %d, pict_type: %c", AV_RL32(sd.data), av_get_picture_type_char(sd.data[4]));
+            break;
+        case AV_PKT_DATA_CPB_PROPERTIES:
+            av_log(ctx, AV_LOG_INFO, "cpb: ");
+            dump_cpb(ctx, &sd);
+            break;
+        case AV_PKT_DATA_MASTERING_DISPLAY_METADATA:
+            dump_mastering_display_metadata(ctx, &sd);
             break;
         default:
             av_log(ctx, AV_LOG_WARNING,
@@ -420,8 +464,8 @@ static void dump_stream_format(AVFormatContext *ic, int i,
         av_cmp_q(st->sample_aspect_ratio, st->codec->sample_aspect_ratio)) {
         AVRational display_aspect_ratio;
         av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-                  st->codec->width  * st->sample_aspect_ratio.num,
-                  st->codec->height * st->sample_aspect_ratio.den,
+                  st->codec->width  * (int64_t)st->sample_aspect_ratio.num,
+                  st->codec->height * (int64_t)st->sample_aspect_ratio.den,
                   1024 * 1024);
         av_log(NULL, AV_LOG_INFO, ", SAR %d:%d DAR %d:%d",
                st->sample_aspect_ratio.num, st->sample_aspect_ratio.den,
@@ -493,7 +537,7 @@ void av_dump_format(AVFormatContext *ic, int index,
         av_log(NULL, AV_LOG_INFO, "  Duration: ");
         if (ic->duration != AV_NOPTS_VALUE) {
             int hours, mins, secs, us;
-            int64_t duration = ic->duration + 5000;
+            int64_t duration = ic->duration + (ic->duration <= INT64_MAX - 5000 ? 5000 : 0);
             secs  = duration / AV_TIME_BASE;
             us    = duration % AV_TIME_BASE;
             mins  = secs / 60;
@@ -509,13 +553,13 @@ void av_dump_format(AVFormatContext *ic, int index,
             int secs, us;
             av_log(NULL, AV_LOG_INFO, ", start: ");
             secs = ic->start_time / AV_TIME_BASE;
-            us   = abs(ic->start_time % AV_TIME_BASE);
+            us   = llabs(ic->start_time % AV_TIME_BASE);
             av_log(NULL, AV_LOG_INFO, "%d.%06d",
                    secs, (int) av_rescale(us, 1000000, AV_TIME_BASE));
         }
         av_log(NULL, AV_LOG_INFO, ", bitrate: ");
         if (ic->bit_rate)
-            av_log(NULL, AV_LOG_INFO, "%d kb/s", ic->bit_rate / 1000);
+            av_log(NULL, AV_LOG_INFO, "%"PRId64" kb/s", (int64_t)ic->bit_rate / 1000);
         else
             av_log(NULL, AV_LOG_INFO, "N/A");
         av_log(NULL, AV_LOG_INFO, "\n");
