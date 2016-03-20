@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 #include "avformat.h"
+#include "internal.h"
 #include "libavutil/intreadwrite.h"
 
 typedef struct IVFEncContext {
@@ -72,8 +73,9 @@ static int ivf_write_packet(AVFormatContext *s, AVPacket *pkt)
 static int ivf_write_trailer(AVFormatContext *s)
 {
     AVIOContext *pb = s->pb;
-    if (pb->seekable) {
-        IVFEncContext *ctx = s->priv_data;
+    IVFEncContext *ctx = s->priv_data;
+
+    if (pb->seekable && ctx->frame_cnt > 1) {
         size_t end = avio_tell(pb);
 
         avio_seek(pb, 24, SEEK_SET);
@@ -82,6 +84,17 @@ static int ivf_write_trailer(AVFormatContext *s)
     }
 
     return 0;
+}
+
+static int ivf_check_bitstream(struct AVFormatContext *s, const AVPacket *pkt)
+{
+    int ret = 1;
+    AVStream *st = s->streams[pkt->stream_index];
+
+    if (st->codec->codec_id == AV_CODEC_ID_VP9)
+        ret = ff_stream_add_bitstream_filter(st, "vp9_superframe", NULL);
+
+    return ret;
 }
 
 AVOutputFormat ff_ivf_muxer = {
@@ -94,4 +107,5 @@ AVOutputFormat ff_ivf_muxer = {
     .write_header = ivf_write_header,
     .write_packet = ivf_write_packet,
     .write_trailer = ivf_write_trailer,
+    .check_bitstream = ivf_check_bitstream,
 };

@@ -254,7 +254,7 @@ fail:
 #define DEC AV_OPT_FLAG_DECODING_PARAM
 
 static const AVOption ffrtmphttp_options[] = {
-    {"ffrtmphttp_tls", "Use a HTTPS tunneling connection (RTMPTS).", OFFSET(tls), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 1, DEC},
+    {"ffrtmphttp_tls", "Use a HTTPS tunneling connection (RTMPTS).", OFFSET(tls), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, DEC},
     { NULL },
 };
 
@@ -265,7 +265,7 @@ static const AVClass ffrtmphttp_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-URLProtocol ff_ffrtmphttp_protocol = {
+const URLProtocol ff_ffrtmphttp_protocol = {
     .name           = "ffrtmphttp",
     .url_open       = rtmp_http_open,
     .url_read       = rtmp_http_read,

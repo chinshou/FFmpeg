@@ -27,11 +27,12 @@
 #include <sox.h>
 
 #include "libavutil/avstring.h"
-#include "libavutil/audioconvert.h"
+//#include "libavutil/audioconvert.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
+#include "libavutil/channel_layout.h"
 #include "avfilter.h"
-#include "internal.h"
+//#include "internal.h"
 #include "audio.h"
 #include "formats.h"
 
@@ -254,13 +255,11 @@ AVFilter ff_af_sox = {
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
-
     .inputs = (const AVFilterPad[]) {
         {
             .name             = "default",
             .type             = AVMEDIA_TYPE_AUDIO,
-            .filter_frame   = filter_frame,
-            .min_perms        = AV_PERM_READ,
+            .filter_frame   = filter_frame
         },
         { .name = NULL }
     },

@@ -225,6 +225,7 @@ static inline int parse_nal_units(AVCodecParserContext *s, const uint8_t *buf,
 
     for (;;) {
         int src_length, consumed;
+        int ret;
         buf = avpriv_find_start_code(buf, buf_end, &state);
         if (--buf + 2 >= buf_end)
             break;
@@ -242,7 +243,10 @@ static inline int parse_nal_units(AVCodecParserContext *s, const uint8_t *buf,
         if (consumed < 0)
             return consumed;
 
-        init_get_bits8(gb, nal->data + 2, nal->size);
+        ret = init_get_bits8(gb, nal->data + 2, nal->size);
+        if (ret < 0)
+            return ret;
+
         switch (h->nal_unit_type) {
         case NAL_VPS:
             ff_hevc_decode_nal_vps(gb, avctx, ps);
@@ -314,7 +318,7 @@ static inline int parse_nal_units(AVCodecParserContext *s, const uint8_t *buf,
 
                 slice_address_length = av_ceil_log2_c(ps->sps->ctb_width *
                                                       ps->sps->ctb_height);
-                sh->slice_segment_addr = slice_address_length ? get_bits(gb, slice_address_length) : 0;
+                sh->slice_segment_addr = get_bitsz(gb, slice_address_length);
                 if (sh->slice_segment_addr >= ps->sps->ctb_width * ps->sps->ctb_height) {
                     av_log(avctx, AV_LOG_ERROR, "Invalid slice segment address: %u.\n",
                            sh->slice_segment_addr);
@@ -410,19 +414,30 @@ static int hevc_split(AVCodecContext *avctx, const uint8_t *buf, int buf_size)
 {
     const uint8_t *ptr = buf, *end = buf + buf_size;
     uint32_t state = -1;
-    int has_ps = 0, nut;
+    int has_vps = 0;
+    int has_sps = 0;
+    int has_pps = 0;
+    int nut;
 
     while (ptr < end) {
         ptr = avpriv_find_start_code(ptr, end, &state);
         if ((state >> 8) != START_CODE)
             break;
         nut = (state >> 1) & 0x3F;
-        if (nut >= NAL_VPS && nut <= NAL_PPS)
-            has_ps = 1;
-        else if (has_ps)
-            return ptr - 4 - buf;
-        else // no parameter set at the beginning of the stream
-            return 0;
+        if (nut == NAL_VPS)
+            has_vps = 1;
+        else if (nut == NAL_SPS)
+            has_sps = 1;
+        else if (nut == NAL_PPS)
+            has_pps = 1;
+        else if ((nut != NAL_SEI_PREFIX || has_pps) &&
+                  nut != NAL_AUD) {
+            if (has_vps && has_sps) {
+                while (ptr - 4 > buf && ptr[-5] == 0)
+                    ptr--;
+                return ptr - 4 - buf;
+            }
+        }
     }
     return 0;
 }

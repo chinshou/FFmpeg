@@ -1,5 +1,4 @@
 /*
- *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -24,6 +23,11 @@
 #include "url.h"
 
 #include "libavutil/log.h"
+
+typedef struct AVIOInternal {
+    URLContext *h;
+    void *hlsopts;
+} AVIOInternal;
 
 extern const AVClass ff_avio_class;
 
@@ -148,6 +152,10 @@ int ffio_fdopen(AVIOContext **s, URLContext *h);
  * @return zero if no error.
  */
 int ffio_open_null_buf(AVIOContext **s);
+
+int ffio_open_whitelist(AVIOContext **s, const char *url, int flags,
+                         const AVIOInterruptCB *int_cb, AVDictionary **options,
+                         const char *whitelist, const char *blacklist);
 
 /**
  * Close a null buffer.

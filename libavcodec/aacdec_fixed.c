@@ -80,6 +80,7 @@
 #include "aacsbr.h"
 #include "mpeg4audio.h"
 #include "aacadtsdec.h"
+#include "profiles.h"
 #include "libavutil/intfloat.h"
 
 #include <math.h>
@@ -101,7 +102,7 @@ static av_always_inline void reset_predict_state(PredictorState *ps)
     ps->var1.exp = 1;
 }
 
-int exp2tab[4] = { Q31(1.0000000000/2), Q31(1.1892071150/2), Q31(1.4142135624/2), Q31(1.6817928305/2) };  // 2^0, 2^0.25, 2^0.5, 2^0.75
+static const int exp2tab[4] = { Q31(1.0000000000/2), Q31(1.1892071150/2), Q31(1.4142135624/2), Q31(1.6817928305/2) };  // 2^0, 2^0.25, 2^0.5, 2^0.75
 
 static inline int *DEC_SPAIR(int *dst, unsigned idx)
 {
@@ -438,6 +439,8 @@ AVCodec ff_aac_fixed_decoder = {
         AV_SAMPLE_FMT_S32P, AV_SAMPLE_FMT_NONE
     },
     .capabilities    = AV_CODEC_CAP_CHANNEL_CONF | AV_CODEC_CAP_DR1,
+    .caps_internal   = FF_CODEC_CAP_INIT_THREADSAFE,
     .channel_layouts = aac_channel_layout,
+    .profiles        = NULL_IF_CONFIG_SMALL(ff_aac_profiles),
     .flush = flush,
 };

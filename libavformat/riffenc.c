@@ -168,8 +168,9 @@ int ff_put_wav_header(AVIOContext *pb, AVCodecContext *enc, int flags)
     }
     /* write WAVEFORMATEXTENSIBLE extensions */
     if (waveformatextensible) {
-        int write_channel_mask = enc->strict_std_compliance < FF_COMPLIANCE_NORMAL ||
-                                 enc->channel_layout < 0x40000;
+        int write_channel_mask = !(flags & FF_PUT_WAV_HEADER_SKIP_CHANNELMASK) &&
+                                 (enc->strict_std_compliance < FF_COMPLIANCE_NORMAL ||
+                                  enc->channel_layout < 0x40000);
         /* 22 is WAVEFORMATEXTENSIBLE size */
         avio_wl16(pb, riff_extradata - riff_extradata_start + 22);
         /* ValidBitsPerSample || SamplesPerBlock || Reserved */
@@ -208,6 +209,18 @@ void ff_put_bmp_header(AVIOContext *pb, AVCodecContext *enc,
     int keep_height = enc->extradata_size >= 9 &&
                       !memcmp(enc->extradata + enc->extradata_size - 9, "BottomUp", 9);
     int extradata_size = enc->extradata_size - 9*keep_height;
+    enum AVPixelFormat pix_fmt = enc->pix_fmt;
+    int pal_avi;
+
+    if (pix_fmt == AV_PIX_FMT_NONE && enc->bits_per_coded_sample == 1)
+        pix_fmt = AV_PIX_FMT_MONOWHITE;
+    pal_avi = !for_asf &&
+              (pix_fmt == AV_PIX_FMT_PAL8 ||
+               pix_fmt == AV_PIX_FMT_MONOWHITE ||
+               pix_fmt == AV_PIX_FMT_MONOBLACK);
+
+    if (!enc->extradata_size && pal_avi)
+        extradata_size = 4 * (1 << enc->bits_per_coded_sample);
 
     /* size */
     avio_wl32(pb, 40 + (ignore_extradata ? 0 :extradata_size));
@@ -227,10 +240,22 @@ void ff_put_bmp_header(AVIOContext *pb, AVCodecContext *enc,
     avio_wl32(pb, 0);
 
     if (!ignore_extradata) {
-        avio_write(pb, enc->extradata, extradata_size);
-
-        if (!for_asf && extradata_size & 1)
-            avio_w8(pb, 0);
+        if (enc->extradata_size) {
+            avio_write(pb, enc->extradata, extradata_size);
+            if (!for_asf && extradata_size & 1)
+                avio_w8(pb, 0);
+        } else if (pal_avi) {
+            int i;
+            for (i = 0; i < 1 << enc->bits_per_coded_sample; i++) {
+                /* Initialize 1 bpp palette to black & white */
+                if (i == 0 && pix_fmt == AV_PIX_FMT_MONOWHITE)
+                    avio_wl32(pb, 0xffffff);
+                else if (i == 1 && pix_fmt == AV_PIX_FMT_MONOBLACK)
+                    avio_wl32(pb, 0xffffff);
+                else
+                    avio_wl32(pb, 0);
+            }
+        }
     }
 }
 

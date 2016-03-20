@@ -120,21 +120,6 @@ static int caf_write_header(AVFormatContext *s)
         return AVERROR_PATCHWELCOME;
     }
 
-    switch (enc->codec_id) {
-    case AV_CODEC_ID_PCM_S8:
-    case AV_CODEC_ID_PCM_S16LE:
-    case AV_CODEC_ID_PCM_S16BE:
-    case AV_CODEC_ID_PCM_S24LE:
-    case AV_CODEC_ID_PCM_S24BE:
-    case AV_CODEC_ID_PCM_S32LE:
-    case AV_CODEC_ID_PCM_S32BE:
-    case AV_CODEC_ID_PCM_F32LE:
-    case AV_CODEC_ID_PCM_F32BE:
-    case AV_CODEC_ID_PCM_F64LE:
-    case AV_CODEC_ID_PCM_F64BE:
-        codec_tag = MKTAG('l','p','c','m');
-    }
-
     if (!codec_tag) {
         av_log(s, AV_LOG_ERROR, "unsupported codec\n");
         return AVERROR_INVALIDDATA;
@@ -190,6 +175,7 @@ static int caf_write_header(AVFormatContext *s)
         avio_write(pb, enc->extradata, enc->extradata_size);
     }
 
+    ff_standardize_creation_time(s);
     if (av_dict_count(s->metadata)) {
         ffio_wfourcc(pb, "info"); //< Information chunk
         while ((t = av_dict_get(s->metadata, "", t, AV_DICT_IGNORE_SUFFIX))) {

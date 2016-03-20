@@ -131,7 +131,7 @@ int ff_wms_parse_sdp_a_line(AVFormatContext *s, const char *p)
         rt->asf_ctx->pb      = &pb;
         av_dict_set(&opts, "no_resync_search", "1", 0);
 
-        if ((ret = ff_copy_whitelists(rt->asf_ctx, s)) < 0) {
+        if ((ret = ff_copy_whiteblacklists(rt->asf_ctx, s)) < 0) {
             av_dict_free(&opts);
             return ret;
         }
@@ -289,7 +289,7 @@ static int asfrtp_parse_packet(AVFormatContext *s, PayloadContext *asf,
                 return 1; // FIXME: return 0 if last packet
             }
         }
-        av_free_packet(pkt);
+        av_packet_unref(pkt);
     }
 
     return res == 1 ? -1 : res;
