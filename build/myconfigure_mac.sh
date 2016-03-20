@@ -15,7 +15,7 @@ LDFLAGS=" -L/usr/lib -L/usr/darwin32/lib " CPPFLAGS=" -I/usr/darwin32/include" C
 --disable-demuxer=encx   \
 --extra-ldflags=" -llua -lcurl -liconv" \
 --extra-cflags=" -mmacosx-version-min=10.6 " --disable-indev=avfoundation \
---enable-libbluray --enable-libcelt --enable-libxvid --enable-libopenjpeg  --enable-libilbc --enable-libass --enable-libquvi
+--enable-libbluray --enable-libcelt --enable-libxvid --enable-libopenjpeg  --enable-libilbc --enable-libass 
 echo Please check libsdl existence problem , uninstall all libsdl
 read
 #--cc="clang -m32" --extra-cflags="-fomit-frame-pointer" --extra-ldflags="-fomit-frame-pointer" --extra-cxxflags="-fomit-frame-pointer"

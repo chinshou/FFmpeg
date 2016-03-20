@@ -2839,7 +2839,7 @@ x11grab_indev_deps="x11grab"
 x11grab_xcb_indev_deps="libxcb"
 xv_outdev_deps="X11_extensions_Xvlib_h XvGetPortAttribute"
 xv_outdev_extralibs="-lXv -lX11 -lXext"
-#waveform_indev_deps="waveInOpen"
+waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 # protocols
 async_protocol_deps="threads"
@@ -5637,10 +5637,10 @@ enabled nvenc             && { check_header nvEncodeAPI.h || die "ERROR: nvEncod
                              { check_cpp_condition nvEncodeAPI.h "NVENCAPI_MAJOR_VERSION >= 6" ||
                                die "ERROR: NVENC API version 5 or older is not supported"; } &&
                              { [ $target_os != cygwin ] || die "ERROR: NVENC is not supported on Cygwin currently."; }
-enabled openal            && { { for al_libs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32"; do
-                               check_lib 'AL/al.h' alGetError "${al_libs}" && break; done } ||
+enabled openal     && { { for al_libs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32" "-Wl,-framework,OpenAL"; do
+                        check_lib 'OpenAL/al.h' alGetError "${al_libs}" && break; done } ||
                                die "ERROR: openal not found"; } &&
-                             { check_cpp_condition "AL/al.h" "defined(AL_VERSION_1_1)" ||
+                      { check_cpp_condition "OpenAL/al.h" "defined(AL_VERSION_1_1)" ||
                                die "ERROR: openal must be installed and version must be 1.1 or compatible"; }
 enabled opencl            && { check_lib2 OpenCL/cl.h clEnqueueNDRangeKernel -Wl,-framework,OpenCL ||
                                check_lib2 CL/cl.h clEnqueueNDRangeKernel -lOpenCL ||
