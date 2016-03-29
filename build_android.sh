@@ -48,6 +48,8 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-libmp3lame \
     --enable-libsox \
     --enable-librtmp \
+    --enable-jni \
+    --enable-mediacodec \
     --enable-libvidstab \
     --disable-decoder=libvpx \
     --enable-gpl \
