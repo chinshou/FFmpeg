@@ -63,6 +63,7 @@ typedef struct Context {
     URLContext *inner;
     int64_t cache_hit, cache_miss;
     int read_ahead_limit;
+    char* cache_path;
 } Context;
 
 static int cmp(const void *key, const void *node)
@@ -77,14 +78,24 @@ static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **
 
     av_strstart(arg, "cache:", &arg);
 
-    c->fd = av_tempfile("ffcache", &buffername, 0, h);
+#   ifndef O_BINARY
+#       define O_BINARY 0
+#   endif
+    if (c->cache_path)
+      c->fd = open(c->cache_path, O_RDWR | O_BINARY | O_CREAT | O_EXCL, 0600);
+    else
+      c->fd = av_tempfile("ffcache", &buffername, 0, h);
+    
     if (c->fd < 0){
         av_log(h, AV_LOG_ERROR, "Failed to create tempfile\n");
         return c->fd;
     }
 
-    unlink(buffername);
-    av_freep(&buffername);
+    if (!c->cache_path)
+    {
+      unlink(buffername);
+      av_freep(&buffername);
+    }
 
     return ffurl_open_whitelist(&c->inner, arg, flags, &h->interrupt_callback,
                                 options, h->protocol_whitelist, h->protocol_blacklist);
@@ -309,6 +320,8 @@ static int cache_close(URLContext *h)
 
 static const AVOption options[] = {
     { "read_ahead_limit", "Amount in bytes that may be read ahead when seeking isn't supported, -1 for unlimited", OFFSET(read_ahead_limit), AV_OPT_TYPE_INT, { .i64 = 65536 }, -1, INT_MAX, D },
+    {"cache_path", "cache path", offsetof(Context, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, D},
+
     {NULL},
 };
 
