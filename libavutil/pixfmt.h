@@ -300,6 +300,8 @@ enum AVPixelFormat {
     AV_PIX_FMT_GBRAP12BE,  ///< planar GBR 4:4:4:4 48bpp, big-endian
     AV_PIX_FMT_GBRAP12LE,  ///< planar GBR 4:4:4:4 48bpp, little-endian
 
+    AV_PIX_FMT_MEDIACODEC, ///< hardware decoding through MediaCodec
+
     AV_PIX_FMT_NB,        ///< number of pixel formats, DO NOT USE THIS if you want to link with shared libav* because the number of formats might differ between versions
 };
 
