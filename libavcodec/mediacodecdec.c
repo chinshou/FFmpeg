@@ -142,12 +142,12 @@ static enum AVPixelFormat mcdec_map_color_format(AVCodecContext *avctx,
 
 static void ff_mediacodec_dec_ref(MediaCodecDecContext *s)
 {
-    avpriv_atomic_int_add_and_fetch(s->refcount, 1);
+    avpriv_atomic_int_add_and_fetch(&s->refcount, 1);
 }
 
 static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
 {
-    if (!avpriv_atomic_int_add_and_fetch(s->refcount, -1)) {
+    if (!avpriv_atomic_int_add_and_fetch(&s->refcount, -1)) {
         if (s->codec) {
             ff_AMediaCodec_delete(s->codec);
             s->codec = NULL;
@@ -164,7 +164,6 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
         }
 
         av_freep(&s->codec_name);
-        av_freep(&s->refcount);
     }
 }
 
@@ -172,14 +171,13 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
 {
     AVMediaCodecBuffer *buffer = opaque;
     MediaCodecDecContext *ctx = buffer->ctx;
-    int released = avpriv_atomic_int_get(buffer->released);
+    int released = avpriv_atomic_int_get(&buffer->released);
 
     if (!released) {
         ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
     }
 
     ff_mediacodec_dec_unref(ctx);
-    av_freep(&buffer->released);
     av_freep(&buffer);
 }
 
@@ -206,12 +204,7 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
         goto fail;
     }
 
-    buffer->released = av_mallocz(sizeof(*buffer->released));
-    if (!buffer->released) {
-        ret = AVERROR(ENOMEM);
-        goto fail;
-    }
-
+	buffer->released = 0;
     frame->buf[0] = av_buffer_create(NULL,
                                      0,
                                      mediacodec_buffer_release,
@@ -234,10 +227,7 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
 
     return 0;
 fail:
-    if (buffer) {
-        av_free(buffer->released);
-        av_free(buffer);
-    }
+    av_freep(buffer);
 
     av_buffer_unref(&frame->buf[0]);
 
@@ -457,12 +447,7 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
 
     s->first_buffer_at = av_gettime();
 
-    s->refcount = av_mallocz(sizeof(*s->refcount));
-    if (!s->refcount) {
-        av_log(avctx, AV_LOG_ERROR, "Failed to init decoder reference counter\n");
-        goto fail;
-    }
-    *s->refcount = 1;
+    s->refcount = 1;
 
     pix_fmt = ff_get_format(avctx, pix_fmts);
     if (pix_fmt == AV_PIX_FMT_MEDIACODEC) {
@@ -716,7 +701,7 @@ int ff_mediacodec_dec_decode(AVCodecContext *avctx, MediaCodecDecContext *s,
 
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
-    if (!s->surface || avpriv_atomic_int_get(s->refcount) == 1) {
+    if (!s->surface || avpriv_atomic_int_get(&s->refcount) == 1) {
         int ret;
 
         if ((ret = mediacodec_dec_flush_codec(avctx, s)) < 0) {

@@ -96,7 +96,7 @@ void av_mediacodec_default_free(AVCodecContext *avctx)
 int av_mediacodec_release_buffer(AVMediaCodecBuffer *buffer, int render)
 {
     MediaCodecDecContext *ctx = buffer->ctx;
-    int released = avpriv_atomic_int_add_and_fetch(buffer->released, 1);
+    int released = avpriv_atomic_int_add_and_fetch(&buffer->released, 1);
 
     if (released == 1) {
         return ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, render);

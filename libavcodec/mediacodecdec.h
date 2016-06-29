@@ -34,7 +34,7 @@
 
 typedef struct MediaCodecDecContext {
 
-    int *refcount;
+    volatile int refcount;
 
     char *codec_name;
 
@@ -92,7 +92,7 @@ typedef struct MediaCodecBuffer {
     MediaCodecDecContext *ctx;
     ssize_t index;
     int64_t pts;
-    int *released;
+    volatile int released;
 
 } MediaCodecBuffer;
 
