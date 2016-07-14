@@ -24,10 +24,6 @@
 
 #include "libavutil/log.h"
 
-typedef struct AVIOInternal {
-    URLContext *h;
-    void *hlsopts;
-} AVIOInternal;
 
 extern const AVClass ff_avio_class;
 
