@@ -1,9 +1,11 @@
-LIBAVCODEC_$MAJOR {
-        global: av*;
+LIBAVCODEC_MAJOR {
+    global:
+        av*;
                 ff*;
                 speex*;
-                #deprecated, remove after next bump
-                audio_resample;
-                audio_resample_close;
-        local:  *;
+        #deprecated, remove after next bump
+        audio_resample;
+        audio_resample_close;
+    local:
+        *;
 };

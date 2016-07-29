@@ -72,6 +72,7 @@ typedef struct FileContext {
     int fd;
     int trunc;
     int blocksize;
+    int follow;
 #if HAVE_DIRENT_H
     DIR *dir;
 #endif
@@ -80,6 +81,7 @@ typedef struct FileContext {
 static const AVOption file_options[] = {
     { "truncate", "truncate existing files on write", offsetof(FileContext, trunc), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 1, AV_OPT_FLAG_ENCODING_PARAM },
     { "blocksize", "set I/O operation maximum block size", offsetof(FileContext, blocksize), AV_OPT_TYPE_INT, { .i64 = INT_MAX }, 1, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM },
+    { "follow", "Follow a file as it is being written", offsetof(FileContext, follow), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { NULL }
 };
 
@@ -108,6 +110,8 @@ static int file_read(URLContext *h, unsigned char *buf, int size)
     int ret;
     size = FFMIN(size, c->blocksize);
     ret = read(c->fd, buf, size);
+    if (ret == 0 && c->follow)
+        return AVERROR(EAGAIN);
     return (ret == -1) ? AVERROR(errno) : ret;
 }
 
@@ -144,7 +148,11 @@ static int file_check(URLContext *h, int mask)
             ret |= AVIO_FLAG_WRITE;
 #else
     struct stat st;
+#   ifndef _WIN32
     ret = stat(filename, &st);
+#   else
+    ret = win32_stat(filename, &st);
+#   endif
     if (ret < 0)
         return AVERROR(errno);
 
@@ -345,7 +353,7 @@ const URLProtocol ff_file_protocol = {
     .url_open_dir        = file_open_dir,
     .url_read_dir        = file_read_dir,
     .url_close_dir       = file_close_dir,
-    .default_whitelist   = "file"
+    .default_whitelist   = "file,crypto"
 };
 
 #endif /* CONFIG_FILE_PROTOCOL */
@@ -384,7 +392,7 @@ const URLProtocol ff_pipe_protocol = {
     .url_check           = file_check,
     .priv_data_size      = sizeof(FileContext),
     .priv_data_class     = &pipe_class,
-    .default_whitelist   = "none"
+    .default_whitelist   = "crypto"
 };
 
 #endif /* CONFIG_PIPE_PROTOCOL */

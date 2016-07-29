@@ -221,7 +221,7 @@ static int http_open_cnx_internal(URLContext *h, AVDictionary **options)
     if (!s->hd) {
         err = ffurl_open_whitelist(&s->hd, buf, AVIO_FLAG_READ_WRITE,
                                    &h->interrupt_callback, options,
-                                   h->protocol_whitelist, h->protocol_blacklist);
+                                   h->protocol_whitelist, h->protocol_blacklist, h);
         if (err < 0)
             return err;
     }
@@ -456,7 +456,7 @@ static int http_listen(URLContext *h, const char *uri, int flags,
         goto fail;
     if ((ret = ffurl_open_whitelist(&s->hd, lower_url, AVIO_FLAG_READ_WRITE,
                                     &h->interrupt_callback, options,
-                                    h->protocol_whitelist, h->protocol_blacklist
+                                    h->protocol_whitelist, h->protocol_blacklist, h
                                    )) < 0)
         goto fail;
     s->handshake_step = LOWER_PROTO;
@@ -1220,7 +1220,8 @@ static int64_t http_seek_internal(URLContext *h, int64_t off, int whence, int fo
 static int http_read_stream(URLContext *h, uint8_t *buf, int size)
 {
     HTTPContext *s = h->priv_data;
-    int err, new_location, read_ret, seek_ret;
+    int err, new_location, read_ret;
+    int64_t seek_ret;
 
     if (!s->hd)
         return AVERROR_EOF;
@@ -1522,7 +1523,7 @@ const URLProtocol ff_http_protocol = {
     .priv_data_size      = sizeof(HTTPContext),
     .priv_data_class     = &http_context_class,
     .flags               = URL_PROTOCOL_FLAG_NETWORK,
-    .default_whitelist   = "http,https,tls,rtp,tcp,udp,crypto"
+    .default_whitelist   = "http,https,tls,rtp,tcp,udp,crypto,httpproxy"
 };
 #endif /* CONFIG_HTTP_PROTOCOL */
 
@@ -1541,7 +1542,7 @@ const URLProtocol ff_https_protocol = {
     .priv_data_size      = sizeof(HTTPContext),
     .priv_data_class     = &https_context_class,
     .flags               = URL_PROTOCOL_FLAG_NETWORK,
-    .default_whitelist   = "http,https,tls,rtp,tcp,udp,crypto"
+    .default_whitelist   = "http,https,tls,rtp,tcp,udp,crypto,httpproxy"
 };
 #endif /* CONFIG_HTTPS_PROTOCOL */
 
@@ -1582,7 +1583,7 @@ static int http_proxy_open(URLContext *h, const char *uri, int flags)
 redo:
     ret = ffurl_open_whitelist(&s->hd, lower_url, AVIO_FLAG_READ_WRITE,
                                &h->interrupt_callback, NULL,
-                               h->protocol_whitelist, h->protocol_blacklist);
+                               h->protocol_whitelist, h->protocol_blacklist, h);
     if (ret < 0)
         return ret;
 
