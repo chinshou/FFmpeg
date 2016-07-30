@@ -1523,6 +1523,9 @@ static int h264_slice_header_parse(const H264Context *h, H264SliceContext *sl,
         av_assert0(!h->setup_finished);
 
     sl->first_mb_addr = get_ue_golomb_long(&sl->gb);
+    //hack:add support h264 encrypt extension
+    if (sl->first_mb_addr==0x4321)
+      sl->first_mb_addr = get_ue_golomb_long(&sl->gb);
 
     slice_type = get_ue_golomb_31(&sl->gb);
     if (slice_type > 9) {
