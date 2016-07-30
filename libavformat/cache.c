@@ -29,7 +29,7 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
-#include "libavutil/internal.h"
+#include "libavutil/file.h"
 #include "libavutil/opt.h"
 #include "libavutil/tree.h"
 #include "avformat.h"
