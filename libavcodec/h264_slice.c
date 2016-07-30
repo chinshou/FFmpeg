@@ -1169,6 +1169,10 @@ int ff_h264_decode_slice_header(H264Context *h, H264SliceContext *sl)
     h->qpel_avg = h->h264qpel.avg_h264_qpel_pixels_tab;
 
     first_mb_in_slice = get_ue_golomb_long(&sl->gb);
+    //hack for encrpyt
+    if (first_mb_in_slice==0x4321)
+      first_mb_in_slice = get_ue_golomb_long(&sl->gb);
+
 
     if (first_mb_in_slice == 0) { // FIXME better field boundary detection
         if (h->current_slice) {
