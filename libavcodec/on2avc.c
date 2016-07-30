@@ -21,15 +21,13 @@
  */
 
 #include "libavutil/channel_layout.h"
+#include "libavutil/ffmath.h"
 #include "libavutil/float_dsp.h"
-#include "libavutil/internal.h"
 #include "avcodec.h"
 #include "bytestream.h"
 #include "fft.h"
 #include "get_bits.h"
-#include "golomb.h"
 #include "internal.h"
-#include "unary.h"
 
 #include "on2avcdata.h"
 

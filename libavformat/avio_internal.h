@@ -24,7 +24,6 @@
 
 #include "libavutil/log.h"
 
-
 extern const AVClass ff_avio_class;
 
 int ffio_init_context(AVIOContext *s,

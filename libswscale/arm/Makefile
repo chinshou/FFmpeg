@@ -1,7 +1,8 @@
-OBJS        += arm/swscale_unscaled.o
+OBJS        += arm/swscale.o                    \
+               arm/swscale_unscaled.o           \
 
 NEON-OBJS   += arm/rgb2yuv_neon_32.o
 NEON-OBJS   += arm/rgb2yuv_neon_16.o
-NEON-OBJS   += arm/yuv2rgb_neon.o
-NEON-OBJS   += arm/i420_rgb.o
-NEON-OBJS   += arm/nv12_rgb.o
+NEON-OBJS   += arm/hscale.o                     \
+               arm/output.o                     \
+               arm/yuv2rgb_neon.o               \

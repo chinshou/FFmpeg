@@ -73,14 +73,14 @@ void av_mediacodec_default_free(AVCodecContext *avctx);
 typedef struct MediaCodecBuffer AVMediaCodecBuffer;
 
 /**
- * Release a MediaCodec buffer and render it on the surface that is associated
+ * Release a MediaCodec buffer and render it to the surface that is associated
  * with the decoder. This function should only be called once on a given
  * buffer, once released the underlying buffer returns to the codec, thus
  * subsequent calls to this function will have no effect.
  *
  * @param buffer the buffer to render
- * @param render 1 to release and render the buffer on the surface or 0 to
- * only release the buffer
+ * @param render 1 to release and render the buffer to the surface or 0 to
+ * discard the buffer
  * @return 0 on success, < 0 otherwise
  */
 int av_mediacodec_release_buffer(AVMediaCodecBuffer *buffer, int render);

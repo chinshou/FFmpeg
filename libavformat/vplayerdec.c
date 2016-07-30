@@ -36,8 +36,8 @@ static int vplayer_probe(AVProbeData *p)
     char c;
     const unsigned char *ptr = p->buf;
 
-    if ((sscanf(ptr, "%*d:%*d:%*d.%*d%c", &c) == 1 ||
-         sscanf(ptr, "%*d:%*d:%*d%c",     &c) == 1) && strchr(": =", c))
+    if ((sscanf(ptr, "%*3d:%*2d:%*2d.%*2d%c", &c) == 1 ||
+         sscanf(ptr, "%*3d:%*2d:%*2d%c",      &c) == 1) && strchr(": =", c))
         return AVPROBE_SCORE_MAX;
     return 0;
 }
@@ -63,8 +63,8 @@ static int vplayer_read_header(AVFormatContext *s)
     if (!st)
         return AVERROR(ENOMEM);
     avpriv_set_pts_info(st, 64, 1, 100);
-    st->codec->codec_type = AVMEDIA_TYPE_SUBTITLE;
-    st->codec->codec_id   = AV_CODEC_ID_VPLAYER;
+    st->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
+    st->codecpar->codec_id   = AV_CODEC_ID_VPLAYER;
 
     while (!avio_feof(s->pb)) {
         char line[4096];

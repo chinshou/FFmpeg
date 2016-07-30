@@ -124,6 +124,7 @@ static enum AVPixelFormat mcdec_map_color_format(AVCodecContext *avctx,
     if (s->surface) {
         return AV_PIX_FMT_MEDIACODEC;
     }
+
     if (!strcmp(s->codec_name, "OMX.k3.video.decoder.avc") && color_format == COLOR_FormatYCbYCr) {
         s->color_format = color_format = COLOR_TI_FormatYUV420PackedSemiPlanar;
     }
@@ -147,6 +148,9 @@ static void ff_mediacodec_dec_ref(MediaCodecDecContext *s)
 
 static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
 {
+    if (!s)
+        return;
+
     if (!avpriv_atomic_int_add_and_fetch(&s->refcount, -1)) {
         if (s->codec) {
             ff_AMediaCodec_delete(s->codec);
@@ -164,6 +168,7 @@ static void ff_mediacodec_dec_unref(MediaCodecDecContext *s)
         }
 
         av_freep(&s->codec_name);
+        av_freep(&s);
     }
 }
 
@@ -188,15 +193,22 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
                                   AVFrame *frame)
 {
     int ret = 0;
+    int status = 0;
     AVMediaCodecBuffer *buffer = NULL;
 
     frame->buf[0] = NULL;
     frame->width = avctx->width;
     frame->height = avctx->height;
     frame->format = avctx->pix_fmt;
-    frame->pkt_pts = av_rescale_q(info->presentationTimeUs,
-                                  av_make_q(1, 1000000),
-                                  avctx->pkt_timebase);
+
+    if (avctx->pkt_timebase.num && avctx->pkt_timebase.den) {
+        frame->pkt_pts = av_rescale_q(info->presentationTimeUs,
+                                      av_make_q(1, 1000000),
+                                      avctx->pkt_timebase);
+    } else {
+        frame->pkt_pts = info->presentationTimeUs;
+    }
+    frame->pkt_dts = AV_NOPTS_VALUE;
 
     buffer = av_mallocz(sizeof(AVMediaCodecBuffer));
     if (!buffer) {
@@ -204,7 +216,8 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
         goto fail;
     }
 
-	buffer->released = 0;
+    buffer->released = 0;
+
     frame->buf[0] = av_buffer_create(NULL,
                                      0,
                                      mediacodec_buffer_release,
@@ -228,10 +241,12 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
     return 0;
 fail:
     av_freep(buffer);
-
     av_buffer_unref(&frame->buf[0]);
-
-    ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
+    status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
+    if (status < 0) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
+        ret = AVERROR_EXTERNAL;
+    }
 
     return ret;
 }
@@ -264,6 +279,7 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
      *   * N avpackets can be pushed before 1 frame is actually returned
      *   * 0-sized avpackets are pushed to flush remaining frames at EOS */
     frame->pkt_pts = info->presentationTimeUs;
+    frame->pkt_dts = AV_NOPTS_VALUE;
 
     av_log(avctx, AV_LOG_DEBUG,
             "Frame: width=%d stride=%d height=%d slice-height=%d "
@@ -300,7 +316,7 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
 done:
     status = ff_AMediaCodec_releaseOutputBuffer(s->codec, index, 0);
     if (status < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Failed to release output buffer\n");
+        av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
         ret = AVERROR_EXTERNAL;
     }
 
@@ -349,7 +365,7 @@ static int mediacodec_dec_parse_format(AVCodecContext *avctx, MediaCodecDecConte
         av_freep(&format);
         return AVERROR_EXTERNAL;
     }
-    s->stride = value >= 0 ? value : s->width;
+    s->stride = value > 0 ? value : s->width;
 
     if (!ff_AMediaFormat_getInt32(s->format, "slice-height", &value)) {
         format = ff_AMediaFormat_toString(s->format);
@@ -357,11 +373,7 @@ static int mediacodec_dec_parse_format(AVCodecContext *avctx, MediaCodecDecConte
         av_freep(&format);
         return AVERROR_EXTERNAL;
     }
-    if (value > 0) {
-        s->slice_height = value;
-    } else {
-        s->slice_height = s->height;
-    }
+    s->slice_height = value > 0 ? value : s->height;
 
     if (strstr(s->codec_name, "OMX.Nvidia.")) {
         s->slice_height = FFALIGN(s->height, 16);
@@ -415,15 +427,15 @@ static int mediacodec_dec_flush_codec(AVCodecContext *avctx, MediaCodecDecContex
     FFAMediaCodec *codec = s->codec;
     int status;
 
-    s->queued_buffer_nb = 0;
     s->dequeued_buffer_nb = 0;
 
     s->draining = 0;
     s->flushing = 0;
+    s->eos = 0;
 
     status = ff_AMediaCodec_flush(codec);
     if (status < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Failed to flush MediaCodec %p", codec);
+        av_log(avctx, AV_LOG_ERROR, "Failed to flush codec\n");
         return AVERROR_EXTERNAL;
     }
 
@@ -438,15 +450,15 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
 {
     int ret = 0;
     int status;
+    int profile;
 
     enum AVPixelFormat pix_fmt;
-    enum AVPixelFormat pix_fmts[3] = {
+    static const enum AVPixelFormat pix_fmts[] = {
         AV_PIX_FMT_MEDIACODEC,
         AV_PIX_FMT_NONE,
     };
 
     s->first_buffer_at = av_gettime();
-
     s->refcount = 1;
 
     pix_fmt = ff_get_format(avctx, pix_fmts);
@@ -459,7 +471,12 @@ int ff_mediacodec_dec_init(AVCodecContext *avctx, MediaCodecDecContext *s,
         }
     }
 
-    s->codec_name = ff_AMediaCodecList_getCodecNameByType(mime, avctx->width, avctx->height, avctx);
+    profile = ff_AMediaCodecProfile_getProfileFromAVCodecContext(avctx);
+    if (profile < 0) {
+        av_log(avctx, AV_LOG_WARNING, "Unsupported or unknown profile");
+    }
+
+    s->codec_name = ff_AMediaCodecList_getCodecNameByType(mime, profile, 0, avctx);
     if (!s->codec_name) {
         ret = AVERROR_EXTERNAL;
         goto fail;
@@ -543,7 +560,7 @@ int ff_mediacodec_dec_decode(AVCodecContext *avctx, MediaCodecDecContext *s,
         need_draining = 1;
     }
 
-    if (s->draining && need_draining && s->queued_buffer_nb <= 0) {
+    if (s->draining && s->eos) {
         return 0;
     }
 
@@ -592,7 +609,7 @@ int ff_mediacodec_dec_decode(AVCodecContext *avctx, MediaCodecDecContext *s,
             memcpy(data, pkt->data + offset, size);
             offset += size;
 
-            if (s->surface) {
+            if (s->surface && avctx->pkt_timebase.num && avctx->pkt_timebase.den) {
                 pts = av_rescale_q(pts, avctx->pkt_timebase, av_make_q(1, 1000000));
             }
 
@@ -601,16 +618,12 @@ int ff_mediacodec_dec_decode(AVCodecContext *avctx, MediaCodecDecContext *s,
                 av_log(avctx, AV_LOG_ERROR, "Failed to queue input buffer (status = %d)\n", status);
                 return AVERROR_EXTERNAL;
             }
-
-            s->queued_buffer_nb++;
-            if (s->queued_buffer_nb > s->queued_buffer_max)
-                s->queued_buffer_max = s->queued_buffer_nb;
         }
     }
 
-    if (s->draining) {
-        /* If the codec is draining, block for a fair amount of time to
-        * ensure we got a frame */
+    if (need_draining || s->draining) {
+        /* If the codec is flushing or need to be flushed, block for a fair
+         * amount of time to ensure we got a frame */
         output_dequeue_timeout_us = OUTPUT_DEQUEUE_BLOCK_TIMEOUT_US;
     } else if (s->dequeued_buffer_nb == 0) {
         /* If the codec hasn't produced any frames, do not block so we
@@ -632,27 +645,37 @@ int ff_mediacodec_dec_decode(AVCodecContext *avctx, MediaCodecDecContext *s,
                 " flags=%" PRIu32 "\n", index, info.offset, info.size,
                 info.presentationTimeUs, info.flags);
 
-        if (s->surface) {
-            if ((ret = mediacodec_wrap_hw_buffer(avctx, s, index, &info, frame)) < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
-                return ret;
-            }
-        } else {
-            data = ff_AMediaCodec_getOutputBuffer(codec, index, &size);
-            if (!data) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to get output buffer\n");
-                return AVERROR_EXTERNAL;
-            }
-
-            if ((ret = mediacodec_wrap_sw_buffer(avctx, s, data, size, index, &info, frame)) < 0) {
-                av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
-                return ret;
-            }
+        if (info.flags & ff_AMediaCodec_getBufferFlagEndOfStream(codec)) {
+            s->eos = 1;
         }
 
-        *got_frame = 1;
-        s->queued_buffer_nb--;
-        s->dequeued_buffer_nb++;
+        if (info.size) {
+            if (s->surface) {
+                if ((ret = mediacodec_wrap_hw_buffer(avctx, s, index, &info, frame)) < 0) {
+                    av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
+                    return ret;
+                }
+            } else {
+                data = ff_AMediaCodec_getOutputBuffer(codec, index, &size);
+                if (!data) {
+                    av_log(avctx, AV_LOG_ERROR, "Failed to get output buffer\n");
+                    return AVERROR_EXTERNAL;
+                }
+
+                if ((ret = mediacodec_wrap_sw_buffer(avctx, s, data, size, index, &info, frame)) < 0) {
+                    av_log(avctx, AV_LOG_ERROR, "Failed to wrap MediaCodec buffer\n");
+                    return ret;
+                }
+            }
+
+            *got_frame = 1;
+            s->dequeued_buffer_nb++;
+        } else {
+            status = ff_AMediaCodec_releaseOutputBuffer(codec, index, 0);
+            if (status < 0) {
+                av_log(avctx, AV_LOG_ERROR, "Failed to release output buffer\n");
+            }
+        }
 
     } else if (ff_AMediaCodec_infoOutputFormatChanged(codec, index)) {
         char *format = NULL;
@@ -686,8 +709,8 @@ int ff_mediacodec_dec_decode(AVCodecContext *avctx, MediaCodecDecContext *s,
     } else if (ff_AMediaCodec_infoTryAgainLater(codec, index)) {
         if (s->draining) {
             av_log(avctx, AV_LOG_ERROR, "Failed to dequeue output buffer within %" PRIi64 "ms "
-                                        "while draining remaining frames, output will probably lack last %d frames\n",
-                                        output_dequeue_timeout_us / 1000, s->queued_buffer_nb);
+                                        "while draining remaining frames, output will probably lack frames\n",
+                                        output_dequeue_timeout_us / 1000);
         } else {
             av_log(avctx, AV_LOG_DEBUG, "No output buffer available, try again later\n");
         }
@@ -704,6 +727,8 @@ int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
     if (!s->surface || avpriv_atomic_int_get(&s->refcount) == 1) {
         int ret;
 
+        /* No frames (holding a reference to the codec) are retained by the
+         * user, thus we can flush the codec and returns accordingly */
         if ((ret = mediacodec_dec_flush_codec(avctx, s)) < 0) {
             return ret;
         }

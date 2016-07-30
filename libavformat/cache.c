@@ -29,7 +29,7 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
-#include "libavutil/file.h"
+#include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/tree.h"
 #include "avformat.h"
@@ -85,7 +85,6 @@ static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **
       c->fd = open(c->cache_path, O_RDWR | O_BINARY | O_CREAT | O_EXCL, 0600);
     else
       c->fd = av_tempfile("ffcache", &buffername, 0, h);
-    
     if (c->fd < 0){
         av_log(h, AV_LOG_ERROR, "Failed to create tempfile\n");
         return c->fd;
@@ -93,12 +92,12 @@ static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **
 
     if (!c->cache_path)
     {
-      unlink(buffername);
-      av_freep(&buffername);
+    unlink(buffername);
+    av_freep(&buffername);
     }
 
     return ffurl_open_whitelist(&c->inner, arg, flags, &h->interrupt_callback,
-                                options, h->protocol_whitelist, h->protocol_blacklist);
+                                options, h->protocol_whitelist, h->protocol_blacklist, h);
 }
 
 static int add_entry(URLContext *h, const unsigned char *buf, int size)

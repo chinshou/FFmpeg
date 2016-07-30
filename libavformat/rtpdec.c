@@ -21,8 +21,9 @@
 
 #include "libavutil/mathematics.h"
 #include "libavutil/avstring.h"
+#include "libavutil/intreadwrite.h"
 #include "libavutil/time.h"
-#include "libavcodec/get_bits.h"
+
 #include "avformat.h"
 #include "network.h"
 #include "srtp.h"
@@ -105,6 +106,7 @@ void ff_register_rtp_dynamic_payload_handlers(void)
     ff_register_dynamic_payload_handler(&ff_quicktime_rtp_vid_handler);
     ff_register_dynamic_payload_handler(&ff_svq3_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_theora_dynamic_handler);
+    ff_register_dynamic_payload_handler(&ff_vc2hq_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_vorbis_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_vp8_dynamic_handler);
     ff_register_dynamic_payload_handler(&ff_vp9_dynamic_handler);
@@ -503,7 +505,7 @@ int ff_rtp_send_rtcp_feedback(RTPDemuxContext *s, URLContext *fd,
 
 /**
  * open a new RTP parse context for stream 'st'. 'st' can be NULL for
- * MPEG2-TS streams.
+ * MPEG-2 TS streams.
  */
 RTPDemuxContext *ff_rtp_parse_open(AVFormatContext *s1, AVStream *st,
                                    int payload_type, int queue_size)
@@ -525,12 +527,12 @@ RTPDemuxContext *ff_rtp_parse_open(AVFormatContext *s1, AVStream *st,
 
     rtp_init_statistics(&s->statistics, 0);
     if (st) {
-        switch (st->codec->codec_id) {
+        switch (st->codecpar->codec_id) {
         case AV_CODEC_ID_ADPCM_G722:
             /* According to RFC 3551, the stream clock rate is 8000
              * even if the sample rate is 16000. */
-            if (st->codec->sample_rate == 8000)
-                st->codec->sample_rate = 16000;
+            if (st->codecpar->sample_rate == 8000)
+                st->codecpar->sample_rate = 16000;
             break;
         default:
             break;
@@ -844,7 +846,7 @@ int ff_rtp_parse_packet(RTPDemuxContext *s, AVPacket *pkt,
         return -1;
     rv = rtp_parse_one_packet(s, pkt, bufptr, len);
     s->prev_ret = rv;
-    while (rv == AVERROR(EAGAIN) && has_next_packet(s))
+    while (rv < 0 && has_next_packet(s))
         rv = rtp_parse_queued_packet(s, pkt);
     return rv ? rv : has_next_packet(s);
 }

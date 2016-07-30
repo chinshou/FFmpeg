@@ -62,7 +62,15 @@ typedef enum HLSFlags {
     HLS_ROUND_DURATIONS = (1 << 2),
     HLS_DISCONT_START = (1 << 3),
     HLS_OMIT_ENDLIST = (1 << 4),
+    HLS_SPLIT_BY_TIME = (1 << 5),
 } HLSFlags;
+
+typedef enum {
+    PLAYLIST_TYPE_NONE,
+    PLAYLIST_TYPE_EVENT,
+    PLAYLIST_TYPE_VOD,
+    PLAYLIST_TYPE_NB,
+} PlaylistType;
 
 typedef struct HLSContext {
     const AVClass *class;  // Class for private options.
@@ -79,6 +87,7 @@ typedef struct HLSContext {
     int max_nb_segments;   // Set by a private option.
     int  wrap;             // Set by a private option.
     uint32_t flags;        // enum HLSFlags
+    uint32_t pl_type;      // enum PlaylistType
     char *segment_filename;
 
     int use_localtime;      ///< flag to expand filename with localtime
@@ -288,14 +297,14 @@ static int hls_mux_init(AVFormatContext *s)
     for (i = 0; i < s->nb_streams; i++) {
         AVStream *st;
         AVFormatContext *loc;
-        if (s->streams[i]->codec->codec_type == AVMEDIA_TYPE_SUBTITLE)
+        if (s->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE)
             loc = vtt_oc;
         else
             loc = oc;
 
         if (!(st = avformat_new_stream(loc, NULL)))
             return AVERROR(ENOMEM);
-        avcodec_copy_context(st->codec, s->streams[i]->codec);
+        avcodec_parameters_copy(st->codecpar, s->streams[i]->codecpar);
         st->sample_aspect_ratio = s->streams[i]->sample_aspect_ratio;
         st->time_base = s->streams[i]->time_base;
     }
@@ -356,6 +365,10 @@ static int hls_append_segment(struct AVFormatContext *s, HLSContext *hls, double
         hls->last_segment->next = en;
 
     hls->last_segment = en;
+
+    // EVENT or VOD playlists imply sliding window cannot be used
+    if (hls->pl_type != PLAYLIST_TYPE_NONE)
+        hls->max_nb_segments = 0;
 
     if (hls->max_nb_segments && hls->nb_entries >= hls->max_nb_segments) {
         en = hls->segments;
@@ -432,6 +445,11 @@ static int hls_window(AVFormatContext *s, int last)
     }
     avio_printf(out, "#EXT-X-TARGETDURATION:%d\n", target_duration);
     avio_printf(out, "#EXT-X-MEDIA-SEQUENCE:%"PRId64"\n", sequence);
+    if (hls->pl_type == PLAYLIST_TYPE_EVENT) {
+        avio_printf(out, "#EXT-X-PLAYLIST-TYPE:EVENT\n");
+    } else if (hls->pl_type == PLAYLIST_TYPE_VOD) {
+        avio_printf(out, "#EXT-X-PLAYLIST-TYPE:VOD\n");
+    }
 
     av_log(s, AV_LOG_VERBOSE, "EXT-X-MEDIA-SEQUENCE:%"PRId64"\n",
            sequence);
@@ -642,9 +660,9 @@ static int hls_write_header(AVFormatContext *s)
 
     for (i = 0; i < s->nb_streams; i++) {
         hls->has_video +=
-            s->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO;
+            s->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO;
         hls->has_subtitle +=
-            s->streams[i]->codec->codec_type == AVMEDIA_TYPE_SUBTITLE;
+            s->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE;
     }
 
     if (hls->has_video > 1)
@@ -746,7 +764,7 @@ static int hls_write_header(AVFormatContext *s)
     for (i = 0; i < s->nb_streams; i++) {
         AVStream *inner_st;
         AVStream *outer_st = s->streams[i];
-        if (outer_st->codec->codec_type != AVMEDIA_TYPE_SUBTITLE)
+        if (outer_st->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE)
             inner_st = hls->avf->streams[i];
         else if (hls->vtt_avf)
             inner_st = hls->vtt_avf->streams[0];
@@ -782,7 +800,7 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
     int ret, can_split = 1;
     int stream_index = 0;
 
-    if( st->codec->codec_type == AVMEDIA_TYPE_SUBTITLE ) {
+    if( st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE ) {
         oc = hls->vtt_avf;
         stream_index = 0;
     } else {
@@ -795,9 +813,9 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
     }
 
     if (hls->has_video) {
-        can_split = st->codec->codec_type == AVMEDIA_TYPE_VIDEO &&
-                    pkt->flags & AV_PKT_FLAG_KEY;
-        is_ref_pkt = st->codec->codec_type == AVMEDIA_TYPE_VIDEO;
+        can_split = st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
+                    ((pkt->flags & AV_PKT_FLAG_KEY) || (hls->flags & HLS_SPLIT_BY_TIME));
+        is_ref_pkt = st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO;
     }
     if (pkt->pts == AV_NOPTS_VALUE)
         is_ref_pkt = can_split = 0;
@@ -836,7 +854,7 @@ static int hls_write_packet(AVFormatContext *s, AVPacket *pkt)
         if (ret < 0)
             return ret;
 
-        if( st->codec->codec_type == AVMEDIA_TYPE_SUBTITLE )
+        if( st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE )
             oc = hls->vtt_avf;
         else
         oc = hls->avf;
@@ -906,8 +924,12 @@ static const AVOption options[] = {
     {"round_durations", "round durations in m3u8 to whole numbers", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_ROUND_DURATIONS }, 0, UINT_MAX,   E, "flags"},
     {"discont_start", "start the playlist with a discontinuity tag", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_DISCONT_START }, 0, UINT_MAX,   E, "flags"},
     {"omit_endlist", "Do not append an endlist when ending stream", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_OMIT_ENDLIST }, 0, UINT_MAX,   E, "flags"},
+    {"split_by_time", "split the hls segment by time which user set by hls_time", 0, AV_OPT_TYPE_CONST, {.i64 = HLS_SPLIT_BY_TIME }, 0, UINT_MAX,   E, "flags"},
     {"use_localtime", "set filename expansion with strftime at segment creation", OFFSET(use_localtime), AV_OPT_TYPE_BOOL, {.i64 = 0 }, 0, 1, E },
     {"use_localtime_mkdir", "create last directory component in strftime-generated filename", OFFSET(use_localtime_mkdir), AV_OPT_TYPE_BOOL, {.i64 = 0 }, 0, 1, E },
+    {"hls_playlist_type", "set the HLS playlist type", OFFSET(pl_type), AV_OPT_TYPE_INT, {.i64 = PLAYLIST_TYPE_NONE }, 0, PLAYLIST_TYPE_NB-1, E, "pl_type" },
+    {"event", "EVENT playlist", 0, AV_OPT_TYPE_CONST, {.i64 = PLAYLIST_TYPE_EVENT }, INT_MIN, INT_MAX, E, "pl_type" },
+    {"vod", "VOD playlist", 0, AV_OPT_TYPE_CONST, {.i64 = PLAYLIST_TYPE_VOD }, INT_MIN, INT_MAX, E, "pl_type" },
     {"method", "set the HTTP method", OFFSET(method), AV_OPT_TYPE_STRING, {.str = NULL},  0, 0,    E},
 
     { NULL },
