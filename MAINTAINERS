@@ -78,6 +78,7 @@ Other:
   eval.c, eval.h                        Michael Niedermayer
   float_dsp                             Loren Merritt
   hash                                  Reimar Doeffinger
+  hwcontext_cuda*                       Timo Rothenpieler
   intfloat*                             Michael Niedermayer
   integer.c, integer.h                  Michael Niedermayer
   lzo                                   Reimar Doeffinger
@@ -136,7 +137,7 @@ Codecs:
   8svx.c                                Jaikrishnan Menon
   aacenc*, aaccoder.c                   Rostislav Pehlivanov
   alacenc.c                             Jaikrishnan Menon
-  alsdec.c                              Thilo Borgmann
+  alsdec.c                              Thilo Borgmann, Umair Khan
   ass*                                  Aurelien Jacobs
   asv*                                  Michael Niedermayer
   atrac3plus*                           Maxim Poliakovski
@@ -164,6 +165,7 @@ Codecs:
   exif.c, exif.h                        Thilo Borgmann
   ffv1*                                 Michael Niedermayer
   ffwavesynth.c                         Nicolas George
+  fifo.c                                Jan Sebechlebsky
   flicvideo.c                           Mike Melanson
   g722.c                                Martin Storsjo
   g726.c                                Roman Shaposhnik
@@ -195,7 +197,7 @@ Codecs:
   mdec.c                                Michael Niedermayer
   mimic.c                               Ramiro Polla
   mjpeg*.c                              Michael Niedermayer
-  mlp*                                  Ramiro Polla
+  mlp*                                  Ramiro Polla, Jai Luthra
   mmvideo.c                             Peter Ross
   mpeg12.c, mpeg12data.h                Michael Niedermayer
   mpegvideo.c, mpegvideo.h              Michael Niedermayer
@@ -284,6 +286,7 @@ libavdevice
   pulse_audio_enc.c                     Lukasz Marek
   qtkit.m                               Thilo Borgmann
   sdl                                   Stefano Sabatini
+  sdl2.c                                Josh de Kock
   v4l2.c                                Giorgio Vazzana
   vfwcap.c                              Ramiro Polla
   xv.c                                  Lukasz Marek
@@ -293,6 +296,8 @@ libavfilter
 
 Generic parts:
   graphdump.c                           Nicolas George
+
+  motion_estimation.c                   Davinder Singh
 
 Filters:
   f_drawgraph.c                         Paul B Mahol
@@ -308,6 +313,7 @@ Filters:
   af_chorus.c                           Paul B Mahol
   af_compand.c                          Paul B Mahol
   af_firequalizer.c                     Muhammad Faiz
+  af_hdcd.c                             Burt P.
   af_ladspa.c                           Paul B Mahol
   af_loudnorm.c                         Kyle Swanson
   af_pan.c                              Nicolas George
@@ -334,6 +340,8 @@ Filters:
   vf_il.c                               Paul B Mahol
   vf_lenscorrection.c                   Daniel Oberhoff
   vf_mergeplanes.c                      Paul B Mahol
+  vf_mestimate.c                        Davinder Singh
+  vf_minterpolate.c                     Davinder Singh
   vf_neighbor.c                         Paul B Mahol
   vf_psnr.c                             Paul B Mahol
   vf_random.c                           Paul B Mahol
@@ -372,7 +380,7 @@ Muxers/Demuxers:
   astdec.c                              Paul B Mahol
   astenc.c                              James Almer
   avi*                                  Michael Niedermayer
-  avisynth.c                            AvxSynth Team (avxsynth.testing at gmail dot com)
+  avisynth.c                            Stephen Hutchinson
   avr.c                                 Paul B Mahol
   bink.c                                Peter Ross
   brstm.c                               Paul B Mahol
@@ -391,7 +399,7 @@ Muxers/Demuxers:
   gxf.c                                 Reimar Doeffinger
   gxfenc.c                              Baptiste Coudurier
   hls.c                                 Anssi Hannula
-  hls encryption (hlsenc.c)             Christian Suloway
+  hls encryption (hlsenc.c)             Christian Suloway, Steven Liu
   idcin.c                               Mike Melanson
   idroqdec.c                            Mike Melanson
   iff.c                                 Jaikrishnan Menon
