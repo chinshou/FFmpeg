@@ -276,11 +276,11 @@ static int waveform_read_header(AVFormatContext *s)
         return AVERROR(ENOMEM);                                                                                                                      
     av_log( s, AV_LOG_ERROR, "new gdi stream %d", 
          s->nb_streams);                                                                                                                                                
-    st->codec->codec_type  = AVMEDIA_TYPE_AUDIO;                                                                                                       
-    st->codec->codec_id    = bits_to_codec_id(fx.wBitsPerSample);                                                                                    
-    st->codec->sample_rate = fx.nSamplesPerSec;                                                                                                      
-    st->codec->sample_fmt  = bits_to_sample_fmt(fx.wBitsPerSample);                                                                                  
-    st->codec->channels    = fx.nChannels;                                                                                                           
+    st->codecpar->codec_type  = AVMEDIA_TYPE_AUDIO;                                                                                                       
+    st->codecpar->codec_id    = bits_to_codec_id(fx.wBitsPerSample);                                                                                    
+    st->codecpar->sample_rate = fx.nSamplesPerSec;                                                                                                      
+    st->codecpar->format  = bits_to_sample_fmt(fx.wBitsPerSample);                                                                                  
+    st->codecpar->channels    = fx.nChannels;                                                                                                           
                                                                                                                                                      
     for (i = 0; i < AUDIO_BLOCK_COUNT; i++) {                                                                                                        
         ctx->headers[i].lpData         = av_malloc(AUDIO_BLOCK_SIZE);                                                                                
