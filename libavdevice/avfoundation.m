@@ -560,11 +560,11 @@ static int get_video_config(AVFormatContext *s)
     image_buffer      = CMSampleBufferGetImageBuffer(ctx->current_frame);
     image_buffer_size = CVImageBufferGetEncodedSize(image_buffer);
 
-    stream->codec->codec_id   = AV_CODEC_ID_RAWVIDEO;
-    stream->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-    stream->codec->width      = (int)image_buffer_size.width;
-    stream->codec->height     = (int)image_buffer_size.height;
-    stream->codec->pix_fmt    = ctx->pixel_format;
+    stream->codecpar->codec_id   = AV_CODEC_ID_RAWVIDEO;
+    stream->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+    stream->codecpar->width      = (int)image_buffer_size.width;
+    stream->codecpar->height     = (int)image_buffer_size.height;
+    stream->codecpar->format     = ctx->pixel_format;
 
     CFRelease(ctx->current_frame);
     ctx->current_frame = nil;
@@ -603,10 +603,10 @@ static int get_audio_config(AVFormatContext *s)
         return 1;
     }
 
-    stream->codec->codec_type     = AVMEDIA_TYPE_AUDIO;
-    stream->codec->sample_rate    = basic_desc->mSampleRate;
-    stream->codec->channels       = basic_desc->mChannelsPerFrame;
-    stream->codec->channel_layout = av_get_default_channel_layout(stream->codec->channels);
+    stream->codecpar->codec_type     = AVMEDIA_TYPE_AUDIO;
+    stream->codecpar->sample_rate    = basic_desc->mSampleRate;
+    stream->codecpar->channels       = basic_desc->mChannelsPerFrame;
+    stream->codecpar->channel_layout = av_get_default_channel_layout(stream->codecpar->channels);
 
     ctx->audio_channels        = basic_desc->mChannelsPerFrame;
     ctx->audio_bits_per_sample = basic_desc->mBitsPerChannel;
@@ -622,10 +622,10 @@ static int get_audio_config(AVFormatContext *s)
         {
             switch (ctx->audio_bits_per_sample) {
                 case 32:
-                  stream->codec->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_F32BE : AV_CODEC_ID_PCM_F32LE;
+                  stream->codecpar->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_F32BE : AV_CODEC_ID_PCM_F32LE;
                   break;
                 case 64:
-                  stream->codec->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_F64BE : AV_CODEC_ID_PCM_F64LE;
+                  stream->codecpar->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_F64BE : AV_CODEC_ID_PCM_F64LE;
                 break;
             }
         }
@@ -633,19 +633,19 @@ static int get_audio_config(AVFormatContext *s)
         {
             switch (ctx->audio_bits_per_sample) {
                 case 8:
-                  stream->codec->codec_id = ctx->audio_signed_integer ? AV_CODEC_ID_PCM_S8 : AV_CODEC_ID_PCM_U8;                
+                  stream->codecpar->codec_id = ctx->audio_signed_integer ? AV_CODEC_ID_PCM_S8 : AV_CODEC_ID_PCM_U8;                
                 break;
                 case 16:
                   if (ctx->audio_signed_integer)
-                    stream->codec->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_S16BE :(ctx->audio_packed ? AV_CODEC_ID_PCM_S16LE:AV_CODEC_ID_PCM_S16LE_PLANAR);
+                    stream->codecpar->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_S16BE :(ctx->audio_packed ? AV_CODEC_ID_PCM_S16LE:AV_CODEC_ID_PCM_S16LE_PLANAR);
                   else
-                    stream->codec->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_U16BE : AV_CODEC_ID_PCM_U16LE; 
+                    stream->codecpar->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_U16BE : AV_CODEC_ID_PCM_U16LE; 
                 break;                                 
                 case 32:
                   if (ctx->audio_signed_integer)
-                    stream->codec->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_S32BE :(ctx->audio_packed ? AV_CODEC_ID_PCM_S32LE:AV_CODEC_ID_PCM_S16LE_PLANAR);
+                    stream->codecpar->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_S32BE :(ctx->audio_packed ? AV_CODEC_ID_PCM_S32LE:AV_CODEC_ID_PCM_S16LE_PLANAR);
                   else
-                    stream->codec->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_U32BE : AV_CODEC_ID_PCM_U32LE;  
+                    stream->codecpar->codec_id = ctx->audio_be ? AV_CODEC_ID_PCM_U32BE : AV_CODEC_ID_PCM_U32LE;  
                 break;
             }
         }
@@ -1035,7 +1035,7 @@ static const AVOption options[] = {
     { "video_device_index", "select video device by index for devices with same name (starts at 0)", offsetof(AVFContext, video_device_index), AV_OPT_TYPE_INT, {.i64 = -1}, -1, INT_MAX, AV_OPT_FLAG_DECODING_PARAM },
     { "audio_device_index", "select audio device by index for devices with same name (starts at 0)", offsetof(AVFContext, audio_device_index), AV_OPT_TYPE_INT, {.i64 = -1}, -1, INT_MAX, AV_OPT_FLAG_DECODING_PARAM },
     { "pixel_format", "set pixel format", offsetof(AVFContext, pixel_format), AV_OPT_TYPE_PIXEL_FMT, {.i64 = AV_PIX_FMT_RGB32}, 0, INT_MAX, AV_OPT_FLAG_DECODING_PARAM},
-    { "framerate", "set frame rate", offsetof(AVFContext, framerate), AV_OPT_TYPE_VIDEO_RATE, {.str = "ntsc"}, 0, 0, AV_OPT_FLAG_DECODING_PARAM },
+    { "framerate", "set frame rate", offsetof(AVFContext, framerate), AV_OPT_TYPE_VIDEO_RATE, {.str = "ntsc"}, 0, INT_MAX, AV_OPT_FLAG_DECODING_PARAM },
     { "video_size", "set video size", offsetof(AVFContext, width), AV_OPT_TYPE_IMAGE_SIZE, {.str = NULL}, 0, 0, AV_OPT_FLAG_DECODING_PARAM },
     { "capture_cursor", "capture the screen cursor", offsetof(AVFContext, capture_cursor), AV_OPT_TYPE_INT, {.i64=0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { "capture_mouse_clicks", "capture the screen mouse clicks", offsetof(AVFContext, capture_mouse_clicks), AV_OPT_TYPE_INT, {.i64=0}, 0, 1, AV_OPT_FLAG_DECODING_PARAM },

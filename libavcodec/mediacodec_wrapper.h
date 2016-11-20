@@ -44,7 +44,7 @@
  * implementation.
  *
  * The API around MediaCodecList is not part of the NDK (and is lacking as
- * we still need to retreive the codec name to work around faulty decoders
+ * we still need to retrieve the codec name to work around faulty decoders
  * and encoders).
  *
  * For documentation, please refers to NdkMediaCodec.h NdkMediaFormat.h and
@@ -52,7 +52,9 @@
  *
  */
 
-char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int width, int height, void *log_ctx);
+int ff_AMediaCodecProfile_getProfileFromAVCodecContext(AVCodecContext *avctx);
+
+char *ff_AMediaCodecList_getCodecNameByType(const char *mime, int profile, int encoder, void *log_ctx);
 
 struct FFAMediaFormat;
 typedef struct FFAMediaFormat FFAMediaFormat;

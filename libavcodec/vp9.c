@@ -642,6 +642,8 @@ static int decode_frame_header(AVCodecContext *ctx,
     s->s.h.refreshctx   = s->s.h.errorres ? 0 : get_bits1(&s->gb);
     s->s.h.parallelmode = s->s.h.errorres ? 1 : get_bits1(&s->gb);
     s->s.h.framectxid   = c = get_bits(&s->gb, 2);
+    if (s->s.h.keyframe || s->s.h.intraonly)
+        s->s.h.framectxid = 0; // BUG: libvpx ignores this field in keyframes
 
     /* loopfilter header data */
     if (s->s.h.keyframe || s->s.h.errorres || s->s.h.intraonly) {
@@ -3990,7 +3992,12 @@ static int vp9_decode_frame(AVCodecContext *ctx, void *frame,
         }
         if ((res = av_frame_ref(frame, s->s.refs[ref].f)) < 0)
             return res;
+        ((AVFrame *)frame)->pts = pkt->pts;
+#if FF_API_PKT_PTS
+FF_DISABLE_DEPRECATION_WARNINGS
         ((AVFrame *)frame)->pkt_pts = pkt->pts;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
         ((AVFrame *)frame)->pkt_dts = pkt->dts;
         for (i = 0; i < 8; i++) {
             if (s->next_refs[i].f->buf[0])

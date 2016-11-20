@@ -17,7 +17,6 @@ Specifically, the GPL parts of FFmpeg are:
     - `libavcodec/x86/flac_dsp_gpl.asm`
     - `libavcodec/x86/idct_mmx.c`
     - `libavfilter/x86/vf_removegrain.asm`
-- libutvideo encoding/decoding wrappers in `libavcodec/libutvideo*.cpp`
 - the X11 grabber in `libavdevice/x11grab.c`
 - the following building and testing tools
     - `compat/solaris/make_sunver.pl`
@@ -87,7 +86,6 @@ The following libraries are under GPL:
 - frei0r
 - libcdio
 - librubberband
-- libutvideo
 - libvidstab
 - libx264
 - libx265
@@ -116,8 +114,6 @@ unredistributable.
 The Fraunhofer FDK AAC and OpenSSL libraries are under licenses which are
 incompatible with the GPLv2 and v3. To the best of our knowledge, they are
 compatible with the LGPL.
-
-The FAAC library is incompatible with all versions of GPL and LGPL.
 
 The NVENC library, while its header file is licensed under the compatible MIT
 license, requires a proprietary binary blob at run time, and is deemed to be

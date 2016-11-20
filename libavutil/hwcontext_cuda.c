@@ -25,6 +25,8 @@
 #include "pixdesc.h"
 #include "pixfmt.h"
 
+#define CUDA_FRAME_ALIGNMENT 256
+
 typedef struct CUDAFramesContext {
     int shift_width, shift_height;
 } CUDAFramesContext;
@@ -83,6 +85,7 @@ fail:
 static int cuda_frames_init(AVHWFramesContext *ctx)
 {
     CUDAFramesContext *priv = ctx->internal->priv;
+    int aligned_width = FFALIGN(ctx->width, CUDA_FRAME_ALIGNMENT);
     int i;
 
     for (i = 0; i < FF_ARRAY_ELEMS(supported_formats); i++) {
@@ -103,10 +106,10 @@ static int cuda_frames_init(AVHWFramesContext *ctx)
         switch (ctx->sw_format) {
         case AV_PIX_FMT_NV12:
         case AV_PIX_FMT_YUV420P:
-            size = ctx->width * ctx->height * 3 / 2;
+            size = aligned_width * ctx->height * 3 / 2;
             break;
         case AV_PIX_FMT_YUV444P:
-            size = ctx->width * ctx->height * 3;
+            size = aligned_width * ctx->height * 3;
             break;
         }
 
@@ -120,6 +123,8 @@ static int cuda_frames_init(AVHWFramesContext *ctx)
 
 static int cuda_get_buffer(AVHWFramesContext *ctx, AVFrame *frame)
 {
+    int aligned_width = FFALIGN(ctx->width, CUDA_FRAME_ALIGNMENT);
+
     frame->buf[0] = av_buffer_pool_get(ctx->pool);
     if (!frame->buf[0])
         return AVERROR(ENOMEM);
@@ -127,25 +132,25 @@ static int cuda_get_buffer(AVHWFramesContext *ctx, AVFrame *frame)
     switch (ctx->sw_format) {
     case AV_PIX_FMT_NV12:
         frame->data[0]     = frame->buf[0]->data;
-        frame->data[1]     = frame->data[0] + ctx->width * ctx->height;
-        frame->linesize[0] = ctx->width;
-        frame->linesize[1] = ctx->width;
+        frame->data[1]     = frame->data[0] + aligned_width * ctx->height;
+        frame->linesize[0] = aligned_width;
+        frame->linesize[1] = aligned_width;
         break;
     case AV_PIX_FMT_YUV420P:
         frame->data[0]     = frame->buf[0]->data;
-        frame->data[2]     = frame->data[0] + ctx->width * ctx->height;
-        frame->data[1]     = frame->data[2] + ctx->width * ctx->height / 4;
-        frame->linesize[0] = ctx->width;
-        frame->linesize[1] = ctx->width / 2;
-        frame->linesize[2] = ctx->width / 2;
+        frame->data[2]     = frame->data[0] + aligned_width * ctx->height;
+        frame->data[1]     = frame->data[2] + aligned_width * ctx->height / 4;
+        frame->linesize[0] = aligned_width;
+        frame->linesize[1] = aligned_width / 2;
+        frame->linesize[2] = aligned_width / 2;
         break;
     case AV_PIX_FMT_YUV444P:
         frame->data[0]     = frame->buf[0]->data;
-        frame->data[1]     = frame->data[0] + ctx->width * ctx->height;
-        frame->data[2]     = frame->data[1] + ctx->width * ctx->height;
-        frame->linesize[0] = ctx->width;
-        frame->linesize[1] = ctx->width;
-        frame->linesize[2] = ctx->width;
+        frame->data[1]     = frame->data[0] + aligned_width * ctx->height;
+        frame->data[2]     = frame->data[1] + aligned_width * ctx->height;
+        frame->linesize[0] = aligned_width;
+        frame->linesize[1] = aligned_width;
+        frame->linesize[2] = aligned_width;
         break;
     default:
         av_frame_unref(frame);
@@ -253,6 +258,49 @@ static int cuda_transfer_data_to(AVHWFramesContext *ctx, AVFrame *dst,
     return 0;
 }
 
+static void cuda_device_free(AVHWDeviceContext *ctx)
+{
+    AVCUDADeviceContext *hwctx = ctx->hwctx;
+    cuCtxDestroy(hwctx->cuda_ctx);
+}
+
+static int cuda_device_create(AVHWDeviceContext *ctx, const char *device,
+                              AVDictionary *opts, int flags)
+{
+    AVCUDADeviceContext *hwctx = ctx->hwctx;
+    CUdevice cu_device;
+    CUcontext dummy;
+    CUresult err;
+    int device_idx = 0;
+
+    if (device)
+        device_idx = strtol(device, NULL, 0);
+
+    err = cuInit(0);
+    if (err != CUDA_SUCCESS) {
+        av_log(ctx, AV_LOG_ERROR, "Could not initialize the CUDA driver API\n");
+        return AVERROR_UNKNOWN;
+    }
+
+    err = cuDeviceGet(&cu_device, device_idx);
+    if (err != CUDA_SUCCESS) {
+        av_log(ctx, AV_LOG_ERROR, "Could not get the device number %d\n", device_idx);
+        return AVERROR_UNKNOWN;
+    }
+
+    err = cuCtxCreate(&hwctx->cuda_ctx, CU_CTX_SCHED_BLOCKING_SYNC, cu_device);
+    if (err != CUDA_SUCCESS) {
+        av_log(ctx, AV_LOG_ERROR, "Error creating a CUDA context\n");
+        return AVERROR_UNKNOWN;
+    }
+
+    cuCtxPopCurrent(&dummy);
+
+    ctx->free = cuda_device_free;
+
+    return 0;
+}
+
 const HWContextType ff_hwcontext_type_cuda = {
     .type                 = AV_HWDEVICE_TYPE_CUDA,
     .name                 = "CUDA",
@@ -260,6 +308,7 @@ const HWContextType ff_hwcontext_type_cuda = {
     .device_hwctx_size    = sizeof(AVCUDADeviceContext),
     .frames_priv_size     = sizeof(CUDAFramesContext),
 
+    .device_create        = cuda_device_create,
     .frames_init          = cuda_frames_init,
     .frames_get_buffer    = cuda_get_buffer,
     .transfer_get_formats = cuda_transfer_get_formats,

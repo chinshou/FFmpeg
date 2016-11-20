@@ -24,11 +24,6 @@
 
 #include "libavutil/log.h"
 
-typedef struct AVIOInternal {
-    URLContext *h;
-    void *hlsopts;
-} AVIOInternal;
-
 extern const AVClass ff_avio_class;
 
 int ffio_init_context(AVIOContext *s,
@@ -115,6 +110,8 @@ void ffio_init_checksum(AVIOContext *s,
                         unsigned long checksum);
 unsigned long ffio_get_checksum(AVIOContext *s);
 unsigned long ff_crc04C11DB7_update(unsigned long checksum, const uint8_t *buf,
+                                    unsigned int len);
+unsigned long ff_crcEDB88320_update(unsigned long checksum, const uint8_t *buf,
                                     unsigned int len);
 unsigned long ff_crcA001_update(unsigned long checksum, const uint8_t *buf,
                                 unsigned int len);
