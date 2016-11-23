@@ -5,7 +5,7 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin32/lib " CPPFLAGS=" -I/usr/local/darwin3
 --target-os=darwin --prefix=/usr/local/darwin32 --enable-gpl --disable-postproc --enable-shared  \
 --cc="cc -m32" \
 --enable-cross-compile --enable-libx264 --enable-libvpx --disable-decoder=libvpx --enable-libgsm  \
---enable-libmp3lame --enable-nonfree --disable-encoder=aac --enable-libvo-amrwbenc  \
+--enable-libmp3lame --enable-nonfree --enable-libvo-amrwbenc  \
 --enable-libfreetype --enable-version3  --enable-libtheora --enable-libspeex  \
 --enable-libvorbis --enable-runtime-cpudetect --enable-libsox  --enable-libopencore-amrnb  \
 --enable-libopencore-amrwb --enable-libxavs --enable-openal --enable-openssl --enable-librtmp  \
@@ -15,7 +15,7 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin32/lib " CPPFLAGS=" -I/usr/local/darwin3
 --disable-muxer=encx_audio   \
 --disable-demuxer=encx   \
 --extra-ldflags=" -lcurl -liconv" \
---extra-cflags=" -mmacosx-version-min=10.6 " --disable-indev=avfoundation \
+--extra-cflags=" -mmacosx-version-min=10.7 " \
  --enable-libopenjpeg  --enable-libilbc --enable-libass 
 echo Please check libsdl existence problem , uninstall all libsdl
 read

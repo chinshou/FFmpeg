@@ -24,8 +24,6 @@ OBJS = allformats.o         \
        sdp.o                \
        url.o                \
        utils.o              \
-       lang.o              \
-       dvdnav.o             \
 
 OBJS-$(HAVE_LIBC_MSVCRT)                 += file_open.o
 
@@ -593,8 +591,6 @@ SLIBOBJS-$(HAVE_GNU_WINDRES)             += avformatres.o
 
 SKIPHEADERS-$(CONFIG_FFRTMPCRYPT_PROTOCOL) += rtmpdh.h
 SKIPHEADERS-$(CONFIG_NETWORK)            += network.h rtsp.h
-CFLAGS += -I/usr/darwin32/include/dvdread
-EXTRALIBS += -ldvdnav -ldvdread -ldvdcss
 TESTPROGS = seek                                                        \
             url                                                         \
 #           async                                                       \
