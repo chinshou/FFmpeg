@@ -4,16 +4,17 @@ export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
  --disable-decoder=libvpx \
  --enable-avisynth  --enable-gpl --enable-version3 --enable-pthreads --enable-avfilter \
  --enable-runtime-cpudetect --enable-nonfree --pkg-config=pkg-config \
- --enable-libfaac  --enable-libnut --enable-libgsm --enable-libfreetype --enable-libvorbis --enable-libspeex  \
+ --enable-libnut --enable-libgsm --enable-libfreetype --enable-libvorbis --enable-libspeex  \
  --enable-libmp3lame --enable-zlib --enable-libtheora --enable-bzlib --enable-libvpx  \
  --enable-libxvid --enable-libopencore-amrnb --enable-libopencore-amrwb \
  --enable-libopenjpeg --enable-libschroedinger --enable-librtmp  --enable-libass --enable-libx264 --enable-libbluray \
- --enable-openssl --enable-libsox --disable-ffplay --enable-libx265 --enable-libcdio \
+ --enable-openssl --enable-libsox --enable-libx265 --enable-libcdio \
  --enable-libcelt --enable-libvo-amrwbenc  --enable-libwebp \
  --disable-muxer=encx \
  --disable-muxer=encx_audio \
  --disable-demuxer=encx_audio \
  --disable-demuxer=encx \
+ --disable-outdevs \
  --enable-libmfx \
  --pkg-config-flags="--static" \
  --enable-libxavs  --disable-outdev=sdl --extra-cflags="-I/usr/i686-mingw32/include"  \
