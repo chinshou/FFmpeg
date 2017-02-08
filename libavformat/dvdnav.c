@@ -298,7 +298,6 @@ char * hb_dvdnav_name( char * path )
     return name;
 }
 
-
 /***********************************************************************
  * hb_dvdnav_reset
  ***********************************************************************
@@ -480,7 +479,6 @@ int hb_dvdnav_title_count( hb_dvd_t * e )
     dvdnav_get_number_of_titles(d->dvdnav, &titles);
     return titles;
 }
-
 
 static uint64_t
 PttDuration(ifo_handle_t *ifo, int ttn, int pttn, int *blocks, int *last_pgcn)
@@ -1245,13 +1243,12 @@ dvdnav_status_t hb_dvdnav_sector_search(hb_dvd_t *e,
  ***********************************************************************
  *
  **********************************************************************/
-int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
+int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
 {
     hb_dvdnav_t * d = &(e->dvdnav);
     int result, event;
     int chapter = 0;
     int error_count = 0;
-	*dvd_event=-1;
 
     while ( 1 )
     {
@@ -1267,18 +1264,17 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
             {
                 av_log(NULL, AV_LOG_ERROR, "dvd: dvdnav_sector_search failed - %s\n",
                         dvdnav_err_to_string(d->dvdnav) );
-                return -1;
+                return 0;
             }
             error_count++;
             if (error_count > 10)
             {
                 av_log(NULL, AV_LOG_ERROR,"dvdnav: Error, too many consecutive read errors\n");
-                return -1;
+                return 0;
             }
             continue;
         }
         error_count = 0;
-		*dvd_event = event;
         switch ( event )
         {
         case DVDNAV_BLOCK_OK:
@@ -1287,10 +1283,10 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
 
             // The muxers expect to only get chapter 2 and above
             // They write chapter 1 when chapter 2 is detected.
-#if 0            
+#if 0
             if (chapter > 1)
                 b->new_chap = chapter;
-#endif			
+#endif
             chapter = 0;
             return 1;
 
@@ -1407,10 +1403,10 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
 
             // The muxers expect to only get chapter 2 and above
             // They write chapter 1 when chapter 2 is detected.
-#if 0            
+#if 0
             if (chapter > 1)
                 b->new_chap = chapter;
-#endif			
+#endif
             chapter = 0;
             return 1;
 
@@ -1428,7 +1424,6 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
             /*
             * Playback should end here. 
             */
-            av_log(NULL, AV_LOG_ERROR,"dvdnav: Error, too many consecutive read errors\n");
             d->stopped = 1;
             return 0;
 
@@ -1509,7 +1504,6 @@ void hb_dvdnav_set_angle( hb_dvd_t * e, int angle )
         av_log(NULL, AV_LOG_INFO,"dvdnav_angle_change %s\n", dvdnav_err_to_string(d->dvdnav));
     }
 }
-
 
 /***********************************************************************
  * FindChapterIndex
