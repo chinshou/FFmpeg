@@ -1093,6 +1093,7 @@ int hb_dvdnav_start( hb_dvd_t * e, hb_title_t *title, int c )
     {
         return 0;
     }
+    dvdnav_reset( d->dvdnav );
     chapter = hb_list_item( title->list_chapter, c - 1);
     if (chapter != NULL)
         result = dvdnav_program_play(d->dvdnav, t, chapter->pgcn, chapter->pgn);
@@ -1142,24 +1143,35 @@ int hb_dvdnav_seek( hb_dvd_t * e, uint64_t sector )
     // XXX the current version of libdvdnav can't seek outside the current
     // PGC. Check if the place we're seeking to is in a different
     // PGC. Position there & adjust the offset if so.
+    uint64_t pgc_offset = 0;
+    uint64_t chap_offset = 0;
     hb_chapter_t *pgc_change = hb_list_item(d->list_chapter, 0 );
     for ( ii = 0; ii < hb_list_count( d->list_chapter ); ++ii )
     {
         hb_chapter_t *chapter = hb_list_item( d->list_chapter, ii );
+        uint64_t chap_len = chapter->block_end - chapter->block_start + 1;
 
         if ( chapter->pgcn != pgc_change->pgcn )
         {
             // this chapter's in a different pgc from the previous - note the
             // change so we can make sector offset's be pgc relative.
+            pgc_offset = chap_offset;
             pgc_change = chapter;
         }
-        if ( chapter->block_start <= sector && sector <= chapter->block_end )
+        if ( chap_offset <= sector && sector < chap_offset + chap_len )
         {
             // this chapter contains the sector we want - see if it's in a
             // different pgc than the one we're currently in.
             int32_t title, pgcn, pgn;
             if (dvdnav_current_title_program( d->dvdnav, &title, &pgcn, &pgn ) != DVDNAV_STATUS_OK)
                 av_log(NULL, AV_LOG_INFO,"dvdnav cur pgcn err: %s\n", dvdnav_err_to_string(d->dvdnav));
+            // If we find ourselves in a new title, it means a title
+            // transition was made while reading data.  Jumping between
+            // titles can cause the vm to get into a bad state.  So
+            // reset the vm in this case.
+            if ( d->title != title )
+                dvdnav_reset( d->dvdnav );
+
             if ( d->title != title || chapter->pgcn != pgcn )
             {
                 // this chapter is in a different pgc - switch to it.
@@ -1167,9 +1179,10 @@ int hb_dvdnav_seek( hb_dvd_t * e, uint64_t sector )
                     av_log(NULL, AV_LOG_INFO,"dvdnav prog play err: %s\n", dvdnav_err_to_string(d->dvdnav));
             }
             // seek sectors are pgc-relative so remove the pgc start sector.
-            sector -= pgc_change->block_start;
+            sector -= pgc_offset;
             break;
         }
+        chap_offset += chap_len;
     }
 
     // dvdnav will not let you seek or poll current position
@@ -1243,12 +1256,13 @@ dvdnav_status_t hb_dvdnav_sector_search(hb_dvd_t *e,
  ***********************************************************************
  *
  **********************************************************************/
-int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
+int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
 {
     hb_dvdnav_t * d = &(e->dvdnav);
     int result, event;
     int chapter = 0;
     int error_count = 0;
+	*dvd_event=-1;
 
     while ( 1 )
     {
@@ -1264,17 +1278,17 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
             {
                 av_log(NULL, AV_LOG_ERROR, "dvd: dvdnav_sector_search failed - %s\n",
                         dvdnav_err_to_string(d->dvdnav) );
-                return 0;
+                return -1;
             }
             error_count++;
             if (error_count > 10)
             {
                 av_log(NULL, AV_LOG_ERROR,"dvdnav: Error, too many consecutive read errors\n");
-                return 0;
+                return -1;
             }
             continue;
         }
-        error_count = 0;
+		*dvd_event = event;
         switch ( event )
         {
         case DVDNAV_BLOCK_OK:
@@ -1288,6 +1302,7 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
                 b->new_chap = chapter;
 #endif
             chapter = 0;
+            error_count = 0;
             return 1;
 
         case DVDNAV_NOP:
@@ -1356,6 +1371,16 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
             * event can be used to query such information only when
             * necessary and update the decoding/displaying accordingly. 
             */
+            {
+                int tt = 0, pgcn = 0, pgn = 0, c;
+
+                dvdnav_current_title_program(d->dvdnav, &tt, &pgcn, &pgn);
+                if (tt != d->title)
+                {
+                    // Transition to another title signals that we are done.
+                    return -1;
+                }
+            }
             break;
 
         case DVDNAV_CELL_CHANGE:
@@ -1372,7 +1397,7 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
                 if (tt != d->title)
                 {
                     // Transition to another title signals that we are done.
-                    return 0;
+                    return -1;
                 }
                 c = FindChapterIndex(d->list_chapter, pgcn, pgn);
                 if (c != d->chapter)
@@ -1381,7 +1406,7 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len)
                     {
                         // Some titles end with a 'link' back to the beginning so
                         // a transition to an earlier chapter means we're done.
-                        return 0;
+                        return -1;
                     }
                     chapter = d->chapter = c;
                 }
