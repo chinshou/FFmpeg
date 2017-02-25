@@ -1268,7 +1268,7 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
     {
         if (d->stopped)
         {
-            return 0;
+            return -1;
         }
         result = dvdnav_get_next_block( d->dvdnav, b, &event, len );
         if ( result == DVDNAV_STATUS_ERR )
@@ -1281,7 +1281,7 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
                 return -1;
             }
             error_count++;
-            if (error_count > 10)
+            if (error_count > 500)
             {
                 av_log(NULL, AV_LOG_ERROR,"dvdnav: Error, too many consecutive read errors\n");
                 return -1;
@@ -1391,7 +1391,10 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
             * and update the decoding/displaying accordingly. 
             */
             {
+                dvdnav_cell_change_event_t * cell_event;
                 int tt = 0, pgcn = 0, pgn = 0, c;
+
+                //cell_event = (dvdnav_cell_change_event_t*)b->data;
 
                 dvdnav_current_title_program(d->dvdnav, &tt, &pgcn, &pgn);
                 if (tt != d->title)
@@ -1410,6 +1413,14 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
                     }
                     chapter = d->chapter = c;
                 }
+				/*
+                else if ( cell_event->cellN <= d->cell )
+                {
+                    //hb_buffer_close( &b );
+                    //hb_deep_log(2, "dvdnav: cell change, previous cell");
+                    return -1;
+                }
+                d->cell = cell_event->cellN;*/
             }
             break;
 
@@ -1450,13 +1461,13 @@ int hb_dvdnav_read( hb_dvd_t * e, uint8_t* b, int* len, int* dvd_event)
             * Playback should end here. 
             */
             d->stopped = 1;
-            return 0;
+            return -1;
 
         default:
             break;
         }
     }
-    return 0;
+    return -1;
 }
 
 /***********************************************************************
