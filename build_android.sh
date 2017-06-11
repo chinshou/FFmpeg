@@ -39,7 +39,6 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-avdevice \
     --enable-nonfree \
     --enable-libx264 \
-    --enable-libfaac \
     --enable-libvorbis \
     --enable-libfreetype \
     --enable-libspeex \
@@ -48,6 +47,7 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --enable-libmp3lame \
     --enable-libsox \
     --enable-librtmp \
+    --enable-libzvbi \
     --enable-jni \
     --enable-mediacodec \
     --enable-libvidstab \
