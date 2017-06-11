@@ -272,7 +272,7 @@ OBJS-$(CONFIG_MATROSKA_MUXER)            += matroskaenc.o matroska.o \
                                             flacenc_header.o avlanguage.o vorbiscomment.o wv.o \
                                             webmdashenc.o webm_chunk.o
 OBJS-$(CONFIG_ENCX_DEMUXER)              += xencdec.o matroska.o  \
-                                            isom.o rmsipr.o
+                                            isom.o rmsipr.o 
 OBJS-$(CONFIG_ENCX_MUXER)                += xencenc.o matroska.o \
                                             isom.o avc.o \
                                             flacenc_header.o avlanguage.o wv.o
