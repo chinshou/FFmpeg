@@ -34,7 +34,7 @@ struct qitem {
     int64_t totdiff;
 };
 
-typedef struct {
+typedef struct DecimateContext {
     const AVClass *class;
     struct qitem *queue;    ///< window of cycle frames and the associated data diff
     int fid;                ///< current frame id in the queue
@@ -223,7 +223,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
                 av_frame_free(&frame);
                 frame = dm->clean_src[i];
             }
-            frame->pts = av_rescale_q(outlink->frame_count, dm->ts_unit, (AVRational){1,1}) +
+            frame->pts = av_rescale_q(outlink->frame_count_in, dm->ts_unit, (AVRational){1,1}) +
                          (dm->start_pts == AV_NOPTS_VALUE ? 0 : dm->start_pts);
             ret = ff_filter_frame(outlink, frame);
             if (ret < 0)

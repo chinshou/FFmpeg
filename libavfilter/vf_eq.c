@@ -254,7 +254,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFilterLink *outlink = inlink->dst->outputs[0];
     EQContext *eq = ctx->priv;
     AVFrame *out;
-    int64_t pos = av_frame_get_pkt_pos(in);
+    int64_t pos = in->pkt_pos;
     const AVPixFmtDescriptor *desc;
     int i;
 
@@ -265,7 +265,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     av_frame_copy_props(out, in);
     desc = av_pix_fmt_desc_get(inlink->format);
 
-    eq->var_values[VAR_N]   = inlink->frame_count;
+    eq->var_values[VAR_N]   = inlink->frame_count_out;
     eq->var_values[VAR_POS] = pos == -1 ? NAN : pos;
     eq->var_values[VAR_T]   = TS2T(in->pts, inlink->time_base);
 
