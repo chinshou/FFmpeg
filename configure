@@ -250,6 +250,7 @@ External library support:
   --enable-libsnappy       enable Snappy compression, needed for hap encoding [no]
   --enable-libsoxr         enable Include libsoxr resampling [no]
   --enable-libspeex        enable Speex de/encoding via libspeex [no]
+  --enable-libsox          enable audio filtering via libsox [no]  
   --enable-libssh          enable SFTP protocol via libssh [no]
   --enable-libtesseract    enable Tesseract, needed for ocr filter [no]
   --enable-libtheora       enable Theora encoding via libtheora [no]
@@ -1563,6 +1564,7 @@ EXTERNAL_LIBRARY_LIST="
     libsmbclient
     libsnappy
     libsoxr
+    libsox    
     libspeex
     libssh
     libtesseract
