@@ -393,9 +393,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
     }
     vol->var_values[VAR_PTS] = TS2D(buf->pts);
     vol->var_values[VAR_T  ] = TS2T(buf->pts, inlink->time_base);
-    vol->var_values[VAR_N  ] = inlink->frame_count;
+    vol->var_values[VAR_N  ] = inlink->frame_count_out;
 
-    pos = av_frame_get_pkt_pos(buf);
+    pos = buf->pkt_pos;
     vol->var_values[VAR_POS] = pos == -1 ? NAN : pos;
     if (vol->eval_mode == EVAL_MODE_FRAME)
         set_volume(ctx);
