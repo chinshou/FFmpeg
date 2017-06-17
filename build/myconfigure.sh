@@ -1,7 +1,6 @@
 export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
 ../configure --enable-memalign-hack --arch=x86 --target-os=mingw32 --cross-prefix=i686-w64-mingw32-  \
  --cc='i686-w64-mingw32-gcc' --disable-postproc --enable-shared --disable-static  \
- --disable-decoder=libvpx \
  --enable-avisynth  --enable-gpl --enable-version3 --enable-pthreads --enable-avfilter \
  --enable-runtime-cpudetect --enable-nonfree --pkg-config=pkg-config \
  --enable-libnut --enable-libgsm --enable-libfreetype --enable-libvorbis --enable-libspeex  \
@@ -15,6 +14,8 @@ export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
  --disable-demuxer=encx_audio \
  --disable-demuxer=encx \
  --disable-outdevs \
+ --disable-decoder=libvpx \
+ --disable-decoder=libvpx-vp9 \
  --enable-libmfx \
  --pkg-config-flags="--static" \
  --enable-libxavs  --disable-outdev=sdl --extra-cflags="-I/usr/i686-mingw32/include"  \
