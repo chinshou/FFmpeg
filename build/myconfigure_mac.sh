@@ -13,7 +13,8 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin32/lib " CPPFLAGS=" -I/usr/local/darwin3
 --enable-libwebp   \
 --disable-muxer=encx   \
 --disable-muxer=encx_audio   \
---disable-demuxer=encx   \
+--disable-filter=coreimage \
+--disable-filter=coreimagesrc \
 --extra-ldflags=" -lcurl -liconv" \
 --extra-cflags=" -mmacosx-version-min=10.7 " \
  --enable-libopenjpeg  --enable-libilbc --enable-libass 
