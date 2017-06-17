@@ -1,7 +1,7 @@
 #!/bin/bash
 export PKG_CONFIG_LIBDIR=/usr/local/darwin32/lib/pkgconfig/
 export PKG_CONFIG_PATH=/usr/local/darwin32/lib/pkgconfig/
-LDFLAGS=" -L/usr/lib -L/usr/local/darwin32/lib " CPPFLAGS=" -I/usr/local/darwin32/include" CFLAGS=" -I/usr/local/darwin32/include" ../configure --enable-memalign-hack --disable-outdev=sdl --arch=x86  \
+LDFLAGS=" -L/usr/lib -L/usr/local/darwin32/lib " CPPFLAGS=" -I/usr/local/darwin32/include" CFLAGS=" -I/usr/local/darwin32/include" ../configure --disable-outdev=sdl --arch=x86  \
 --target-os=darwin --prefix=/usr/local/darwin32 --enable-gpl --disable-postproc --enable-shared  \
 --cc="cc -m32" \
 --enable-cross-compile --enable-libx264 --enable-libvpx --disable-decoder=libvpx --enable-libgsm  \
