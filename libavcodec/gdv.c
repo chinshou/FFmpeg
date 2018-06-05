@@ -38,6 +38,11 @@ typedef struct GDVContext {
     unsigned scale_h, scale_v;
 } GDVContext;
 
+typedef struct Bits8 {
+    uint8_t queue;
+    uint8_t fill;
+} Bits8;
+
 typedef struct Bits32 {
     uint32_t queue;
     uint8_t  fill;
@@ -124,6 +129,21 @@ static void rescale(GDVContext *gdv, uint8_t *dst, int w, int h, int scale_v, in
     gdv->scale_h = scale_h;
 }
 
+static int read_bits2(Bits8 *bits, GetByteContext *gb)
+{
+    int res;
+
+    if (bits->fill == 0) {
+        bits->queue |= bytestream2_get_byte(gb);
+        bits->fill   = 8;
+    }
+    res = bits->queue >> 6;
+    bits->queue <<= 2;
+    bits->fill   -= 2;
+
+    return res;
+}
+
 static void fill_bits32(Bits32 *bits, GetByteContext *gb)
 {
     bits->queue = bytestream2_get_le32(gb);
@@ -171,6 +191,87 @@ static void lz_copy(PutByteContext *pb, GetByteContext *g2, int offset, unsigned
             bytestream2_put_byte(pb, bytestream2_get_byte(g2));
         }
     }
+}
+
+static int decompress_2(AVCodecContext *avctx)
+{
+    GDVContext *gdv = avctx->priv_data;
+    GetByteContext *gb = &gdv->gb;
+    GetByteContext *g2 = &gdv->g2;
+    PutByteContext *pb = &gdv->pb;
+    Bits8 bits = { 0 };
+    int c, i;
+
+    bytestream2_init(g2, gdv->frame, gdv->frame_size);
+    bytestream2_skip_p(pb, PREAMBLE_SIZE);
+
+    for (c = 0; c < 256; c++) {
+        for (i = 0; i < 16; i++) {
+            gdv->frame[c * 16 + i] = c;
+        }
+    }
+
+    while (bytestream2_get_bytes_left_p(pb) > 0 && bytestream2_get_bytes_left(gb) > 0) {
+        int tag = read_bits2(&bits, gb);
+        if (tag == 0) {
+            bytestream2_put_byte(pb, bytestream2_get_byte(gb));
+        } else if (tag == 1) {
+            int b = bytestream2_get_byte(gb);
+            int len = (b & 0xF) + 3;
+            int top = (b >> 4) & 0xF;
+            int off = (bytestream2_get_byte(gb) << 4) + top - 4096;
+            lz_copy(pb, g2, off, len);
+        } else if (tag == 2) {
+            int len = (bytestream2_get_byte(gb)) + 2;
+            bytestream2_skip_p(pb, len);
+        } else {
+            break;
+        }
+    }
+    return 0;
+}
+
+static int decompress_5(AVCodecContext *avctx, unsigned skip)
+{
+    GDVContext *gdv = avctx->priv_data;
+    GetByteContext *gb = &gdv->gb;
+    GetByteContext *g2 = &gdv->g2;
+    PutByteContext *pb = &gdv->pb;
+    Bits8 bits = { 0 };
+
+    bytestream2_init(g2, gdv->frame, gdv->frame_size);
+    bytestream2_skip_p(pb, skip + PREAMBLE_SIZE);
+
+    while (bytestream2_get_bytes_left_p(pb) > 0 && bytestream2_get_bytes_left(gb) > 0) {
+        int tag = read_bits2(&bits, gb);
+        if (tag == 0) {
+            bytestream2_put_byte(pb, bytestream2_get_byte(gb));
+        } else if (tag == 1) {
+            int b = bytestream2_get_byte(gb);
+            int len = (b & 0xF) + 3;
+            int top = b >> 4;
+            int off = (bytestream2_get_byte(gb) << 4) + top - 4096;
+            lz_copy(pb, g2, off, len);
+        } else if (tag == 2) {
+            int len;
+            int b = bytestream2_get_byte(gb);
+            if (b == 0) {
+                break;
+            }
+            if (b != 0xFF) {
+                len = b;
+            } else {
+                len = bytestream2_get_le16(gb);
+            }
+            bytestream2_skip_p(pb, len + 1);
+        } else {
+            int b = bytestream2_get_byte(gb);
+            int len = (b & 0x3) + 2;
+            int off = -(b >> 2) - 1;
+            lz_copy(pb, g2, off, len);
+        }
+    }
+    return 0;
 }
 
 static int decompress_68(AVCodecContext *avctx, unsigned skip, unsigned use8)
@@ -308,16 +409,19 @@ static int gdv_decode_frame(AVCodecContext *avctx, void *data,
     unsigned flags;
     uint8_t *dst;
 
-    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
-        return ret;
-    if (pal && pal_size == AVPALETTE_SIZE)
-        memcpy(gdv->pal, pal, AVPALETTE_SIZE);
-
     bytestream2_init(gb, avpkt->data, avpkt->size);
     bytestream2_init_writer(pb, gdv->frame, gdv->frame_size);
 
     flags = bytestream2_get_le32(gb);
     compression = flags & 0xF;
+
+    if (compression == 4 || compression == 7 || compression > 8)
+        return AVERROR_INVALIDDATA;
+
+    if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
+        return ret;
+    if (pal && pal_size == AVPALETTE_SIZE)
+        memcpy(gdv->pal, pal, AVPALETTE_SIZE);
 
     rescale(gdv, gdv->frame, avctx->width, avctx->height,
             !!(flags & 0x10), !!(flags & 0x20));
@@ -326,14 +430,22 @@ static int gdv_decode_frame(AVCodecContext *avctx, void *data,
     case 1:
         memset(gdv->frame + PREAMBLE_SIZE, 0, gdv->frame_size - PREAMBLE_SIZE);
     case 0:
+        if (bytestream2_get_bytes_left(gb) < 256*3)
+            return AVERROR_INVALIDDATA;
         for (i = 0; i < 256; i++) {
             unsigned r = bytestream2_get_byte(gb);
             unsigned g = bytestream2_get_byte(gb);
             unsigned b = bytestream2_get_byte(gb);
-            gdv->pal[i] = 0xFF << 24 | r << 18 | g << 10 | b << 2;
+            gdv->pal[i] = 0xFFU << 24 | r << 18 | g << 10 | b << 2;
         }
         break;
+    case 2:
+        ret = decompress_2(avctx);
+        break;
     case 3:
+        break;
+    case 5:
+        ret = decompress_5(avctx, flags >> 8);
         break;
     case 6:
         ret = decompress_68(avctx, flags >> 8, 0);
@@ -342,7 +454,7 @@ static int gdv_decode_frame(AVCodecContext *avctx, void *data,
         ret = decompress_68(avctx, flags >> 8, 1);
         break;
     default:
-        return AVERROR_INVALIDDATA;
+        av_assert0(0);
     }
 
     memcpy(frame->data[1], gdv->pal, AVPALETTE_SIZE);

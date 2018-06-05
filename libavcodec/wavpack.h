@@ -99,8 +99,8 @@ typedef struct WvChannel {
 
 // macros for manipulating median values
 #define GET_MED(n) ((c->median[n] >> 4) + 1)
-#define DEC_MED(n) c->median[n] -= ((c->median[n] + (128 >> (n)) - 2) / (128 >> (n))) * 2U
-#define INC_MED(n) c->median[n] += ((c->median[n] + (128 >> (n))    ) / (128 >> (n))) * 5U
+#define DEC_MED(n) c->median[n] -= ((int)(c->median[n] + (128U >> (n)) - 2) / (128 >> (n))) * 2U
+#define INC_MED(n) c->median[n] += ((int)(c->median[n] + (128U >> (n))    ) / (128 >> (n))) * 5U
 
 // macros for applying weight
 #define UPDATE_WEIGHT_CLIP(weight, delta, samples, in) \
@@ -177,7 +177,7 @@ static av_always_inline int wp_exp2(int16_t val)
     return neg ? -res : res;
 }
 
-static av_always_inline int wp_log2(int32_t val)
+static av_always_inline int wp_log2(uint32_t val)
 {
     int bits;
 
