@@ -781,13 +781,16 @@ static void av_codec_init_static(void)
 
 const AVCodec *av_codec_iterate(void **opaque)
 {
-    uintptr_t i = (uintptr_t)*opaque;
-    const AVCodec *c = codec_list[i];
+    //uintptr_t i = (uintptr_t)*opaque;
+    //const AVCodec *c = codec_list[i];
 
+    AVCodec* c;
     ff_thread_once(&av_codec_static_init, av_codec_init_static);
 
-    if (c)
-        *opaque = (void*)(i + 1);
+    //if (c)
+        //*opaque = (void*)(i + 1);
+    c=av_codec_next(*opaque);
+    *opaque=c;
 
     return c;
 }
@@ -800,11 +803,16 @@ static void av_codec_init_next(void)
 {
     AVCodec *prev = NULL, *p;
     void *i = 0;
-    while ((p = (AVCodec*)av_codec_iterate(&i))) {
+    for (int i = 0; (p = codec_list[i]); i++) {
         if (prev)
             prev->next = p;
         prev = p;
     }
+/*    while ((p = (AVCodec*)av_codec_iterate(&i))) {
+        if (prev)
+            prev->next = p;
+        prev = p;
+    }*/
 }
 
 
@@ -812,6 +820,14 @@ static void av_codec_init_next(void)
 av_cold void avcodec_register(AVCodec *codec)
 {
     ff_thread_once(&av_codec_next_init, av_codec_init_next);
+    AVCodec **p;
+    p = &codec_list[0];
+    while (*p)
+        p = &(*p)->next;
+    *p             = codec;
+    codec->next = NULL; 
+    return;
+
 }
 
 AVCodec *av_codec_next(const AVCodec *c)
