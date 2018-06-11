@@ -493,35 +493,40 @@ static const AVOutputFormat * const *outdev_list = NULL;
 
 const AVOutputFormat *av_muxer_iterate(void **opaque)
 {
-    static const uintptr_t size = sizeof(muxer_list)/sizeof(muxer_list[0]) - 1;
-    uintptr_t i = (uintptr_t)*opaque;
+//    static const uintptr_t size = sizeof(muxer_list)/sizeof(muxer_list[0]) - 1;
+//    uintptr_t i = (uintptr_t)*opaque;
     const AVOutputFormat *f = NULL;
 
-    if (i < size) {
-        f = muxer_list[i];
-    } else if (indev_list) {
-        f = outdev_list[i - size];
-    }
+//    if (i < size) {
+//        f = muxer_list[i];
+//    } else if (indev_list) {
+//        f = outdev_list[i - size];
+//    }
+//
+//    if (f)
+//        *opaque = (void*)(i + 1);
+    f=av_oformat_next(*opaque);
+	*opaque=f;
 
-    if (f)
-        *opaque = (void*)(i + 1);
     return f;
 }
 
 const AVInputFormat *av_demuxer_iterate(void **opaque)
 {
-    static const uintptr_t size = sizeof(demuxer_list)/sizeof(demuxer_list[0]) - 1;
-    uintptr_t i = (uintptr_t)*opaque;
+//    static const uintptr_t size = sizeof(demuxer_list)/sizeof(demuxer_list[0]) - 1;
+//    uintptr_t i = (uintptr_t)*opaque;
     const AVInputFormat *f = NULL;
-
-    if (i < size) {
-        f = demuxer_list[i];
-    } else if (outdev_list) {
-        f = indev_list[i - size];
-    }
-
-    if (f)
-        *opaque = (void*)(i + 1);
+//
+//    if (i < size) {
+//        f = demuxer_list[i];
+//    } else if (outdev_list) {
+//        f = indev_list[i - size];
+//    }
+//
+//    if (f)
+//        *opaque = (void*)(i + 1);
+    f=av_iformat_next(*opaque);
+	*opaque=f;
     return f;
 }
 
@@ -576,8 +581,8 @@ AVInputFormat *av_iformat_next(const AVInputFormat *f)
     if (f)
         return f->next;
     else {
-        void *opaque = NULL;
-        return (AVInputFormat *)av_demuxer_iterate(&opaque);
+        //void *opaque = NULL;
+        return (AVInputFormat *)demuxer_list[0];//av_demuxer_iterate(&opaque);
     }
 }
 
@@ -588,8 +593,8 @@ AVOutputFormat *av_oformat_next(const AVOutputFormat *f)
     if (f)
         return f->next;
     else {
-        void *opaque = NULL;
-        return (AVOutputFormat *)av_muxer_iterate(&opaque);
+        //void *opaque = NULL;
+        return (AVOutputFormat *)muxer_list[0];//av_muxer_iterate(&opaque);
     }
 }
 
@@ -600,12 +605,35 @@ void av_register_all(void)
 
 void av_register_input_format(AVInputFormat *format)
 {
-    ff_thread_once(&av_format_next_init, av_format_init_next);
+    //ff_thread_once(&av_format_next_init, av_format_init_next);
+    AVInputFormat **p;
+	if (!indev_list[0])
+		p=&demuxer_list[0];
+        else
+	    p = &indev_list[0];
+
+	
+    while (*p)
+        p = &(*p)->next;
+    *p             = format;
+    format->next = NULL; 
+    return;
 }
 
 void av_register_output_format(AVOutputFormat *format)
 {
-    ff_thread_once(&av_format_next_init, av_format_init_next);
+    //ff_thread_once(&av_format_next_init, av_format_init_next);
+    AVOutputFormat **p;
+	if (!outdev_list[0])
+		p=&muxer_list[0];
+        else
+		p = &outdev_list[0];
+
+    while (*p)
+        p = &(*p)->next;
+    *p             = format;
+    format->next = NULL; 
+    return;	
 }
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
@@ -620,3 +648,4 @@ void avpriv_register_devices(const AVOutputFormat * const o[], const AVInputForm
     av_format_init_next();
 #endif
 }
+
