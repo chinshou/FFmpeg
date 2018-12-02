@@ -11,8 +11,6 @@ export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
  --enable-libcelt --enable-libvo-amrwbenc  --enable-libwebp  --enable-nvenc --enable-cuda --enable-cuvid \
  --disable-muxer=encx \
  --disable-muxer=encx_audio \
- --disable-demuxer=encx_audio \
- --disable-demuxer=encx \
  --enable-libxml2 --enable-libmfx \
  --disable-outdevs \
  --disable-decoder=libvpx \
