@@ -6229,9 +6229,7 @@ enabled mmal              && { check_lib mmal interface/mmal/mmal.h mmal_port_co
                                check_func_headers interface/mmal/mmal.h "MMAL_PARAMETER_VIDEO_MAX_NUM_CALLBACKS"; }
 enabled openal            && { { for al_extralibs in "${OPENAL_LIBS}" "-lopenal" "-lOpenAL32" "-Wl,-framework,OpenAL"; do
                                check_lib openal 'OpenAL/al.h' alGetError "${al_extralibs}" && break; done } ||
-                               die "ERROR: openal not found"; } &&
-                             { check_cpp_condition "OpenAL/al.h" "defined(AL_VERSION_1_1)" ||
-                               die "ERROR: openal must be installed and version must be 1.1 or compatible"; }
+                               die "ERROR: openal not found"; } 
 enabled opencl            && { check_pkg_config opencl OpenCL CL/cl.h clEnqueueNDRangeKernel ||
                                check_lib opencl OpenCL/cl.h clEnqueueNDRangeKernel -Wl,-framework,OpenCL ||
                                check_lib opencl CL/cl.h clEnqueueNDRangeKernel -lOpenCL ||
