@@ -29,7 +29,7 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
-#include "libavutil/file.h"
+#include "libavutil/internal.h"
 #include "libavutil/opt.h"
 #include "libavutil/tree.h"
 #include "avformat.h"
@@ -54,6 +54,7 @@ typedef struct CacheEntry {
 typedef struct Context {
     AVClass *class;
     int fd;
+    char *filename;
     struct AVTreeNode *root;
     int64_t logical_pos;
     int64_t cache_pos;
@@ -63,7 +64,6 @@ typedef struct Context {
     URLContext *inner;
     int64_t cache_hit, cache_miss;
     int read_ahead_limit;
-    char* cache_path;
 } Context;
 
 static int cmp(const void *key, const void *node)
@@ -73,28 +73,24 @@ static int cmp(const void *key, const void *node)
 
 static int cache_open(URLContext *h, const char *arg, int flags, AVDictionary **options)
 {
+    int ret;
     char *buffername;
     Context *c= h->priv_data;
 
     av_strstart(arg, "cache:", &arg);
 
-#   ifndef O_BINARY
-#       define O_BINARY 0
-#   endif
-    if (c->cache_path)
-      c->fd = open(c->cache_path, O_RDWR | O_BINARY | O_CREAT | O_EXCL, 0600);
-    else
-      c->fd = av_tempfile("ffcache", &buffername, 0, h);
+    c->fd = avpriv_tempfile("ffcache", &buffername, 0, h);
     if (c->fd < 0){
         av_log(h, AV_LOG_ERROR, "Failed to create tempfile\n");
         return c->fd;
     }
 
-    if (!c->cache_path)
-    {
-    unlink(buffername);
-    av_freep(&buffername);
-    }
+    ret = unlink(buffername);
+
+    if (ret >= 0)
+        av_freep(&buffername);
+    else
+        c->filename = buffername;
 
     return ffurl_open_whitelist(&c->inner, arg, flags, &h->interrupt_callback,
                                 options, h->protocol_whitelist, h->protocol_blacklist, h);
@@ -302,11 +298,18 @@ static int enu_free(void *opaque, void *elem)
 static int cache_close(URLContext *h)
 {
     Context *c= h->priv_data;
+    int ret;
 
     av_log(h, AV_LOG_INFO, "Statistics, cache hits:%"PRId64" cache misses:%"PRId64"\n",
            c->cache_hit, c->cache_miss);
 
     close(c->fd);
+    if (c->filename) {
+        ret = unlink(c->filename);
+        if (ret < 0)
+            av_log(h, AV_LOG_ERROR, "Could not delete %s.\n", c->filename);
+        av_freep(&c->filename);
+    }
     ffurl_close(c->inner);
     av_tree_enumerate(c->root, NULL, NULL, enu_free);
     av_tree_destroy(c->root);
@@ -319,8 +322,6 @@ static int cache_close(URLContext *h)
 
 static const AVOption options[] = {
     { "read_ahead_limit", "Amount in bytes that may be read ahead when seeking isn't supported, -1 for unlimited", OFFSET(read_ahead_limit), AV_OPT_TYPE_INT, { .i64 = 65536 }, -1, INT_MAX, D },
-    {"cache_path", "cache path", offsetof(Context, cache_path), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, D},
-
     {NULL},
 };
 
