@@ -15,9 +15,9 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin32/lib " CPPFLAGS=" -I/usr/local/darwin3
 --disable-muxer=encx_audio   \
 --disable-filter=coreimage \
 --disable-filter=coreimagesrc \
---extra-ldflags=" -lcurl -liconv" \
---extra-cflags=" -mmacosx-version-min=10.7 " \
- --enable-libopenjpeg  --enable-libilbc --enable-libass 
+--extra-ldflags=" -lcurl -liconv -lbz2 -lz -framework OpenAL" \
+--extra-cflags=" -mmacosx-version-min=10.8 " \
+  --enable-libilbc --enable-libass 
 echo Please check libsdl existence problem , uninstall all libsdl
 read
 #--cc="clang -m32" --extra-cflags="-fomit-frame-pointer" --extra-ldflags="-fomit-frame-pointer" --extra-cxxflags="-fomit-frame-pointer"
