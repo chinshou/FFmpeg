@@ -68,6 +68,17 @@
  * Codec initializes slice-based threading with a main function
  */
 #define FF_CODEC_CAP_SLICE_THREAD_HAS_MF    (1 << 5)
+/*
+ * The codec supports frame threading and has inter-frame dependencies, so it
+ * uses ff_thread_report/await_progress().
+ */
+#define FF_CODEC_CAP_ALLOCATE_PROGRESS      (1 << 6)
+
+/**
+ * AVCodec.codec_tags termination value
+ */
+#define FF_CODEC_TAGS_END -1
+
 
 #ifdef TRACE
 #   define ff_tlog(ctx, ...) av_log(ctx, AV_LOG_TRACE, __VA_ARGS__)
@@ -97,34 +108,10 @@
 #   define STRIDE_ALIGN 8
 #endif
 
-typedef struct FramePool {
-    /**
-     * Pools for each data plane. For audio all the planes have the same size,
-     * so only pools[0] is used.
-     */
-    AVBufferPool *pools[4];
-
-    /*
-     * Pool parameters
-     */
-    int format;
-    int width, height;
-    int stride_align[AV_NUM_DATA_POINTERS];
-    int linesize[4];
-    int planes;
-    int channels;
-    int samples;
-} FramePool;
-
 typedef struct DecodeSimpleContext {
     AVPacket *in_pkt;
     AVFrame  *out_frame;
 } DecodeSimpleContext;
-
-typedef struct DecodeFilterContext {
-    AVBSFContext **bsfs;
-    int         nb_bsfs;
-} DecodeFilterContext;
 
 typedef struct AVCodecInternal {
     /**
@@ -136,21 +123,6 @@ typedef struct AVCodecInternal {
     int is_copy;
 
     /**
-     * Whether to allocate progress for frame threading.
-     *
-     * The codec must set it to 1 if it uses ff_thread_await/report_progress(),
-     * then progress will be allocated in ff_thread_get_buffer(). The frames
-     * then MUST be freed with ff_thread_release_buffer().
-     *
-     * If the codec does not need to call the progress functions (there are no
-     * dependencies between the frames), it should leave this at 0. Then it can
-     * decode straight to the user-provided frames (which the user will then
-     * free with av_frame_unref()), there is no need to call
-     * ff_thread_release_buffer().
-     */
-    int allocate_progress;
-
-    /**
      * An audio frame with less than required samples has been submitted and
      * padded with silence. Reject all subsequent frames.
      */
@@ -158,12 +130,12 @@ typedef struct AVCodecInternal {
 
     AVFrame *to_free;
 
-    FramePool *pool;
+    AVBufferRef *pool;
 
     void *thread_ctx;
 
     DecodeSimpleContext ds;
-    DecodeFilterContext filter;
+    AVBSFContext *bsf;
 
     /**
      * Properties (timestamps+side data) extracted from the last packet passed
@@ -201,8 +173,6 @@ typedef struct AVCodecInternal {
     int buffer_pkt_valid; // encoding: packet without data can be valid
     AVFrame *buffer_frame;
     int draining_done;
-    /* set to 1 when the caller is using the old decoding API */
-    int compat_decode;
     int compat_decode_warned;
     /* this variable is set by the decoder internals to signal to the old
      * API compat wrappers the amount of data consumed from the last packet */
@@ -279,8 +249,6 @@ void ff_color_frame(AVFrame *frame, const int color[4]);
  * @return        non negative on success, negative error code on failure
  */
 int ff_alloc_packet2(AVCodecContext *avctx, AVPacket *avpkt, int64_t size, int64_t min_size);
-
-attribute_deprecated int ff_alloc_packet(AVPacket *avpkt, int size);
 
 /**
  * Rescale from sample rate to AVCodecContext.time_base.
@@ -390,8 +358,6 @@ int ff_decode_frame_props(AVCodecContext *avctx, AVFrame *frame);
  */
 AVCPBProperties *ff_add_cpb_side_data(AVCodecContext *avctx);
 
-int ff_side_data_set_encoder_stats(AVPacket *pkt, int quality, int64_t *error, int error_count, int pict_type);
-
 /**
  * Check AVFrame for A53 side data and allocate and fill SEI message with A53 info
  *
@@ -424,6 +390,8 @@ int64_t ff_guess_coded_bitrate(AVCodecContext *avctx);
  */
 int ff_int_from_list_or_default(void *ctx, const char * val_name, int val,
                                 const int * array_valid_values, int default_value);
+
+void ff_dvdsub_parse_palette(uint32_t *palette, const char *p);
 
 #if defined(_WIN32) && CONFIG_SHARED && !defined(BUILDING_avcodec)
 #    define av_export_avcodec __declspec(dllimport)

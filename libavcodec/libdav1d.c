@@ -40,6 +40,8 @@ typedef struct Libdav1dContext {
     int tile_threads;
     int frame_threads;
     int apply_grain;
+    int operating_point;
+    int all_layers;
 } Libdav1dContext;
 
 static const enum AVPixelFormat pix_fmt[][3] = {
@@ -133,6 +135,10 @@ static av_cold int libdav1d_init(AVCodecContext *c)
     s.frame_size_limit = c->max_pixels;
     if (dav1d->apply_grain >= 0)
         s.apply_grain = dav1d->apply_grain;
+
+    s.all_layers = dav1d->all_layers;
+    if (dav1d->operating_point >= 0)
+        s.operating_point = dav1d->operating_point;
 
     s.n_tile_threads = dav1d->tile_threads
                      ? dav1d->tile_threads
@@ -261,6 +267,12 @@ static int libdav1d_receive_frame(AVCodecContext *c, AVFrame *frame)
             goto fail;
     }
 
+    av_reduce(&frame->sample_aspect_ratio.num,
+              &frame->sample_aspect_ratio.den,
+              frame->height * (int64_t)p->frame_hdr->render_width,
+              frame->width  * (int64_t)p->frame_hdr->render_height,
+              INT_MAX);
+
     switch (p->seq_hdr->chr) {
     case DAV1D_CHR_VERTICAL:
         frame->chroma_location = c->chroma_sample_location = AVCHROMA_LOC_LEFT;
@@ -286,6 +298,13 @@ static int libdav1d_receive_frame(AVCodecContext *c, AVFrame *frame)
         memcpy(&frame->reordered_opaque, p->m.user_data.data, sizeof(frame->reordered_opaque));
     else
         frame->reordered_opaque = AV_NOPTS_VALUE;
+
+    if (p->seq_hdr->num_units_in_tick && p->seq_hdr->time_scale) {
+        av_reduce(&c->framerate.den, &c->framerate.num,
+                  p->seq_hdr->num_units_in_tick, p->seq_hdr->time_scale, INT_MAX);
+        if (p->seq_hdr->equal_picture_interval)
+            c->ticks_per_frame = p->seq_hdr->num_ticks_per_picture;
+    }
 
     // match timestamps and packet size
     frame->pts = frame->best_effort_timestamp = p->m.timestamp;
@@ -371,6 +390,8 @@ static const AVOption libdav1d_options[] = {
     { "tilethreads", "Tile threads", OFFSET(tile_threads), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, DAV1D_MAX_TILE_THREADS, VD },
     { "framethreads", "Frame threads", OFFSET(frame_threads), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, DAV1D_MAX_FRAME_THREADS, VD },
     { "filmgrain", "Apply Film Grain", OFFSET(apply_grain), AV_OPT_TYPE_BOOL, { .i64 = -1 }, -1, 1, VD },
+    { "oppoint",  "Select an operating point of the scalable bitstream", OFFSET(operating_point), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 31, VD },
+    { "alllayers", "Output all spatial layers", OFFSET(all_layers), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VD },
     { NULL }
 };
 
