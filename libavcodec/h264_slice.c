@@ -1742,6 +1742,8 @@ static int h264_slice_header_parse(const H264Context *h, H264SliceContext *sl,
       sl->first_mb_addr = get_ue_golomb_long(&sl->gb);
 
     slice_type = get_ue_golomb_31(&sl->gb);
+    if (slice_type==0x456 || slice_type==0x12)
+       slice_type = get_ue_golomb_31(&sl->gb);
     if (slice_type > 9) {
         av_log(h->avctx, AV_LOG_ERROR,
                "slice type %d too large at %d\n",
