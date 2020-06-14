@@ -112,6 +112,8 @@ typedef struct BiquadsContext {
     double width;
     double mix;
     uint64_t channels;
+    int normalize;
+    int order;
 
     double a0, a1, a2;
     double b0, b1, b2;
@@ -263,6 +265,7 @@ static int config_filter(AVFilterLink *outlink, int reset)
     AVFilterLink *inlink    = ctx->inputs[0];
     double A = ff_exp10(s->gain / 40);
     double w0 = 2 * M_PI * s->frequency / inlink->sample_rate;
+    double K = tan(w0 / 2.);
     double alpha, beta;
 
     if (w0 > M_PI) {
@@ -388,12 +391,24 @@ static int config_filter(AVFilterLink *outlink, int reset)
         }
         break;
     case allpass:
-        s->a0 =  1 + alpha;
-        s->a1 = -2 * cos(w0);
-        s->a2 =  1 - alpha;
-        s->b0 =  1 - alpha;
-        s->b1 = -2 * cos(w0);
-        s->b2 =  1 + alpha;
+        switch (s->order) {
+        case 1:
+            s->a0 = 1.;
+            s->a1 = -(1. - K) / (1. + K);
+            s->a2 = 0.;
+            s->b0 = s->a1;
+            s->b1 = s->a0;
+            s->b2 = 0.;
+            break;
+        case 2:
+            s->a0 =  1 + alpha;
+            s->a1 = -2 * cos(w0);
+            s->a2 =  1 - alpha;
+            s->b0 =  1 - alpha;
+            s->b1 = -2 * cos(w0);
+            s->b2 =  1 + alpha;
+        break;
+        }
         break;
     default:
         av_assert0(0);
@@ -407,6 +422,14 @@ static int config_filter(AVFilterLink *outlink, int reset)
     s->b1 /= s->a0;
     s->b2 /= s->a0;
     s->a0 /= s->a0;
+
+    if (s->normalize && fabs(s->b0 + s->b1 + s->b2) > 1e-6) {
+        double factor = (s->a0 + s->a1 + s->a2) / (s->b0 + s->b1 + s->b2);
+
+        s->b0 *= factor;
+        s->b1 *= factor;
+        s->b2 *= factor;
+    }
 
     s->cache = av_realloc_f(s->cache, sizeof(ChanCache), inlink->channels);
     if (!s->cache)
@@ -585,6 +608,8 @@ static const AVOption equalizer_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -609,6 +634,8 @@ static const AVOption bass_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -633,6 +660,8 @@ static const AVOption treble_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -656,6 +685,8 @@ static const AVOption bandpass_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -678,6 +709,8 @@ static const AVOption bandreject_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -702,6 +735,8 @@ static const AVOption lowpass_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -726,6 +761,8 @@ static const AVOption highpass_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -748,6 +785,10 @@ static const AVOption allpass_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"order", "set filter order", OFFSET(order), AV_OPT_TYPE_INT, {.i64=2}, 1, 2, FLAGS},
+    {"o",     "set filter order", OFFSET(order), AV_OPT_TYPE_INT, {.i64=2}, 1, 2, FLAGS},
     {NULL}
 };
 
@@ -772,6 +813,8 @@ static const AVOption lowshelf_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -796,6 +839,8 @@ static const AVOption highshelf_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 
@@ -813,6 +858,8 @@ static const AVOption biquad_options[] = {
     {"m",   "set mix", OFFSET(mix), AV_OPT_TYPE_DOUBLE, {.dbl=1}, 0, 1, FLAGS},
     {"channels", "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
     {"c",        "set channels to filter", OFFSET(channels), AV_OPT_TYPE_CHANNEL_LAYOUT, {.i64=-1}, INT64_MIN, INT64_MAX, FLAGS},
+    {"normalize", "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
+    {"n",         "normalize coefficients", OFFSET(normalize), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS},
     {NULL}
 };
 

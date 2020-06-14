@@ -158,6 +158,7 @@ const AVCodecTag ff_codec_movvideo_tags[] = {
     { AV_CODEC_ID_SGIRLE,  MKTAG('r', 'l', 'e', '1') }, /* SGI RLE 8-bit */
     { AV_CODEC_ID_MSRLE,   MKTAG('W', 'R', 'L', 'E') },
     { AV_CODEC_ID_QDRAW,   MKTAG('q', 'd', 'r', 'w') }, /* QuickDraw */
+    { AV_CODEC_ID_CDTOONS, MKTAG('Q', 'k', 'B', 'k') }, /* CDToons */
 
     { AV_CODEC_ID_RAWVIDEO, MKTAG('W', 'R', 'A', 'W') },
 
@@ -312,6 +313,8 @@ const AVCodecTag ff_codec_movvideo_tags[] = {
 
     { AV_CODEC_ID_PIXLET, MKTAG('p', 'x', 'l', 't') },
 
+    { AV_CODEC_ID_NOTCHLC, MKTAG('n', 'c', 'l', 'c') },
+
     { AV_CODEC_ID_NONE, 0 },
 };
 
@@ -371,6 +374,7 @@ const AVCodecTag ff_codec_movaudio_tags[] = {
     { AV_CODEC_ID_FLAC,            MKTAG('f', 'L', 'a', 'C') }, /* nonstandard */
     { AV_CODEC_ID_TRUEHD,          MKTAG('m', 'l', 'p', 'a') }, /* mp4ra.org */
     { AV_CODEC_ID_OPUS,            MKTAG('O', 'p', 'u', 's') }, /* mp4ra.org */
+    { AV_CODEC_ID_MPEGH_3D_AUDIO,  MKTAG('m', 'h', 'm', '1') }, /* MPEG-H 3D Audio bitstream */
     { AV_CODEC_ID_NONE, 0 },
 };
 
