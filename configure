@@ -4034,7 +4034,8 @@ if disabled autodetect; then
 
     # Unless iconv is explicitely disabled by the user, we still want to probe
     # for the iconv from the libc.
-    disabled iconv || enable libc_iconv
+    disabled iconv 
+    #|| enable libc_iconv
 
     disable_weak $EXTERNAL_AUTODETECT_LIBRARY_LIST
     disable_weak $HWACCEL_AUTODETECT_LIBRARY_LIST
@@ -4226,9 +4227,9 @@ if test -n "$cross_prefix"; then
 fi
 
 set_default target_os
-if test "$target_os" = android; then
-    cc_default="clang"
-fi
+#if test "$target_os" = android; then
+    #cc_default="clang"
+#fi
 
 ar_default="${cross_prefix}${ar_default}"
 cc_default="${cross_prefix}${cc_default}"
@@ -6629,11 +6630,11 @@ enabled amf &&
         "(AMF_VERSION_MAJOR << 48 | AMF_VERSION_MINOR << 32 | AMF_VERSION_RELEASE << 16 | AMF_VERSION_BUILD_NUM) >= 0x0001000400090000"
 
 # Funny iconv installations are not unusual, so check it after all flags have been set
-if enabled libc_iconv; then
-    check_func_headers iconv.h iconv
-elif enabled iconv; then
-    check_func_headers iconv.h iconv || check_lib iconv iconv.h iconv -liconv
-fi
+#if enabled libc_iconv; then
+#    check_func_headers iconv.h iconv
+#elif enabled iconv; then
+#    check_func_headers iconv.h iconv || check_lib iconv iconv.h iconv -liconv
+#fi
 
 enabled debug && add_cflags -g"$debuglevel" && add_asflags -g"$debuglevel"
 

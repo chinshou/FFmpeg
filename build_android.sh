@@ -37,12 +37,13 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --disable-ffprobe \
     --enable-avdevice \
     --enable-nonfree \
-    --enable-librtmp \
     --enable-openssl \
     --enable-libfreetype \
     --enable-libspeex \
     --enable-libgsm \
     --enable-jni \
+    --enable-libopencore-amrnb --enable-version3 \
+    --enable-libopus \
     --enable-mediacodec \
     --disable-decoder=libvpx \
     --enable-gpl \
@@ -57,11 +58,11 @@ export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
     --disable-postproc \
     --disable-decoder=h264_vdpau \
     --disable-muxer=encx \
-    --disable-muxer=encx_audio \
+    --disable-iconv --disable-muxer=encx_audio \
     --enable-libmp3lame \
     --disable-indev=waveform  \
     --cross-prefix=$TOOLCHAIN/bin/arm-linux-androideabi- \
-    --target-os=linux \
+    --target-os=android \
     --pkg-config=pkg-config \
     --arch=arm \
     --cpu=armv7-a \
@@ -93,6 +94,6 @@ ADDI_CFLAGS="-marm -march=armv7-a -mfpu=neon -mfloat-abi=softfp -mtune=cortex-a8
 #    
 #    
 #    --enable-libzvbi \
-#   
+#       --enable-librtmp \
 
 build_one
