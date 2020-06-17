@@ -222,7 +222,7 @@ static void v4l2_free_buffer(void *opaque, uint8_t *unused)
             if (!atomic_load(&s->refcount))
                 sem_post(&s->refsync);
         } else {
-            if (s->draining) {
+            if (s->draining && V4L2_TYPE_IS_OUTPUT(avbuf->context->type)) {
                 /* no need to queue more buffers to the driver */
                 avbuf->status = V4L2BUF_AVAILABLE;
             }
@@ -511,11 +511,9 @@ int ff_v4l2_buffer_initialize(V4L2Buffer* avbuf, int index)
 
     if (V4L2_TYPE_IS_MULTIPLANAR(ctx->type)) {
         avbuf->num_planes = 0;
-        for (;;) {
-            /* in MP, the V4L2 API states that buf.length means num_planes */
-            if (avbuf->num_planes >= avbuf->buf.length)
-                break;
-            if (avbuf->buf.m.planes[avbuf->num_planes].length)
+        /* in MP, the V4L2 API states that buf.length means num_planes */
+        for (i = 0; i < avbuf->buf.length; i++) {
+            if (avbuf->buf.m.planes[i].length)
                 avbuf->num_planes++;
         }
     } else

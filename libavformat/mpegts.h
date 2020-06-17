@@ -58,10 +58,22 @@
 #define SIT_PID         0x001F /* Selection Information Table */
 /* PID from 0x0020 to 0x1FFA may be assigned as needed to PMT, elementary
  * streams and other data tables */
+#define FIRST_OTHER_PID 0x0020
+#define  LAST_OTHER_PID 0x1FFA
 /* PID 0x1FFB is used by DigiCipher 2/ATSC MGT metadata */
 /* PID from 0x1FFC to 0x1FFE may be assigned as needed to PMT, elementary
  * streams and other data tables */
 #define NULL_PID        0x1FFF /* Null packet (used for fixed bandwidth padding) */
+
+/* m2ts pids */
+#define M2TS_PMT_PID                      0x0100
+#define M2TS_PCR_PID                      0x1001
+#define M2TS_VIDEO_PID                    0x1011
+#define M2TS_AUDIO_START_PID              0x1100
+#define M2TS_PGSSUB_START_PID             0x1200
+#define M2TS_TEXTSUB_PID                  0x1800
+#define M2TS_SECONDARY_AUDIO_START_PID    0x1A00
+#define M2TS_SECONDARY_VIDEO_START_PID    0x1B00
 
 /* table ids */
 #define PAT_TID         0x00 /* Program Association section */
@@ -124,6 +136,13 @@
 #define STREAM_TYPE_AUDIO_DTS       0x82
 #define STREAM_TYPE_AUDIO_TRUEHD    0x83
 #define STREAM_TYPE_AUDIO_EAC3      0x87
+
+/* ISO/IEC 13818-1 Table 2-22 */
+#define STREAM_ID_PRIVATE_STREAM_1   0xbd
+#define STREAM_ID_AUDIO_STREAM_0     0xc0
+#define STREAM_ID_VIDEO_STREAM_0     0xe0
+#define STREAM_ID_METADATA_STREAM    0xfc
+#define STREAM_ID_EXTENDED_STREAM_ID 0xfd
 
 typedef struct MpegTSContext MpegTSContext;
 
