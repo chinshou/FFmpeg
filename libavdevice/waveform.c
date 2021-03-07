@@ -70,12 +70,14 @@ struct waveform_ctx {
     int started;    
 	int samplerate;
 	int channels;
-};                                                                                                                                                   
+};                       
+
+static AVFormatContext *cc = NULL;                                                                                                                              
                                                                                                                                                      
 static void CALLBACK waveInProc(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance,                                                                        
                                 DWORD_PTR dwParam1, DWORD_PTR dwParam2)                                                                              
 {                                                                                                                                                    
-    AVFormatContext *s = (AVFormatContext *) dwInstance;                                                                                             
+    AVFormatContext *s = cc;//(AVFormatContext *) dwInstance;                                                                                             
     struct waveform_ctx *ctx = s->priv_data;                                                                                                         
                                                                                                                                                      
     if (uMsg == WIM_DATA) {                                                                                                                          
@@ -249,7 +251,8 @@ static int waveform_read_header(AVFormatContext *s)
     fx.nBlockAlign     = fx.nChannels * (fx.wBitsPerSample >> 3);                                                                                    
     fx.nAvgBytesPerSec = fx.nSamplesPerSec * fx.nBlockAlign;                                                                                         
     fx.cbSize          = 0;                                                                                                                          
-                                                                                                                                                     
+     av_log(s, AV_LOG_ERROR, "wave 4\n");     
+    cc=s;                                                                                                                                                
     for (;;) {                                                                                                                                       
         result = waveInOpen(&ctx->wi, device_id, &fx, (DWORD) waveInProc,                                                                            
                             (DWORD) s, CALLBACK_FUNCTION | WAVE_FORMAT_DIRECT);                                                                      
