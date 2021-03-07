@@ -218,6 +218,7 @@ static int fourxm_read_header(AVFormatContext *s)
     fourxm->track_count = 0;
     fourxm->tracks      = NULL;
     fourxm->fps         = (AVRational){1,1};
+    fourxm->video_stream_index = -1;
 
     /* skip the first 3 32-bit numbers */
     avio_skip(pb, 12);
@@ -298,7 +299,7 @@ static int fourxm_read_packet(AVFormatContext *s,
     unsigned int track_number;
     int packet_read = 0;
     unsigned char header[8];
-    int audio_frame_count;
+    int64_t audio_frame_count;
 
     while (!packet_read) {
         if ((ret = avio_read(s->pb, header, 8)) < 0)
@@ -325,6 +326,8 @@ static int fourxm_read_packet(AVFormatContext *s,
             /* allocate 8 more bytes than 'size' to account for fourcc
              * and size */
             if (size > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE - 8)
+                return AVERROR_INVALIDDATA;
+            if (fourxm->video_stream_index < 0)
                 return AVERROR_INVALIDDATA;
             if ((ret = av_new_packet(pkt, size + 8)) < 0)
                 return ret;
