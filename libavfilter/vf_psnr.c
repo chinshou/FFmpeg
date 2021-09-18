@@ -189,7 +189,8 @@ static int do_psnr(FFFrameSync *fs)
         td.planeheight[c] = s->planeheight[c];
     }
 
-    ctx->internal->execute(ctx, compute_images_mse, &td, NULL, FFMIN(s->planeheight[1], s->nb_threads));
+    ff_filter_execute(ctx, compute_images_mse, &td, NULL,
+                      FFMIN(s->planeheight[1], s->nb_threads));
 
     for (int j = 0; j < s->nb_threads; j++) {
         for (int c = 0; c < s->nb_components; c++)
@@ -312,10 +313,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_NONE
     };
 
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 static int config_input_ref(AVFilterLink *inlink)
@@ -372,7 +370,7 @@ static int config_input_ref(AVFilterLink *inlink)
     if (!s->score)
         return AVERROR(ENOMEM);
 
-    for (int t = 0; t < s->nb_threads && s->score; t++) {
+    for (int t = 0; t < s->nb_threads; t++) {
         s->score[t] = av_calloc(s->nb_components, sizeof(*s->score[0]));
         if (!s->score[t])
             return AVERROR(ENOMEM);
@@ -455,7 +453,6 @@ static const AVFilterPad psnr_inputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .config_props = config_input_ref,
     },
-    { NULL }
 };
 
 static const AVFilterPad psnr_outputs[] = {
@@ -464,10 +461,9 @@ static const AVFilterPad psnr_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_psnr = {
+const AVFilter ff_vf_psnr = {
     .name          = "psnr",
     .description   = NULL_IF_CONFIG_SMALL("Calculate the PSNR between two video streams."),
     .preinit       = psnr_framesync_preinit,
@@ -477,7 +473,7 @@ AVFilter ff_vf_psnr = {
     .activate      = activate,
     .priv_size     = sizeof(PSNRContext),
     .priv_class    = &psnr_class,
-    .inputs        = psnr_inputs,
-    .outputs       = psnr_outputs,
+    FILTER_INPUTS(psnr_inputs),
+    FILTER_OUTPUTS(psnr_outputs),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL | AVFILTER_FLAG_SLICE_THREADS,
 };

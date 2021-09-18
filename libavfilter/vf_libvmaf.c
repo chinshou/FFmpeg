@@ -256,10 +256,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_NONE
     };
 
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 
@@ -353,7 +350,6 @@ static const AVFilterPad libvmaf_inputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .config_props = config_input_ref,
     },
-    { NULL }
 };
 
 static const AVFilterPad libvmaf_outputs[] = {
@@ -362,10 +358,9 @@ static const AVFilterPad libvmaf_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_libvmaf = {
+const AVFilter ff_vf_libvmaf = {
     .name          = "libvmaf",
     .description   = NULL_IF_CONFIG_SMALL("Calculate the VMAF between two video streams."),
     .preinit       = libvmaf_framesync_preinit,
@@ -375,6 +370,6 @@ AVFilter ff_vf_libvmaf = {
     .activate      = activate,
     .priv_size     = sizeof(LIBVMAFContext),
     .priv_class    = &libvmaf_class,
-    .inputs        = libvmaf_inputs,
-    .outputs       = libvmaf_outputs,
+    FILTER_INPUTS(libvmaf_inputs),
+    FILTER_OUTPUTS(libvmaf_outputs),
 };

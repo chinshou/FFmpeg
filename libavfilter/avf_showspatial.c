@@ -318,7 +318,7 @@ static int spatial_activate(AVFilterContext *ctx)
 
         av_assert0(fin->nb_samples == s->win_size);
 
-        ctx->internal->execute(ctx, run_channel_fft, fin, NULL, 2);
+        ff_filter_execute(ctx, run_channel_fft, fin, NULL, 2);
 
         ret = draw_spatial(inlink, fin);
 
@@ -346,7 +346,6 @@ static const AVFilterPad showspatial_inputs[] = {
         .name         = "default",
         .type         = AVMEDIA_TYPE_AUDIO,
     },
-    { NULL }
 };
 
 static const AVFilterPad showspatial_outputs[] = {
@@ -355,17 +354,16 @@ static const AVFilterPad showspatial_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_avf_showspatial = {
+const AVFilter ff_avf_showspatial = {
     .name          = "showspatial",
     .description   = NULL_IF_CONFIG_SMALL("Convert input audio to a spatial video output."),
     .uninit        = uninit,
     .query_formats = query_formats,
     .priv_size     = sizeof(ShowSpatialContext),
-    .inputs        = showspatial_inputs,
-    .outputs       = showspatial_outputs,
+    FILTER_INPUTS(showspatial_inputs),
+    FILTER_OUTPUTS(showspatial_outputs),
     .activate      = spatial_activate,
     .priv_class    = &showspatial_class,
     .flags         = AVFILTER_FLAG_SLICE_THREADS,

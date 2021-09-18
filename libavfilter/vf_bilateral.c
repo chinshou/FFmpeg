@@ -89,7 +89,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_NONE
     };
 
-    return ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 static int config_params(AVFilterContext *ctx)
@@ -368,7 +368,6 @@ static const AVFilterPad bilateral_inputs[] = {
         .config_props = config_input,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad bilateral_outputs[] = {
@@ -376,18 +375,17 @@ static const AVFilterPad bilateral_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_bilateral = {
+const AVFilter ff_vf_bilateral = {
     .name          = "bilateral",
     .description   = NULL_IF_CONFIG_SMALL("Apply Bilateral filter."),
     .priv_size     = sizeof(BilateralContext),
     .priv_class    = &bilateral_class,
     .uninit        = uninit,
     .query_formats = query_formats,
-    .inputs        = bilateral_inputs,
-    .outputs       = bilateral_outputs,
+    FILTER_INPUTS(bilateral_inputs),
+    FILTER_OUTPUTS(bilateral_outputs),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
     .process_command = process_command,
 };

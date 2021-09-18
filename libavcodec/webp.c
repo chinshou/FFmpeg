@@ -189,6 +189,7 @@ typedef struct WebPContext {
     VP8Context v;                       /* VP8 Context used for lossy decoding */
     GetBitContext gb;                   /* bitstream reader for main image chunk */
     AVFrame *alpha_frame;               /* AVFrame for alpha data decompressed from VP8L */
+    AVPacket *pkt;                      /* AVPacket to be passed to the underlying VP8 decoder */
     AVCodecContext *avctx;              /* parent AVCodecContext */
     int initialized;                    /* set once the VP8 context is initialized */
     int has_alpha;                      /* has a separate alpha chunk */
@@ -625,6 +626,9 @@ static int decode_entropy_coded_image(WebPContext *s, enum ImageRole role,
     x = 0; y = 0;
     while (y < img->frame->height) {
         int v;
+
+        if (get_bits_left(&s->gb) < 0)
+            return AVERROR_INVALIDDATA;
 
         hg = get_huffman_group(s, img, x, y);
         v = huff_reader_get_symbol(&hg[HUFF_IDX_GREEN], &s->gb);
@@ -1290,7 +1294,6 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
                                   unsigned int data_size)
 {
     WebPContext *s = avctx->priv_data;
-    AVPacket pkt;
     int ret;
 
     if (!s->initialized) {
@@ -1306,11 +1309,11 @@ static int vp8_lossy_decode_frame(AVCodecContext *avctx, AVFrame *p,
         return AVERROR_PATCHWELCOME;
     }
 
-    av_init_packet(&pkt);
-    pkt.data = data_start;
-    pkt.size = data_size;
+    av_packet_unref(s->pkt);
+    s->pkt->data = data_start;
+    s->pkt->size = data_size;
 
-    ret = ff_vp8_decode_frame(avctx, p, got_frame, &pkt);
+    ret = ff_vp8_decode_frame(avctx, p, got_frame, s->pkt);
     if (ret < 0)
         return ret;
 
@@ -1527,9 +1530,22 @@ exif_end:
     return avpkt->size;
 }
 
+static av_cold int webp_decode_init(AVCodecContext *avctx)
+{
+    WebPContext *s = avctx->priv_data;
+
+    s->pkt = av_packet_alloc();
+    if (!s->pkt)
+        return AVERROR(ENOMEM);
+
+    return 0;
+}
+
 static av_cold int webp_decode_close(AVCodecContext *avctx)
 {
     WebPContext *s = avctx->priv_data;
+
+    av_packet_free(&s->pkt);
 
     if (s->initialized)
         return ff_vp8_decode_free(avctx);
@@ -1537,13 +1553,15 @@ static av_cold int webp_decode_close(AVCodecContext *avctx)
     return 0;
 }
 
-AVCodec ff_webp_decoder = {
+const AVCodec ff_webp_decoder = {
     .name           = "webp",
     .long_name      = NULL_IF_CONFIG_SMALL("WebP image"),
     .type           = AVMEDIA_TYPE_VIDEO,
     .id             = AV_CODEC_ID_WEBP,
     .priv_data_size = sizeof(WebPContext),
+    .init           = webp_decode_init,
     .decode         = webp_decode_frame,
     .close          = webp_decode_close,
     .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE,
 };

@@ -266,7 +266,7 @@ typedef struct PESContext {
     int merged_st;
 } PESContext;
 
-extern AVInputFormat ff_mpegts_demuxer;
+extern const AVInputFormat ff_mpegts_demuxer;
 
 static struct Program * get_program(MpegTSContext *ts, unsigned int programid)
 {
@@ -875,15 +875,16 @@ static void mpegts_find_stream_type(AVStream *st,
                                     uint32_t stream_type,
                                     const StreamType *types)
 {
+    FFStream *const sti = ffstream(st);
     for (; types->stream_type; types++)
         if (stream_type == types->stream_type) {
             if (st->codecpar->codec_type != types->codec_type ||
                 st->codecpar->codec_id   != types->codec_id) {
                 st->codecpar->codec_type = types->codec_type;
                 st->codecpar->codec_id   = types->codec_id;
-                st->internal->need_context_update = 1;
+                sti->need_context_update = 1;
             }
-            st->internal->request_probe        = 0;
+            sti->request_probe = 0;
             return;
         }
 }
@@ -891,11 +892,12 @@ static void mpegts_find_stream_type(AVStream *st,
 static int mpegts_set_stream_info(AVStream *st, PESContext *pes,
                                   uint32_t stream_type, uint32_t prog_reg_desc)
 {
+    FFStream *const sti = ffstream(st);
     int old_codec_type = st->codecpar->codec_type;
     int old_codec_id   = st->codecpar->codec_id;
     int old_codec_tag  = st->codecpar->codec_tag;
 
-    if (avcodec_is_open(st->internal->avctx)) {
+    if (avcodec_is_open(sti->avctx)) {
         av_log(pes->stream, AV_LOG_DEBUG, "cannot set stream info, internal codec is open\n");
         return 0;
     }
@@ -904,7 +906,7 @@ static int mpegts_set_stream_info(AVStream *st, PESContext *pes,
     st->priv_data         = pes;
     st->codecpar->codec_type = AVMEDIA_TYPE_DATA;
     st->codecpar->codec_id   = AV_CODEC_ID_NONE;
-    st->need_parsing      = AVSTREAM_PARSE_FULL;
+    sti->need_parsing = AVSTREAM_PARSE_FULL;
     pes->st          = st;
     pes->stream_type = stream_type;
 
@@ -916,7 +918,7 @@ static int mpegts_set_stream_info(AVStream *st, PESContext *pes,
 
     mpegts_find_stream_type(st, pes->stream_type, ISO_types);
     if (pes->stream_type == 4 || pes->stream_type == 0x0f)
-        st->internal->request_probe = 50;
+        sti->request_probe = 50;
     if ((prog_reg_desc == AV_RL32("HDMV") ||
          prog_reg_desc == AV_RL32("HDPR")) &&
         st->codecpar->codec_id == AV_CODEC_ID_NONE) {
@@ -942,7 +944,7 @@ static int mpegts_set_stream_info(AVStream *st, PESContext *pes,
             sub_st->priv_data         = sub_pes;
             sub_st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
             sub_st->codecpar->codec_id   = AV_CODEC_ID_AC3;
-            sub_st->need_parsing      = AVSTREAM_PARSE_FULL;
+            ffstream(sub_st)->need_parsing = AVSTREAM_PARSE_FULL;
             sub_pes->sub_st           = pes->sub_st = sub_st;
         }
     }
@@ -953,19 +955,19 @@ static int mpegts_set_stream_info(AVStream *st, PESContext *pes,
         st->codecpar->codec_type = old_codec_type;
     }
     if ((st->codecpar->codec_id == AV_CODEC_ID_NONE ||
-            (st->internal->request_probe > 0 && st->internal->request_probe < AVPROBE_SCORE_STREAM_RETRY / 5)) &&
-        st->probe_packets > 0 &&
+            (sti->request_probe > 0 && sti->request_probe < AVPROBE_SCORE_STREAM_RETRY / 5)) &&
+        sti->probe_packets > 0 &&
         stream_type == STREAM_TYPE_PRIVATE_DATA) {
         st->codecpar->codec_type = AVMEDIA_TYPE_DATA;
         st->codecpar->codec_id   = AV_CODEC_ID_BIN_DATA;
-        st->internal->request_probe = AVPROBE_SCORE_STREAM_RETRY / 5;
+        sti->request_probe = AVPROBE_SCORE_STREAM_RETRY / 5;
     }
 
     /* queue a context update if properties changed */
     if (old_codec_type != st->codecpar->codec_type ||
         old_codec_id   != st->codecpar->codec_id   ||
         old_codec_tag  != st->codecpar->codec_tag)
-        st->internal->need_context_update = 1;
+        sti->need_context_update = 1;
 
     return 0;
 }
@@ -981,7 +983,7 @@ static void reset_pes_packet_state(PESContext *pes)
 
 static void new_data_packet(const uint8_t *buffer, int len, AVPacket *pkt)
 {
-    av_init_packet(pkt);
+    av_packet_unref(pkt);
     pkt->data = (uint8_t *)buffer;
     pkt->size = len;
 }
@@ -990,7 +992,7 @@ static int new_pes_packet(PESContext *pes, AVPacket *pkt)
 {
     uint8_t *sd;
 
-    av_init_packet(pkt);
+    av_packet_unref(pkt);
 
     pkt->buf  = pes->buffer;
     pkt->data = pes->buffer->data;
@@ -1198,13 +1200,14 @@ static int mpegts_push_data(MpegTSFilter *filter,
                         code != 0x1f0 && code != 0x1f1 && /* ECM, EMM */
                         code != 0x1ff && code != 0x1f2 && /* program_stream_directory, DSMCC_stream */
                         code != 0x1f8) {                  /* ITU-T Rec. H.222.1 type E stream */
+                        FFStream *const pes_sti = ffstream(pes->st);
                         pes->state = MPEGTS_PESHEADER;
-                        if (pes->st->codecpar->codec_id == AV_CODEC_ID_NONE && !pes->st->internal->request_probe) {
+                        if (pes->st->codecpar->codec_id == AV_CODEC_ID_NONE && !pes_sti->request_probe) {
                             av_log(pes->stream, AV_LOG_TRACE,
                                     "pid=%x stream_type=%x probing\n",
                                     pes->pid,
                                     pes->stream_type);
-                            pes->st->internal->request_probe = 1;
+                            pes_sti->request_probe = 1;
                         }
                     } else {
                         pes->pes_header_size = 6;
@@ -1326,8 +1329,11 @@ skip:
                                     int64_t pcr = f->last_pcr / 300;
                                     pcr_found = 1;
                                     if (st) {
-                                        pes->st->internal->pts_wrap_reference = st->internal->pts_wrap_reference;
-                                        pes->st->internal->pts_wrap_behavior = st->internal->pts_wrap_behavior;
+                                        const FFStream *const sti = ffstream(st);
+                                        FFStream *const pes_sti   = ffstream(pes->st);
+
+                                        pes_sti->pts_wrap_reference = sti->pts_wrap_reference;
+                                        pes_sti->pts_wrap_behavior  = sti->pts_wrap_behavior;
                                     }
                                     if (pes->dts == AV_NOPTS_VALUE || pes->dts < pcr) {
                                         pes->pts = pes->dts = pcr;
@@ -1427,7 +1433,7 @@ static PESContext *add_pes_stream(MpegTSContext *ts, int pid, int pcr_pid)
 #define MAX_LEVEL 4
 typedef struct MP4DescrParseContext {
     AVFormatContext *s;
-    AVIOContext pb;
+    FFIOContext pb;
     Mp4Descr *descr;
     Mp4Descr *active_descr;
     int descr_count;
@@ -1440,13 +1446,11 @@ static int init_MP4DescrParseContext(MP4DescrParseContext *d, AVFormatContext *s
                                      const uint8_t *buf, unsigned size,
                                      Mp4Descr *descr, int max_descr_count)
 {
-    int ret;
     if (size > (1 << 30))
         return AVERROR_INVALIDDATA;
 
-    if ((ret = ffio_init_context(&d->pb, (unsigned char *)buf, size, 0,
-                                 NULL, NULL, NULL, NULL)) < 0)
-        return ret;
+    ffio_init_context(&d->pb, (unsigned char *)buf, size,
+                      0, NULL, NULL, NULL, NULL);
 
     d->s               = s;
     d->level           = 0;
@@ -1474,20 +1478,21 @@ static int parse_mp4_descr_arr(MP4DescrParseContext *d, int64_t off, int len)
         int ret = parse_mp4_descr(d, off, len, 0);
         if (ret < 0)
             return ret;
-        update_offsets(&d->pb, &off, &len);
+        update_offsets(&d->pb.pub, &off, &len);
     }
     return 0;
 }
 
 static int parse_MP4IODescrTag(MP4DescrParseContext *d, int64_t off, int len)
 {
-    avio_rb16(&d->pb); // ID
-    avio_r8(&d->pb);
-    avio_r8(&d->pb);
-    avio_r8(&d->pb);
-    avio_r8(&d->pb);
-    avio_r8(&d->pb);
-    update_offsets(&d->pb, &off, &len);
+    AVIOContext *const pb = &d->pb.pub;
+    avio_rb16(pb); // ID
+    avio_r8(pb);
+    avio_r8(pb);
+    avio_r8(pb);
+    avio_r8(pb);
+    avio_r8(pb);
+    update_offsets(pb, &off, &len);
     return parse_mp4_descr_arr(d, off, len);
 }
 
@@ -1496,9 +1501,9 @@ static int parse_MP4ODescrTag(MP4DescrParseContext *d, int64_t off, int len)
     int id_flags;
     if (len < 2)
         return 0;
-    id_flags = avio_rb16(&d->pb);
+    id_flags = avio_rb16(&d->pb.pub);
     if (!(id_flags & 0x0020)) { // URL_Flag
-        update_offsets(&d->pb, &off, &len);
+        update_offsets(&d->pb.pub, &off, &len);
         return parse_mp4_descr_arr(d, off, len); // ES_Descriptor[]
     } else {
         return 0;
@@ -1507,19 +1512,20 @@ static int parse_MP4ODescrTag(MP4DescrParseContext *d, int64_t off, int len)
 
 static int parse_MP4ESDescrTag(MP4DescrParseContext *d, int64_t off, int len)
 {
+    AVIOContext *const pb = &d->pb.pub;
     int es_id = 0;
     int ret   = 0;
 
     if (d->descr_count >= d->max_descr_count)
         return AVERROR_INVALIDDATA;
-    ff_mp4_parse_es_descr(&d->pb, &es_id);
+    ff_mp4_parse_es_descr(pb, &es_id);
     d->active_descr = d->descr + (d->descr_count++);
 
     d->active_descr->es_id = es_id;
-    update_offsets(&d->pb, &off, &len);
+    update_offsets(pb, &off, &len);
     if ((ret = parse_mp4_descr(d, off, len, MP4DecConfigDescrTag)) < 0)
         return ret;
-    update_offsets(&d->pb, &off, &len);
+    update_offsets(pb, &off, &len);
     if (len > 0)
         ret = parse_mp4_descr(d, off, len, MP4SLDescrTag);
     d->active_descr = NULL;
@@ -1536,42 +1542,43 @@ static int parse_MP4DecConfigDescrTag(MP4DescrParseContext *d, int64_t off,
     if (!descr->dec_config_descr)
         return AVERROR(ENOMEM);
     descr->dec_config_descr_len = len;
-    avio_read(&d->pb, descr->dec_config_descr, len);
+    avio_read(&d->pb.pub, descr->dec_config_descr, len);
     return 0;
 }
 
 static int parse_MP4SLDescrTag(MP4DescrParseContext *d, int64_t off, int len)
 {
     Mp4Descr *descr = d->active_descr;
+    AVIOContext *const pb = &d->pb.pub;
     int predefined;
     if (!descr)
         return AVERROR_INVALIDDATA;
 
 #define R8_CHECK_CLIP_MAX(dst, maxv) do {                       \
-    descr->sl.dst = avio_r8(&d->pb);                            \
+    descr->sl.dst = avio_r8(pb);                                \
     if (descr->sl.dst > maxv) {                                 \
         descr->sl.dst = maxv;                                   \
         return AVERROR_INVALIDDATA;                             \
     }                                                           \
 } while (0)
 
-    predefined = avio_r8(&d->pb);
+    predefined = avio_r8(pb);
     if (!predefined) {
         int lengths;
-        int flags = avio_r8(&d->pb);
+        int flags = avio_r8(pb);
         descr->sl.use_au_start    = !!(flags & 0x80);
         descr->sl.use_au_end      = !!(flags & 0x40);
         descr->sl.use_rand_acc_pt = !!(flags & 0x20);
         descr->sl.use_padding     = !!(flags & 0x08);
         descr->sl.use_timestamps  = !!(flags & 0x04);
         descr->sl.use_idle        = !!(flags & 0x02);
-        descr->sl.timestamp_res   = avio_rb32(&d->pb);
-        avio_rb32(&d->pb);
+        descr->sl.timestamp_res   = avio_rb32(pb);
+        avio_rb32(pb);
         R8_CHECK_CLIP_MAX(timestamp_len, 63);
         R8_CHECK_CLIP_MAX(ocr_len,       63);
         R8_CHECK_CLIP_MAX(au_len,        31);
-        descr->sl.inst_bitrate_len   = avio_r8(&d->pb);
-        lengths                      = avio_rb16(&d->pb);
+        descr->sl.inst_bitrate_len   = avio_r8(pb);
+        lengths                      = avio_rb16(pb);
         descr->sl.degr_prior_len     = lengths >> 12;
         descr->sl.au_seq_num_len     = (lengths >> 7) & 0x1f;
         descr->sl.packet_seq_num_len = (lengths >> 2) & 0x1f;
@@ -1586,10 +1593,11 @@ static int parse_mp4_descr(MP4DescrParseContext *d, int64_t off, int len,
                            int target_tag)
 {
     int tag;
-    int len1 = ff_mp4_read_descr(d->s, &d->pb, &tag);
+    AVIOContext *const pb = &d->pb.pub;
+    int len1 = ff_mp4_read_descr(d->s, pb, &tag);
     int ret = 0;
 
-    update_offsets(&d->pb, &off, &len);
+    update_offsets(pb, &off, &len);
     if (len < 0 || len1 > len || len1 <= 0) {
         av_log(d->s, AV_LOG_ERROR,
                "Tag %x length violation new length %d bytes remaining %d\n",
@@ -1631,7 +1639,7 @@ static int parse_mp4_descr(MP4DescrParseContext *d, int64_t off, int len,
 
 done:
     d->level--;
-    avio_seek(&d->pb, off + len1, SEEK_SET);
+    avio_seek(pb, off + len1, SEEK_SET);
     return ret;
 }
 
@@ -1645,7 +1653,7 @@ static int mp4_read_iods(AVFormatContext *s, const uint8_t *buf, unsigned size,
     if (ret < 0)
         return ret;
 
-    ret = parse_mp4_descr(&d, avio_tell(&d.pb), size, MP4IODescrTag);
+    ret = parse_mp4_descr(&d, avio_tell(&d.pb.pub), size, MP4IODescrTag);
 
     *descr_count = d.descr_count;
     return ret;
@@ -1661,7 +1669,7 @@ static int mp4_read_od(AVFormatContext *s, const uint8_t *buf, unsigned size,
     if (ret < 0)
         return ret;
 
-    ret = parse_mp4_descr_arr(&d, avio_tell(&d.pb), size);
+    ret = parse_mp4_descr_arr(&d, avio_tell(&d.pb.pub), size);
 
     *descr_count = d.descr_count;
     return ret;
@@ -1674,7 +1682,6 @@ static void m4sl_cb(MpegTSFilter *filter, const uint8_t *section,
     MpegTSSectionFilter *tssf = &filter->u.section_filter;
     SectionHeader h;
     const uint8_t *p, *p_end;
-    AVIOContext pb;
     int mp4_descr_count = 0;
     Mp4Descr mp4_descr[MAX_MP4_DESCR_COUNT] = { { 0 } };
     int i, pid;
@@ -1698,6 +1705,8 @@ static void m4sl_cb(MpegTSFilter *filter, const uint8_t *section,
         for (i = 0; i < mp4_descr_count; i++) {
             PESContext *pes;
             AVStream *st;
+            FFStream *sti;
+            FFIOContext pb;
             if (ts->pids[pid]->es_id != mp4_descr[i].es_id)
                 continue;
             if (ts->pids[pid]->type != MPEGTS_PES) {
@@ -1708,22 +1717,23 @@ static void m4sl_cb(MpegTSFilter *filter, const uint8_t *section,
             st  = pes->st;
             if (!st)
                 continue;
+            sti = ffstream(st);
 
             pes->sl = mp4_descr[i].sl;
 
             ffio_init_context(&pb, mp4_descr[i].dec_config_descr,
                               mp4_descr[i].dec_config_descr_len, 0,
                               NULL, NULL, NULL, NULL);
-            ff_mp4_read_dec_config_descr(s, st, &pb);
+            ff_mp4_read_dec_config_descr(s, st, &pb.pub);
             if (st->codecpar->codec_id == AV_CODEC_ID_AAC &&
                 st->codecpar->extradata_size > 0)
-                st->need_parsing = 0;
+                sti->need_parsing = 0;
             if (st->codecpar->codec_id == AV_CODEC_ID_H264 &&
                 st->codecpar->extradata_size > 0)
-                st->need_parsing = 0;
+                sti->need_parsing = 0;
 
             st->codecpar->codec_type = avcodec_get_type(st->codecpar->codec_id);
-            st->internal->need_context_update = 1;
+            sti->need_context_update = 1;
         }
     }
     for (i = 0; i < mp4_descr_count; i++)
@@ -1783,6 +1793,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
                               Mp4Descr *mp4_descr, int mp4_descr_count, int pid,
                               MpegTSContext *ts)
 {
+    FFStream *const sti = ffstream(st);
     const uint8_t *desc_end;
     int desc_len, desc_tag, desc_es_id, ext_desc_tag, channels, channel_config_code;
     char language[252];
@@ -1800,7 +1811,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
 
     av_log(fc, AV_LOG_TRACE, "tag: 0x%02x len=%d\n", desc_tag, desc_len);
 
-    if ((st->codecpar->codec_id == AV_CODEC_ID_NONE || st->internal->request_probe > 0) &&
+    if ((st->codecpar->codec_id == AV_CODEC_ID_NONE || sti->request_probe > 0) &&
         stream_type == STREAM_TYPE_PRIVATE_DATA)
         mpegts_find_stream_type(st, desc_tag, DESC_types);
 
@@ -1819,15 +1830,15 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
         for (i = 0; i < mp4_descr_count; i++)
             if (mp4_descr[i].dec_config_descr_len &&
                 mp4_descr[i].es_id == desc_es_id) {
-                AVIOContext pb;
+                FFIOContext pb;
                 ffio_init_context(&pb, mp4_descr[i].dec_config_descr,
                                   mp4_descr[i].dec_config_descr_len, 0,
                                   NULL, NULL, NULL, NULL);
-                ff_mp4_read_dec_config_descr(fc, st, &pb);
+                ff_mp4_read_dec_config_descr(fc, st, &pb.pub);
                 if (st->codecpar->codec_id == AV_CODEC_ID_AAC &&
                     st->codecpar->extradata_size > 0) {
-                    st->need_parsing = 0;
-                    st->internal->need_context_update = 1;
+                    sti->need_parsing        = 0;
+                    sti->need_context_update = 1;
                 }
                 if (st->codecpar->codec_id == AV_CODEC_ID_MPEG4SYSTEMS)
                     mpegts_open_section_filter(ts, pid, m4sl_cb, ts, 1);
@@ -1838,19 +1849,19 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
             break;
         if (mp4_descr_count > 0 &&
             (st->codecpar->codec_id == AV_CODEC_ID_AAC_LATM ||
-             (st->internal->request_probe == 0 && st->codecpar->codec_id == AV_CODEC_ID_NONE) ||
-             st->internal->request_probe > 0) &&
+             (sti->request_probe == 0 && st->codecpar->codec_id == AV_CODEC_ID_NONE) ||
+             sti->request_probe > 0) &&
             mp4_descr->dec_config_descr_len && mp4_descr->es_id == pid) {
-            AVIOContext pb;
+            FFIOContext pb;
             ffio_init_context(&pb, mp4_descr->dec_config_descr,
                               mp4_descr->dec_config_descr_len, 0,
                               NULL, NULL, NULL, NULL);
-            ff_mp4_read_dec_config_descr(fc, st, &pb);
+            ff_mp4_read_dec_config_descr(fc, st, &pb.pub);
             if (st->codecpar->codec_id == AV_CODEC_ID_AAC &&
                 st->codecpar->extradata_size > 0) {
-                st->internal->request_probe = st->need_parsing = 0;
+                sti->request_probe = sti->need_parsing = 0;
                 st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
-                st->internal->need_context_update = 1;
+                sti->need_context_update = 1;
             }
         }
         break;
@@ -1891,7 +1902,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
 
                 language[i * 4 - 1] = 0;
                 av_dict_set(&st->metadata, "language", language, 0);
-                st->internal->need_context_update = 1;
+                sti->need_context_update = 1;
             }
         }
         break;
@@ -1955,7 +1966,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
 
                 language[i * 4 - 1] = 0;
                 av_dict_set(&st->metadata, "language", language, 0);
-                st->internal->need_context_update = 1;
+                sti->need_context_update = 1;
             }
         }
         break;
@@ -1988,14 +1999,14 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
     case REGISTRATION_DESCRIPTOR:
         st->codecpar->codec_tag = bytestream_get_le32(pp);
         av_log(fc, AV_LOG_TRACE, "reg_desc=%.4s\n", (char *)&st->codecpar->codec_tag);
-        if (st->codecpar->codec_id == AV_CODEC_ID_NONE || st->internal->request_probe > 0) {
+        if (st->codecpar->codec_id == AV_CODEC_ID_NONE || sti->request_probe > 0) {
             mpegts_find_stream_type(st, st->codecpar->codec_tag, REGD_types);
             if (st->codecpar->codec_tag == MKTAG('B', 'S', 'S', 'D'))
-                st->internal->request_probe = 50;
+                sti->request_probe = 50;
         }
         break;
     case 0x52: /* stream identifier descriptor */
-        st->stream_identifier = 1 + get8(pp, desc_end);
+        sti->stream_identifier = 1 + get8(pp, desc_end);
         break;
     case METADATA_DESCRIPTOR:
         if (get16(pp, desc_end) == 0xFFFF)
@@ -2026,15 +2037,17 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
                     return AVERROR_INVALIDDATA;
                 if (channel_config_code <= 0x8) {
                     st->codecpar->extradata[9]  = channels = channel_config_code ? channel_config_code : 2;
+                    AV_WL32(&st->codecpar->extradata[12], 48000);
                     st->codecpar->extradata[18] = channel_config_code ? (channels > 2) : /* Dual Mono */ 255;
                     st->codecpar->extradata[19] = opus_stream_cnt[channel_config_code];
                     st->codecpar->extradata[20] = opus_coupled_stream_cnt[channel_config_code];
                     memcpy(&st->codecpar->extradata[21], opus_channel_map[channels - 1], channels);
+                    st->codecpar->extradata_size = st->codecpar->extradata[18] ? 21 + channels : 19;
                 } else {
                     avpriv_request_sample(fc, "Opus in MPEG-TS - channel_config_code > 0x8");
                 }
-                st->need_parsing = AVSTREAM_PARSE_FULL;
-                st->internal->need_context_update = 1;
+                sti->need_parsing = AVSTREAM_PARSE_FULL;
+                sti->need_context_update = 1;
             }
         }
         if (ext_desc_tag == 0x06) { /* supplementary audio descriptor */
@@ -2112,7 +2125,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
             // Listing of data_component_ids is in STD-B10, part 2, Annex J.
             // Component tag limits are documented in TR-B14, fascicle 2,
             // Vol. 3, Section 2, 4.2.8.1
-            int actual_component_tag = st->stream_identifier - 1;
+            int actual_component_tag = sti->stream_identifier - 1;
             int picked_profile = FF_PROFILE_UNKNOWN;
             int data_component_id = get16(pp, desc_end);
             if (data_component_id < 0)
@@ -2144,7 +2157,7 @@ int ff_parse_mpeg2_descriptor(AVFormatContext *fc, AVStream *st, int stream_type
             st->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
             st->codecpar->codec_id   = AV_CODEC_ID_ARIB_CAPTION;
             st->codecpar->profile    = picked_profile;
-            st->internal->request_probe        = 0;
+            sti->request_probe = 0;
         }
         break;
     case 0xb0: /* DOVI video stream descriptor */
@@ -3066,7 +3079,7 @@ static int mpegts_read_header(AVFormatContext *s)
     int64_t pos, probesize = s->probesize;
     int64_t seekback = FFMAX(s->probesize, (int64_t)ts->resync_size + PROBE_PACKET_MAX_BUF);
 
-    s->internal->prefer_codec_framerate = 1;
+    ffformatcontext(s)->prefer_codec_framerate = 1;
 
     if (ffio_ensure_seekback(pb, seekback) < 0)
         av_log(s, AV_LOG_WARNING, "Failed to allocate buffers for seekback\n");
@@ -3298,33 +3311,37 @@ static int64_t mpegts_get_dts(AVFormatContext *s, int stream_index,
                               int64_t *ppos, int64_t pos_limit)
 {
     MpegTSContext *ts = s->priv_data;
+    AVPacket *pkt;
     int64_t pos;
     int pos47 = ts->pos47_full % ts->raw_packet_size;
     pos = ((*ppos  + ts->raw_packet_size - 1 - pos47) / ts->raw_packet_size) * ts->raw_packet_size + pos47;
     ff_read_frame_flush(s);
     if (avio_seek(s->pb, pos, SEEK_SET) < 0)
         return AV_NOPTS_VALUE;
+    pkt = av_packet_alloc();
+    if (!pkt)
+        return AV_NOPTS_VALUE;
     while(pos < pos_limit) {
-        int ret;
-        AVPacket pkt;
-        av_init_packet(&pkt);
-        ret = av_read_frame(s, &pkt);
-        if (ret < 0)
+        int ret = av_read_frame(s, pkt);
+        if (ret < 0) {
+            av_packet_free(&pkt);
             return AV_NOPTS_VALUE;
-        if (pkt.dts != AV_NOPTS_VALUE && pkt.pos >= 0) {
-            ff_reduce_index(s, pkt.stream_index);
-            av_add_index_entry(s->streams[pkt.stream_index], pkt.pos, pkt.dts, 0, 0, AVINDEX_KEYFRAME /* FIXME keyframe? */);
-            if (pkt.stream_index == stream_index && pkt.pos >= *ppos) {
-                int64_t dts = pkt.dts;
-                *ppos = pkt.pos;
-                av_packet_unref(&pkt);
+        }
+        if (pkt->dts != AV_NOPTS_VALUE && pkt->pos >= 0) {
+            ff_reduce_index(s, pkt->stream_index);
+            av_add_index_entry(s->streams[pkt->stream_index], pkt->pos, pkt->dts, 0, 0, AVINDEX_KEYFRAME /* FIXME keyframe? */);
+            if (pkt->stream_index == stream_index && pkt->pos >= *ppos) {
+                int64_t dts = pkt->dts;
+                *ppos = pkt->pos;
+                av_packet_free(&pkt);
                 return dts;
             }
         }
-        pos = pkt.pos;
-        av_packet_unref(&pkt);
+        pos = pkt->pos;
+        av_packet_unref(pkt);
     }
 
+    av_packet_free(&pkt);
     return AV_NOPTS_VALUE;
 }
 
@@ -3383,7 +3400,7 @@ void avpriv_mpegts_parse_close(MpegTSContext *ts)
     av_free(ts);
 }
 
-AVInputFormat ff_mpegts_demuxer = {
+const AVInputFormat ff_mpegts_demuxer = {
     .name           = "mpegts",
     .long_name      = NULL_IF_CONFIG_SMALL("MPEG-TS (MPEG-2 Transport Stream)"),
     .priv_data_size = sizeof(MpegTSContext),
@@ -3396,7 +3413,7 @@ AVInputFormat ff_mpegts_demuxer = {
     .priv_class     = &mpegts_class,
 };
 
-AVInputFormat ff_mpegtsraw_demuxer = {
+const AVInputFormat ff_mpegtsraw_demuxer = {
     .name           = "mpegtsraw",
     .long_name      = NULL_IF_CONFIG_SMALL("raw MPEG-TS (MPEG-2 Transport Stream)"),
     .priv_data_size = sizeof(MpegTSContext),

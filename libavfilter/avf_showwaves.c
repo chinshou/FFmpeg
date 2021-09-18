@@ -600,7 +600,7 @@ static int push_single_pic(AVFilterLink *outlink)
             switch (showwaves->filter_mode) {
             case FILTER_AVERAGE:
                 for (ch = 0; ch < nb_channels; ch++)
-                    sum[ch] += abs(p[ch + i*nb_channels]) << 1;
+                    sum[ch] += abs(p[ch + i*nb_channels]);
                 break;
             case FILTER_PEAK:
                 for (ch = 0; ch < nb_channels; ch++)
@@ -763,7 +763,6 @@ static const AVFilterPad showwaves_inputs[] = {
         .name         = "default",
         .type         = AVMEDIA_TYPE_AUDIO,
     },
-    { NULL }
 };
 
 static const AVFilterPad showwaves_outputs[] = {
@@ -772,19 +771,18 @@ static const AVFilterPad showwaves_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_avf_showwaves = {
+const AVFilter ff_avf_showwaves = {
     .name          = "showwaves",
     .description   = NULL_IF_CONFIG_SMALL("Convert input audio to a video output."),
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
     .priv_size     = sizeof(ShowWavesContext),
-    .inputs        = showwaves_inputs,
+    FILTER_INPUTS(showwaves_inputs),
     .activate      = activate,
-    .outputs       = showwaves_outputs,
+    FILTER_OUTPUTS(showwaves_outputs),
     .priv_class    = &showwaves_class,
 };
 
@@ -877,7 +875,6 @@ static const AVFilterPad showwavespic_inputs[] = {
         .config_props = showwavespic_config_input,
         .filter_frame = showwavespic_filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad showwavespic_outputs[] = {
@@ -887,18 +884,17 @@ static const AVFilterPad showwavespic_outputs[] = {
         .config_props  = config_output,
         .request_frame = request_frame,
     },
-    { NULL }
 };
 
-AVFilter ff_avf_showwavespic = {
+const AVFilter ff_avf_showwavespic = {
     .name          = "showwavespic",
     .description   = NULL_IF_CONFIG_SMALL("Convert input audio to a video output single picture."),
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
     .priv_size     = sizeof(ShowWavesContext),
-    .inputs        = showwavespic_inputs,
-    .outputs       = showwavespic_outputs,
+    FILTER_INPUTS(showwavespic_inputs),
+    FILTER_OUTPUTS(showwavespic_outputs),
     .priv_class    = &showwavespic_class,
 };
 

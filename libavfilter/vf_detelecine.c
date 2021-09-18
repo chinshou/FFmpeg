@@ -360,7 +360,6 @@ static const AVFilterPad detelecine_inputs[] = {
         .filter_frame  = filter_frame,
         .config_props  = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad detelecine_outputs[] = {
@@ -369,10 +368,9 @@ static const AVFilterPad detelecine_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_detelecine = {
+const AVFilter ff_vf_detelecine = {
     .name          = "detelecine",
     .description   = NULL_IF_CONFIG_SMALL("Apply an inverse telecine pattern."),
     .priv_size     = sizeof(DetelecineContext),
@@ -380,6 +378,6 @@ AVFilter ff_vf_detelecine = {
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
-    .inputs        = detelecine_inputs,
-    .outputs       = detelecine_outputs,
+    FILTER_INPUTS(detelecine_inputs),
+    FILTER_OUTPUTS(detelecine_outputs),
 };
