@@ -53,6 +53,7 @@
 #include "libavcodec/h264_ps.h"
 #include "libavcodec/golomb.h"
 #include "libavcodec/internal.h"
+#include "libavcodec/packet_internal.h"
 #include "avformat.h"
 #include "avio_internal.h"
 #include "internal.h"
@@ -60,8 +61,8 @@
 #include "mxf.h"
 #include "config.h"
 
-extern AVOutputFormat ff_mxf_d10_muxer;
-extern AVOutputFormat ff_mxf_opatom_muxer;
+extern const AVOutputFormat ff_mxf_d10_muxer;
+extern const AVOutputFormat ff_mxf_opatom_muxer;
 
 #define EDIT_UNITS_PER_BODY 250
 #define KAG_SIZE 512
@@ -506,6 +507,7 @@ static const MXFLocalTagPair* mxf_lookup_local_tag(int tag)
 
     // this assert can only be hit during development
     av_assert0(0 && "you forgot to add your new tag to mxf_local_tag_batch");
+    return NULL;
 }
 
 static void mxf_mark_tag_unused(MXFContext *mxf, int tag)
@@ -3098,29 +3100,30 @@ static void mxf_deinit(AVFormatContext *s)
 
 static int mxf_interleave_get_packet(AVFormatContext *s, AVPacket *out, AVPacket *pkt, int flush)
 {
+    FFFormatContext *const si = ffformatcontext(s);
     int i, stream_count = 0;
 
     for (i = 0; i < s->nb_streams; i++)
-        stream_count += !!s->streams[i]->internal->last_in_packet_buffer;
+        stream_count += !!ffstream(s->streams[i])->last_in_packet_buffer;
 
     if (stream_count && (s->nb_streams == stream_count || flush)) {
-        AVPacketList *pktl = s->internal->packet_buffer;
+        PacketList *pktl = si->packet_buffer;
         if (s->nb_streams != stream_count) {
-            AVPacketList *last = NULL;
+            PacketList *last = NULL;
             // find last packet in edit unit
             while (pktl) {
                 if (!stream_count || pktl->pkt.stream_index == 0)
                     break;
                 // update last packet in packet buffer
-                if (s->streams[pktl->pkt.stream_index]->internal->last_in_packet_buffer != pktl)
-                    s->streams[pktl->pkt.stream_index]->internal->last_in_packet_buffer = pktl;
+                if (ffstream(s->streams[pktl->pkt.stream_index])->last_in_packet_buffer != pktl)
+                    ffstream(s->streams[pktl->pkt.stream_index])->last_in_packet_buffer = pktl;
                 last = pktl;
                 pktl = pktl->next;
                 stream_count--;
             }
             // purge packet queue
             while (pktl) {
-                AVPacketList *next = pktl->next;
+                PacketList *next = pktl->next;
                 av_packet_unref(&pktl->pkt);
                 av_freep(&pktl);
                 pktl = next;
@@ -3128,20 +3131,20 @@ static int mxf_interleave_get_packet(AVFormatContext *s, AVPacket *out, AVPacket
             if (last)
                 last->next = NULL;
             else {
-                s->internal->packet_buffer = NULL;
-                s->internal->packet_buffer_end= NULL;
+                si->packet_buffer     = NULL;
+                si->packet_buffer_end = NULL;
                 goto out;
             }
-            pktl = s->internal->packet_buffer;
+            pktl = si->packet_buffer;
         }
 
         *out = pktl->pkt;
         av_log(s, AV_LOG_TRACE, "out st:%d dts:%"PRId64"\n", (*out).stream_index, (*out).dts);
-        s->internal->packet_buffer = pktl->next;
-        if(s->streams[pktl->pkt.stream_index]->internal->last_in_packet_buffer == pktl)
-            s->streams[pktl->pkt.stream_index]->internal->last_in_packet_buffer= NULL;
-        if(!s->internal->packet_buffer)
-            s->internal->packet_buffer_end= NULL;
+        si->packet_buffer = pktl->next;
+        if (ffstream(s->streams[pktl->pkt.stream_index])->last_in_packet_buffer == pktl)
+            ffstream(s->streams[pktl->pkt.stream_index])->last_in_packet_buffer = NULL;
+        if (!si->packet_buffer)
+            si->packet_buffer_end = NULL;
         av_freep(&pktl);
         return 1;
     } else {
@@ -3238,7 +3241,7 @@ static const AVClass mxf_opatom_muxer_class = {
     .version        = LIBAVUTIL_VERSION_INT,
 };
 
-AVOutputFormat ff_mxf_muxer = {
+const AVOutputFormat ff_mxf_muxer = {
     .name              = "mxf",
     .long_name         = NULL_IF_CONFIG_SMALL("MXF (Material eXchange Format)"),
     .mime_type         = "application/mxf",
@@ -3255,7 +3258,7 @@ AVOutputFormat ff_mxf_muxer = {
     .priv_class        = &mxf_muxer_class,
 };
 
-AVOutputFormat ff_mxf_d10_muxer = {
+const AVOutputFormat ff_mxf_d10_muxer = {
     .name              = "mxf_d10",
     .long_name         = NULL_IF_CONFIG_SMALL("MXF (Material eXchange Format) D-10 Mapping"),
     .mime_type         = "application/mxf",
@@ -3271,7 +3274,7 @@ AVOutputFormat ff_mxf_d10_muxer = {
     .priv_class        = &mxf_d10_muxer_class,
 };
 
-AVOutputFormat ff_mxf_opatom_muxer = {
+const AVOutputFormat ff_mxf_opatom_muxer = {
     .name              = "mxf_opatom",
     .long_name         = NULL_IF_CONFIG_SMALL("MXF (Material eXchange Format) Operational Pattern Atom"),
     .mime_type         = "application/mxf",

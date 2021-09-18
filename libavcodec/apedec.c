@@ -909,8 +909,8 @@ static av_always_inline int filter_3800(APEPredictor *p,
         return predictionA;
     }
     d2 =  p->buf[delayA];
-    d1 = (p->buf[delayA] - p->buf[delayA - 1]) * 2U;
-    d0 =  p->buf[delayA] + ((p->buf[delayA - 2] - p->buf[delayA - 1]) * 8U);
+    d1 = (p->buf[delayA] - (unsigned)p->buf[delayA - 1]) * 2;
+    d0 =  p->buf[delayA] + ((p->buf[delayA - 2] - (unsigned)p->buf[delayA - 1]) * 8);
     d3 =  p->buf[delayB] * 2U - p->buf[delayB - 1];
     d4 =  p->buf[delayB];
 
@@ -1337,7 +1337,7 @@ static void do_apply_filter(APEContext *ctx, int version, APEFilter *f,
             absres = FFABSU(res);
             if (absres)
                 *f->adaptcoeffs = APESIGN(res) *
-                                  (8 << ((absres > f->avg * 3) + (absres > f->avg * 4 / 3)));
+                                  (8 << ((absres > f->avg * 3) + (absres > (f->avg + f->avg / 3))));
                 /* equivalent to the following code
                     if (absres <= f->avg * 4 / 3)
                         *f->adaptcoeffs = APESIGN(res) * 8;
@@ -1655,7 +1655,7 @@ static const AVClass ape_decoder_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVCodec ff_ape_decoder = {
+const AVCodec ff_ape_decoder = {
     .name           = "ape",
     .long_name      = NULL_IF_CONFIG_SMALL("Monkey's Audio"),
     .type           = AVMEDIA_TYPE_AUDIO,

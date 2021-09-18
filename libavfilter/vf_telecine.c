@@ -275,7 +275,6 @@ static const AVFilterPad telecine_inputs[] = {
         .filter_frame  = filter_frame,
         .config_props  = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad telecine_outputs[] = {
@@ -284,10 +283,9 @@ static const AVFilterPad telecine_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_telecine = {
+const AVFilter ff_vf_telecine = {
     .name          = "telecine",
     .description   = NULL_IF_CONFIG_SMALL("Apply a telecine pattern."),
     .priv_size     = sizeof(TelecineContext),
@@ -295,6 +293,6 @@ AVFilter ff_vf_telecine = {
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
-    .inputs        = telecine_inputs,
-    .outputs       = telecine_outputs,
+    FILTER_INPUTS(telecine_inputs),
+    FILTER_OUTPUTS(telecine_outputs),
 };

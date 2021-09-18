@@ -25,7 +25,6 @@
 
 #include <float.h>
 
-#include "libavutil/avassert.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/common.h"
 #include "libavutil/frame.h"
@@ -435,10 +434,9 @@ static const AVFilterPad avfilter_vsrc_buffer_outputs[] = {
         .request_frame = request_frame,
         .config_props  = config_props,
     },
-    { NULL }
 };
 
-AVFilter ff_vsrc_buffer = {
+const AVFilter ff_vsrc_buffer = {
     .name      = "buffer",
     .description = NULL_IF_CONFIG_SMALL("Buffer video frames, and make them accessible to the filterchain."),
     .priv_size = sizeof(BufferSourceContext),
@@ -448,7 +446,7 @@ AVFilter ff_vsrc_buffer = {
     .uninit    = uninit,
 
     .inputs    = NULL,
-    .outputs   = avfilter_vsrc_buffer_outputs,
+    FILTER_OUTPUTS(avfilter_vsrc_buffer_outputs),
     .priv_class = &buffer_class,
 };
 
@@ -459,10 +457,9 @@ static const AVFilterPad avfilter_asrc_abuffer_outputs[] = {
         .request_frame = request_frame,
         .config_props  = config_props,
     },
-    { NULL }
 };
 
-AVFilter ff_asrc_abuffer = {
+const AVFilter ff_asrc_abuffer = {
     .name          = "abuffer",
     .description   = NULL_IF_CONFIG_SMALL("Buffer audio frames, and make them accessible to the filterchain."),
     .priv_size     = sizeof(BufferSourceContext),
@@ -472,6 +469,6 @@ AVFilter ff_asrc_abuffer = {
     .uninit    = uninit,
 
     .inputs    = NULL,
-    .outputs   = avfilter_asrc_abuffer_outputs,
+    FILTER_OUTPUTS(avfilter_asrc_abuffer_outputs),
     .priv_class = &abuffer_class,
 };

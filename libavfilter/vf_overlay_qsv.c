@@ -27,7 +27,6 @@
 #include "libavutil/eval.h"
 #include "libavutil/hwcontext.h"
 #include "libavutil/avstring.h"
-#include "libavutil/avassert.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/mathematics.h"
 
@@ -404,7 +403,6 @@ static const AVFilterPad overlay_qsv_inputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_overlay_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad overlay_qsv_outputs[] = {
@@ -413,10 +411,9 @@ static const AVFilterPad overlay_qsv_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_overlay_qsv = {
+const AVFilter ff_vf_overlay_qsv = {
     .name           = "overlay_qsv",
     .description    = NULL_IF_CONFIG_SMALL("Quick Sync Video overlay."),
     .priv_size      = sizeof(QSVOverlayContext),
@@ -425,8 +422,8 @@ AVFilter ff_vf_overlay_qsv = {
     .init           = overlay_qsv_init,
     .uninit         = overlay_qsv_uninit,
     .activate       = activate,
-    .inputs         = overlay_qsv_inputs,
-    .outputs        = overlay_qsv_outputs,
+    FILTER_INPUTS(overlay_qsv_inputs),
+    FILTER_OUTPUTS(overlay_qsv_outputs),
     .priv_class     = &overlay_qsv_class,
     .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };

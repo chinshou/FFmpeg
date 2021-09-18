@@ -228,11 +228,10 @@ static const AVFilterPad inputs[] = {
     {
         .name           = "default",
         .type           = AVMEDIA_TYPE_VIDEO,
+        .flags          = AVFILTERPAD_FLAG_NEEDS_WRITABLE,
         .filter_frame   = filter_frame,
         .config_props   = config_input,
-        .needs_writable = 1,
     },
-    { NULL }
 };
 
 static const AVFilterPad outputs[] = {
@@ -240,18 +239,17 @@ static const AVFilterPad outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_swaprect = {
+const AVFilter ff_vf_swaprect = {
     .name          = "swaprect",
     .description   = NULL_IF_CONFIG_SMALL("Swap 2 rectangular objects in video."),
     .priv_size     = sizeof(SwapRectContext),
     .priv_class    = &swaprect_class,
     .query_formats = query_formats,
     .uninit        = uninit,
-    .inputs        = inputs,
-    .outputs       = outputs,
+    FILTER_INPUTS(inputs),
+    FILTER_OUTPUTS(outputs),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
     .process_command = ff_filter_process_command,
 };

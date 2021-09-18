@@ -21,7 +21,6 @@
 
 #include <float.h>
 
-#include "libavutil/avassert.h"
 #include "libavutil/common.h"
 #include "libavutil/float_dsp.h"
 #include "libavutil/imgutils.h"
@@ -168,8 +167,7 @@ static int config_output(AVFilterLink *outlink)
 {
     AVFilterContext *ctx = outlink->src;
 
-    outlink->time_base.num = ctx->inputs[0]->time_base.num;
-    outlink->time_base.den = ctx->inputs[0]->time_base.den * 2;
+    outlink->time_base     = av_mul_q(ctx->inputs[0]->time_base, (AVRational){1, 2});
     outlink->w             = ctx->inputs[0]->w;
     outlink->h             = ctx->inputs[0]->h;
 
@@ -207,10 +205,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_NONE
     };
 
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 static float dot_dsp(const NNEDIContext *const s, const float *kernel, const float *input,
@@ -676,7 +671,8 @@ static int get_frame(AVFilterContext *ctx, int is_second)
     dst->interlaced_frame = 0;
     dst->pts = s->pts;
 
-    ctx->internal->execute(ctx, filter_slice, dst, NULL, FFMIN(s->planeheight[1] / 2, s->nb_threads));
+    ff_filter_execute(ctx, filter_slice, dst, NULL,
+                      FFMIN(s->planeheight[1] / 2, s->nb_threads));
 
     if (s->field == -2 || s->field > 1)
         s->field_n = !s->field_n;
@@ -695,7 +691,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         return 0;
     }
 
-    if ((s->deint && !in->interlaced_frame) || ctx->is_disabled) {
+    if ((s->deint && !s->prev->interlaced_frame) || ctx->is_disabled) {
         s->prev->pts *= 2;
         ret = ff_filter_frame(ctx->outputs[0], s->prev);
         s->prev = in;
@@ -903,7 +899,7 @@ static void subtract_mean_predictor(PredictorCoefficients *model)
 
     double softmax_means[256]; // Average of individual softmax filters.
     double elliott_means[256]; // Average of individual elliott filters.
-    double mean_filter[48 * 6]; // Pointwise average of all softmax filters.
+    double mean_filter[48 * 6] = { 0 }; // Pointwise average of all softmax filters.
     double mean_bias;
 
     // Quality 1.
@@ -1145,7 +1141,6 @@ static const AVFilterPad inputs[] = {
         .filter_frame  = filter_frame,
         .config_props  = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad outputs[] = {
@@ -1155,10 +1150,9 @@ static const AVFilterPad outputs[] = {
         .config_props  = config_output,
         .request_frame = request_frame,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_nnedi = {
+const AVFilter ff_vf_nnedi = {
     .name          = "nnedi",
     .description   = NULL_IF_CONFIG_SMALL("Apply neural network edge directed interpolation intra-only deinterlacer."),
     .priv_size     = sizeof(NNEDIContext),
@@ -1166,8 +1160,8 @@ AVFilter ff_vf_nnedi = {
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
-    .inputs        = inputs,
-    .outputs       = outputs,
+    FILTER_INPUTS(inputs),
+    FILTER_OUTPUTS(outputs),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL | AVFILTER_FLAG_SLICE_THREADS,
     .process_command = ff_filter_process_command,
 };

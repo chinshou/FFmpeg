@@ -234,10 +234,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_YUVA420P, AV_PIX_FMT_GRAY8,
         AV_PIX_FMT_NONE
     };
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 static av_cold int init(AVFilterContext *ctx)
@@ -387,7 +384,6 @@ static const AVFilterPad avfilter_vf_delogo_inputs[] = {
         .filter_frame = filter_frame,
         .config_props = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad avfilter_vf_delogo_outputs[] = {
@@ -395,10 +391,9 @@ static const AVFilterPad avfilter_vf_delogo_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_delogo = {
+const AVFilter ff_vf_delogo = {
     .name          = "delogo",
     .description   = NULL_IF_CONFIG_SMALL("Remove logo from input video."),
     .priv_size     = sizeof(DelogoContext),
@@ -406,7 +401,7 @@ AVFilter ff_vf_delogo = {
     .init          = init,
     .uninit        = uninit,
     .query_formats = query_formats,
-    .inputs        = avfilter_vf_delogo_inputs,
-    .outputs       = avfilter_vf_delogo_outputs,
+    FILTER_INPUTS(avfilter_vf_delogo_inputs),
+    FILTER_OUTPUTS(avfilter_vf_delogo_outputs),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };

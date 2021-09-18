@@ -152,9 +152,10 @@ static int query_formats(AVFilterContext *ctx)
     return 0;
 }
 
-static av_always_inline int dither_color(uint32_t px, int er, int eg, int eb, int scale, int shift)
+static av_always_inline uint32_t dither_color(uint32_t px, int er, int eg,
+                                              int eb, int scale, int shift)
 {
-    return av_clip_uint8( px >> 24                                      ) << 24
+    return                px >> 24                                        << 24
          | av_clip_uint8((px >> 16 & 0xff) + ((er * scale) / (1<<shift))) << 16
          | av_clip_uint8((px >>  8 & 0xff) + ((eg * scale) / (1<<shift))) <<  8
          | av_clip_uint8((px       & 0xff) + ((eb * scale) / (1<<shift)));
@@ -379,9 +380,13 @@ static av_always_inline int get_dst_color_err(PaletteUseContext *s,
     if (dstx < 0)
         return dstx;
     dstc = s->palette[dstx];
-    *er = r - (dstc >> 16 & 0xff);
-    *eg = g - (dstc >>  8 & 0xff);
-    *eb = b - (dstc       & 0xff);
+    if (dstx == s->transparency_index) {
+        *er = *eg = *eb = 0;
+    } else {
+        *er = (int)r - (int)(dstc >> 16 & 0xff);
+        *eg = (int)g - (int)(dstc >>  8 & 0xff);
+        *eb = (int)b - (int)(dstc       & 0xff);
+    }
     return dstx;
 }
 
@@ -596,8 +601,8 @@ static int cmp_##name(const void *pa, const void *pb)   \
 {                                                       \
     const struct color *a = pa;                         \
     const struct color *b = pb;                         \
-    return   (a->value >> (8 * (3 - (pos))) & 0xff)     \
-           - (b->value >> (8 * (3 - (pos))) & 0xff);    \
+    return   (int)(a->value >> (8 * (3 - (pos))) & 0xff)     \
+           - (int)(b->value >> (8 * (3 - (pos))) & 0xff);    \
 }
 
 DECLARE_CMP_FUNC(a, 0)
@@ -703,7 +708,7 @@ static int colormap_insert(struct color_node *map,
     /* get the two boxes this node creates */
     box1 = box2 = *box;
     box1.max[component-1] = node->val[component];
-    box2.min[component-1] = node->val[component] + 1;
+    box2.min[component-1] = FFMIN(node->val[component] + 1, 255);
 
     node_left_id = colormap_insert(map, color_used, nb_used, palette, trans_thresh, &box1);
 
@@ -730,17 +735,12 @@ static void load_colormap(PaletteUseContext *s)
     uint32_t last_color = 0;
     struct color_rect box;
 
-    /* disable transparent colors and dups */
-    qsort(s->palette, AVPALETTE_COUNT, sizeof(*s->palette), cmp_pal_entry);
-    // update transparency index:
     if (s->transparency_index >= 0) {
-        for (i = 0; i < AVPALETTE_COUNT; i++) {
-            if ((s->palette[i]>>24 & 0xff) == 0) {
-                s->transparency_index = i; // we are assuming at most one transparent color in palette
-                break;
-            }
-        }
+        FFSWAP(uint32_t, s->palette[s->transparency_index], s->palette[255]);
     }
+
+    /* disable transparent colors and dups */
+    qsort(s->palette, AVPALETTE_COUNT-(s->transparency_index >= 0), sizeof(*s->palette), cmp_pal_entry);
 
     for (i = 0; i < AVPALETTE_COUNT; i++) {
         const uint32_t c = s->palette[i];
@@ -1075,11 +1075,8 @@ static av_cold int init(AVFilterContext *ctx)
 
     s->last_in  = av_frame_alloc();
     s->last_out = av_frame_alloc();
-    if (!s->last_in || !s->last_out) {
-        av_frame_free(&s->last_in);
-        av_frame_free(&s->last_out);
+    if (!s->last_in || !s->last_out)
         return AVERROR(ENOMEM);
-    }
 
     s->set_frame = set_frame_lut[s->color_search_method][s->dither];
 
@@ -1121,7 +1118,6 @@ static const AVFilterPad paletteuse_inputs[] = {
         .type           = AVMEDIA_TYPE_VIDEO,
         .config_props   = config_input_palette,
     },
-    { NULL }
 };
 
 static const AVFilterPad paletteuse_outputs[] = {
@@ -1130,10 +1126,9 @@ static const AVFilterPad paletteuse_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_paletteuse = {
+const AVFilter ff_vf_paletteuse = {
     .name          = "paletteuse",
     .description   = NULL_IF_CONFIG_SMALL("Use a palette to downsample an input video stream."),
     .priv_size     = sizeof(PaletteUseContext),
@@ -1141,7 +1136,7 @@ AVFilter ff_vf_paletteuse = {
     .init          = init,
     .uninit        = uninit,
     .activate      = activate,
-    .inputs        = paletteuse_inputs,
-    .outputs       = paletteuse_outputs,
+    FILTER_INPUTS(paletteuse_inputs),
+    FILTER_OUTPUTS(paletteuse_outputs),
     .priv_class    = &paletteuse_class,
 };

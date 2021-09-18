@@ -100,6 +100,9 @@ static int get_aiff_header(AVFormatContext *s, int size,
     int sample_rate;
     unsigned int num_frames;
 
+    if (size == INT_MAX)
+        return AVERROR_INVALIDDATA;
+
     if (size & 1)
         size++;
     par->codec_type = AVMEDIA_TYPE_AUDIO;
@@ -212,7 +215,7 @@ static int aiff_read_header(AVFormatContext *s)
     AVIOContext *pb = s->pb;
     AVStream * st;
     AIFFInputContext *aiff = s->priv_data;
-    ID3v2ExtraMeta *id3v2_extra_meta = NULL;
+    ID3v2ExtraMeta *id3v2_extra_meta;
 
     /* check FORM header */
     filesize = get_tag(pb, &tag);
@@ -424,7 +427,7 @@ static int aiff_read_packet(AVFormatContext *s,
     return 0;
 }
 
-AVInputFormat ff_aiff_demuxer = {
+const AVInputFormat ff_aiff_demuxer = {
     .name           = "aiff",
     .long_name      = NULL_IF_CONFIG_SMALL("Audio IFF"),
     .priv_data_size = sizeof(AIFFInputContext),

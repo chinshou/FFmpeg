@@ -293,13 +293,6 @@ static int request_frame(AVFilterLink *outlink)
     return ret;
 }
 
-#if FF_API_CHILD_CLASS_NEXT
-static const AVClass *resample_child_class_next(const AVClass *prev)
-{
-    return prev ? NULL : swr_get_class();
-}
-#endif
-
 static const AVClass *resample_child_class_iterate(void **iter)
 {
     const AVClass *c = *iter ? NULL : swr_get_class();
@@ -326,9 +319,6 @@ static const AVClass aresample_class = {
     .item_name        = av_default_item_name,
     .option           = options,
     .version          = LIBAVUTIL_VERSION_INT,
-#if FF_API_CHILD_CLASS_NEXT
-    .child_class_next = resample_child_class_next,
-#endif
     .child_class_iterate = resample_child_class_iterate,
     .child_next       = resample_child_next,
 };
@@ -339,7 +329,6 @@ static const AVFilterPad aresample_inputs[] = {
         .type         = AVMEDIA_TYPE_AUDIO,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad aresample_outputs[] = {
@@ -349,10 +338,9 @@ static const AVFilterPad aresample_outputs[] = {
         .request_frame = request_frame,
         .type          = AVMEDIA_TYPE_AUDIO,
     },
-    { NULL }
 };
 
-AVFilter ff_af_aresample = {
+const AVFilter ff_af_aresample = {
     .name          = "aresample",
     .description   = NULL_IF_CONFIG_SMALL("Resample audio data."),
     .init_dict     = init_dict,
@@ -360,6 +348,6 @@ AVFilter ff_af_aresample = {
     .query_formats = query_formats,
     .priv_size     = sizeof(AResampleContext),
     .priv_class    = &aresample_class,
-    .inputs        = aresample_inputs,
-    .outputs       = aresample_outputs,
+    FILTER_INPUTS(aresample_inputs),
+    FILTER_OUTPUTS(aresample_outputs),
 };

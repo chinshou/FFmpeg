@@ -1166,10 +1166,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_GBRPF32, AV_PIX_FMT_GBRAPF32,
         AV_PIX_FMT_NONE
     };
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 static int config_input(AVFilterLink *inlink)
@@ -1234,7 +1231,8 @@ static AVFrame *apply_lut(AVFilterLink *inlink, AVFrame *in)
 
     td.in  = in;
     td.out = out;
-    ctx->internal->execute(ctx, lut3d->interp, &td, NULL, FFMIN(outlink->h, ff_filter_get_nb_threads(ctx)));
+    ff_filter_execute(ctx, lut3d->interp, &td, NULL,
+                      FFMIN(outlink->h, ff_filter_get_nb_threads(ctx)));
 
     if (out != in)
         av_frame_free(&in);
@@ -1342,7 +1340,6 @@ static const AVFilterPad lut3d_inputs[] = {
         .filter_frame = filter_frame,
         .config_props = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad lut3d_outputs[] = {
@@ -1350,18 +1347,17 @@ static const AVFilterPad lut3d_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_lut3d = {
+const AVFilter ff_vf_lut3d = {
     .name          = "lut3d",
     .description   = NULL_IF_CONFIG_SMALL("Adjust colors using a 3D LUT."),
     .priv_size     = sizeof(LUT3DContext),
     .init          = lut3d_init,
     .uninit        = lut3d_uninit,
     .query_formats = query_formats,
-    .inputs        = lut3d_inputs,
-    .outputs       = lut3d_outputs,
+    FILTER_INPUTS(lut3d_inputs),
+    FILTER_OUTPUTS(lut3d_outputs),
     .priv_class    = &lut3d_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC | AVFILTER_FLAG_SLICE_THREADS,
     .process_command = process_command,
@@ -1608,7 +1604,6 @@ static const AVFilterPad haldclut_inputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .config_props = config_clut,
     },
-    { NULL }
 };
 
 static const AVFilterPad haldclut_outputs[] = {
@@ -1617,10 +1612,9 @@ static const AVFilterPad haldclut_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_haldclut = {
+const AVFilter ff_vf_haldclut = {
     .name          = "haldclut",
     .description   = NULL_IF_CONFIG_SMALL("Adjust colors using a Hald CLUT."),
     .priv_size     = sizeof(LUT3DContext),
@@ -1629,8 +1623,8 @@ AVFilter ff_vf_haldclut = {
     .uninit        = haldclut_uninit,
     .query_formats = query_formats,
     .activate      = activate,
-    .inputs        = haldclut_inputs,
-    .outputs       = haldclut_outputs,
+    FILTER_INPUTS(haldclut_inputs),
+    FILTER_OUTPUTS(haldclut_outputs),
     .priv_class    = &haldclut_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL | AVFILTER_FLAG_SLICE_THREADS,
     .process_command = process_command,
@@ -2232,7 +2226,8 @@ static AVFrame *apply_1d_lut(AVFilterLink *inlink, AVFrame *in)
 
     td.in  = in;
     td.out = out;
-    ctx->internal->execute(ctx, lut1d->interp, &td, NULL, FFMIN(outlink->h, ff_filter_get_nb_threads(ctx)));
+    ff_filter_execute(ctx, lut1d->interp, &td, NULL,
+                      FFMIN(outlink->h, ff_filter_get_nb_threads(ctx)));
 
     if (out != in)
         av_frame_free(&in);
@@ -2274,7 +2269,6 @@ static const AVFilterPad lut1d_inputs[] = {
         .filter_frame = filter_frame_1d,
         .config_props = config_input_1d,
     },
-    { NULL }
 };
 
 static const AVFilterPad lut1d_outputs[] = {
@@ -2282,17 +2276,16 @@ static const AVFilterPad lut1d_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_lut1d = {
+const AVFilter ff_vf_lut1d = {
     .name          = "lut1d",
     .description   = NULL_IF_CONFIG_SMALL("Adjust colors using a 1D LUT."),
     .priv_size     = sizeof(LUT1DContext),
     .init          = lut1d_init,
     .query_formats = query_formats,
-    .inputs        = lut1d_inputs,
-    .outputs       = lut1d_outputs,
+    FILTER_INPUTS(lut1d_inputs),
+    FILTER_OUTPUTS(lut1d_outputs),
     .priv_class    = &lut1d_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC | AVFILTER_FLAG_SLICE_THREADS,
     .process_command = lut1d_process_command,

@@ -35,7 +35,6 @@
  * project, and ported by Arwa Arif for FFmpeg.
  */
 
-#include "libavutil/avassert.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/opt.h"
@@ -504,10 +503,7 @@ static int query_formats(AVFilterContext *ctx)
         AV_PIX_FMT_NONE
     };
 
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
+    return ff_set_common_formats_from_list(ctx, pix_fmts);
 }
 
 static int config_input(AVFilterLink *inlink)
@@ -657,7 +653,6 @@ static const AVFilterPad fspp_inputs[] = {
         .config_props = config_input,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad fspp_outputs[] = {
@@ -665,17 +660,16 @@ static const AVFilterPad fspp_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_fspp = {
+const AVFilter ff_vf_fspp = {
     .name            = "fspp",
     .description     = NULL_IF_CONFIG_SMALL("Apply Fast Simple Post-processing filter."),
     .priv_size       = sizeof(FSPPContext),
     .uninit          = uninit,
     .query_formats   = query_formats,
-    .inputs          = fspp_inputs,
-    .outputs         = fspp_outputs,
+    FILTER_INPUTS(fspp_inputs),
+    FILTER_OUTPUTS(fspp_outputs),
     .priv_class      = &fspp_class,
     .flags           = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL,
 };
