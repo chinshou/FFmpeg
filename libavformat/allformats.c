@@ -583,8 +583,7 @@ const AVInputFormat *av_demuxer_iterate(void **opaque)
 
 static AVMutex avpriv_register_devices_mutex = AV_MUTEX_INITIALIZER;
 
-#if FF_API_NEXT
-FF_DISABLE_DEPRECATION_WARNINGS
+//FF_DISABLE_DEPRECATION_WARNINGS
 static AVOnce av_format_next_init = AV_ONCE_INIT;
 
 static void av_format_init_next(void)
@@ -694,8 +693,7 @@ void av_register_output_format(AVOutputFormat *format)
     format->next = NULL; 
     return;	
 }
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
+//FF_ENABLE_DEPRECATION_WARNINGS
 
 void avpriv_register_devices(const AVOutputFormat * const o[], const AVInputFormat * const i[])
 {
