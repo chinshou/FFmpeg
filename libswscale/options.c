@@ -18,9 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "libavutil/avutil.h"
 #include "libavutil/opt.h"
-#include "libavutil/pixfmt.h"
 #include "swscale.h"
 #include "swscale_internal.h"
 
@@ -91,6 +89,7 @@ const AVClass ff_sws_context_class = {
     .class_name = "SWScaler",
     .item_name  = sws_context_to_name,
     .option     = swscale_options,
+    .parent_log_context_offset = OFFSET(parent),
     .category   = AV_CLASS_CATEGORY_SWSCALER,
     .version    = LIBAVUTIL_VERSION_INT,
 };

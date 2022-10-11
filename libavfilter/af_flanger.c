@@ -88,22 +88,6 @@ static av_cold int init(AVFilterContext *ctx)
     return 0;
 }
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVSampleFormat sample_fmts[] = {
-        AV_SAMPLE_FMT_DBLP, AV_SAMPLE_FMT_NONE
-    };
-    int ret = ff_set_common_all_channel_counts(ctx);
-    if (ret < 0)
-        return ret;
-
-    ret = ff_set_common_formats_from_list(ctx, sample_fmts);
-    if (ret < 0)
-        return ret;
-
-    return ff_set_common_all_samplerates(ctx);
-}
-
 static int config_input(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
@@ -111,7 +95,7 @@ static int config_input(AVFilterLink *inlink)
 
     s->max_samples = (s->delay_min + s->delay_depth) * inlink->sample_rate + 2.5;
     s->lfo_length  = inlink->sample_rate / s->speed;
-    s->delay_last  = av_calloc(inlink->channels, sizeof(*s->delay_last));
+    s->delay_last  = av_calloc(inlink->ch_layout.nb_channels, sizeof(*s->delay_last));
     s->lfo         = av_calloc(s->lfo_length, sizeof(*s->lfo));
     if (!s->lfo || !s->delay_last)
         return AVERROR(ENOMEM);
@@ -121,7 +105,7 @@ static int config_input(AVFilterLink *inlink)
                            s->max_samples - 2., 3 * M_PI_2);
 
     return av_samples_alloc_array_and_samples(&s->delay_buffer, NULL,
-                                              inlink->channels, s->max_samples,
+                                              inlink->ch_layout.nb_channels, s->max_samples,
                                               inlink->format, 0);
 }
 
@@ -147,7 +131,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
         s->delay_buf_pos = (s->delay_buf_pos + s->max_samples - 1) % s->max_samples;
 
-        for (chan = 0; chan < inlink->channels; chan++) {
+        for (chan = 0; chan < inlink->ch_layout.nb_channels; chan++) {
             double *src = (double *)frame->extended_data[chan];
             double *dst = (double *)out_frame->extended_data[chan];
             double delayed_0, delayed_1;
@@ -221,11 +205,11 @@ static const AVFilterPad flanger_outputs[] = {
 const AVFilter ff_af_flanger = {
     .name          = "flanger",
     .description   = NULL_IF_CONFIG_SMALL("Apply a flanging effect to the audio."),
-    .query_formats = query_formats,
     .priv_size     = sizeof(FlangerContext),
     .priv_class    = &flanger_class,
     .init          = init,
     .uninit        = uninit,
     FILTER_INPUTS(flanger_inputs),
     FILTER_OUTPUTS(flanger_outputs),
+    FILTER_SINGLE_SAMPLEFMT(AV_SAMPLE_FMT_DBLP),
 };

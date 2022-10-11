@@ -36,8 +36,8 @@
 typedef struct JVFrame {
     int audio_size;    /**< audio packet size (bytes) */
     int video_size;    /**< video packet size (bytes) */
-    int palette_size;  /**< palette size (bytes) */
-    int video_type;    /**< per-frame video compression type */
+    uint16_t palette_size;  /**< palette size (bytes) */
+    uint8_t video_type;     /**< per-frame video compression type */
 } JVFrame;
 
 typedef struct JVDemuxContext {
@@ -102,8 +102,7 @@ static int read_header(AVFormatContext *s)
     ast->codecpar->codec_id       = AV_CODEC_ID_PCM_U8;
     ast->codecpar->codec_tag      = 0; /* no fourcc */
     ast->codecpar->sample_rate    = avio_rl16(pb);
-    ast->codecpar->channels       = 1;
-    ast->codecpar->channel_layout = AV_CH_LAYOUT_MONO;
+    ast->codecpar->ch_layout      = (AVChannelLayout)AV_CHANNEL_LAYOUT_MONO;
     avpriv_set_pts_info(ast, 64, 1, ast->codecpar->sample_rate);
 
     avio_skip(pb, 10);

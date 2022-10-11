@@ -23,8 +23,9 @@
 #include <vid.stab/libvidstab.h>
 
 #include "libavutil/common.h"
+#include "libavutil/file_open.h"
 #include "libavutil/opt.h"
-#include "libavutil/imgutils.h"
+#include "libavutil/pixdesc.h"
 #include "avfilter.h"
 #include "internal.h"
 
@@ -82,20 +83,6 @@ static av_cold void uninit(AVFilterContext *ctx)
     vsMotionDetectionCleanup(md);
 }
 
-static int query_formats(AVFilterContext *ctx)
-{
-    // If you add something here also add it in vidstabutils.c
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_YUV444P,  AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV420P,
-        AV_PIX_FMT_YUV411P,  AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUVA420P,
-        AV_PIX_FMT_YUV440P,  AV_PIX_FMT_GRAY8,
-        AV_PIX_FMT_RGB24, AV_PIX_FMT_BGR24, AV_PIX_FMT_RGBA,
-        AV_PIX_FMT_NONE
-    };
-
-    return ff_set_common_formats_from_list(ctx, pix_fmts);
-}
-
 static int config_input(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
@@ -140,7 +127,7 @@ static int config_input(AVFilterLink *inlink)
     av_log(ctx, AV_LOG_INFO, "          show = %d\n", s->conf.show);
     av_log(ctx, AV_LOG_INFO, "        result = %s\n", s->result);
 
-    s->f = fopen(s->result, "w");
+    s->f = avpriv_fopen_utf8(s->result, "w");
     if (s->f == NULL) {
         av_log(ctx, AV_LOG_ERROR, "cannot open transform file %s\n", s->result);
         return AVERROR(EINVAL);
@@ -210,8 +197,9 @@ const AVFilter ff_vf_vidstabdetect = {
     .priv_size     = sizeof(StabData),
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
+    .flags         = AVFILTER_FLAG_METADATA_ONLY,
     FILTER_INPUTS(avfilter_vf_vidstabdetect_inputs),
     FILTER_OUTPUTS(avfilter_vf_vidstabdetect_outputs),
+    FILTER_PIXFMTS_ARRAY(ff_vidstab_pix_fmts),
     .priv_class    = &vidstabdetect_class,
 };

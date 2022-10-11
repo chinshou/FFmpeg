@@ -23,6 +23,8 @@
  * send commands filter
  */
 
+#include "config_components.h"
+
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
 #include "libavutil/eval.h"
@@ -46,6 +48,8 @@ static const char *const var_names[] = {
     "TS",    /* interval start time in seconds */
     "TE",    /* interval end time in seconds */
     "TI",    /* interval interpolated value: TI = (T - TS) / (TE - TS) */
+    "W",     /* width for video frames */
+    "H",     /* height for video frames */
     NULL
 };
 
@@ -57,6 +61,8 @@ enum var_name {
     VAR_TS,
     VAR_TE,
     VAR_TI,
+    VAR_W,
+    VAR_H,
     VAR_VARS_NB
 };
 
@@ -531,6 +537,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *ref)
                         var_values[VAR_TS]  = start;
                         var_values[VAR_TE]  = end;
                         var_values[VAR_TI]  = (current - start) / (end - start);
+                        var_values[VAR_W]   = ref->width;
+                        var_values[VAR_H]   = ref->height;
 
                         if ((ret = av_expr_parse_and_eval(&res, cmd->arg, var_names, var_values,
                                                           NULL, NULL, NULL, NULL, NULL, 0, NULL)) < 0) {
@@ -572,10 +580,9 @@ end:
     return AVERROR(ENOSYS);
 }
 
-#if CONFIG_SENDCMD_FILTER
+AVFILTER_DEFINE_CLASS_EXT(sendcmd, "(a)sendcmd", options);
 
-#define sendcmd_options options
-AVFILTER_DEFINE_CLASS(sendcmd);
+#if CONFIG_SENDCMD_FILTER
 
 static const AVFilterPad sendcmd_inputs[] = {
     {
@@ -598,6 +605,7 @@ const AVFilter ff_vf_sendcmd = {
     .init        = init,
     .uninit      = uninit,
     .priv_size   = sizeof(SendCmdContext),
+    .flags       = AVFILTER_FLAG_METADATA_ONLY,
     FILTER_INPUTS(sendcmd_inputs),
     FILTER_OUTPUTS(sendcmd_outputs),
     .priv_class  = &sendcmd_class,
@@ -606,9 +614,6 @@ const AVFilter ff_vf_sendcmd = {
 #endif
 
 #if CONFIG_ASENDCMD_FILTER
-
-#define asendcmd_options options
-AVFILTER_DEFINE_CLASS(asendcmd);
 
 static const AVFilterPad asendcmd_inputs[] = {
     {
@@ -628,12 +633,13 @@ static const AVFilterPad asendcmd_outputs[] = {
 const AVFilter ff_af_asendcmd = {
     .name        = "asendcmd",
     .description = NULL_IF_CONFIG_SMALL("Send commands to filters."),
+    .priv_class  = &sendcmd_class,
     .init        = init,
     .uninit      = uninit,
     .priv_size   = sizeof(SendCmdContext),
+    .flags       = AVFILTER_FLAG_METADATA_ONLY,
     FILTER_INPUTS(asendcmd_inputs),
     FILTER_OUTPUTS(asendcmd_outputs),
-    .priv_class  = &asendcmd_class,
 };
 
 #endif

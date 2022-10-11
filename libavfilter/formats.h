@@ -83,7 +83,7 @@ struct AVFilterFormats {
  *   (e.g. AV_CH_LAYOUT_STEREO and FF_COUNT2LAYOUT(2).
  */
 struct AVFilterChannelLayouts {
-    uint64_t *channel_layouts;  ///< list of channel layouts
+    AVChannelLayout *channel_layouts; ///< list of channel layouts
     int    nb_channel_layouts;  ///< number of channel layouts
     char all_layouts;           ///< accept any known channel layout
     char all_counts;            ///< accept any channel layout or count
@@ -99,14 +99,16 @@ struct AVFilterChannelLayouts {
  * The result is only valid inside AVFilterChannelLayouts and immediately
  * related functions.
  */
-#define FF_COUNT2LAYOUT(c) (0x8000000000000000ULL | (c))
+#define FF_COUNT2LAYOUT(c) ((AVChannelLayout) { .order = AV_CHANNEL_ORDER_UNSPEC, .nb_channels = c })
 
 /**
  * Decode a channel count encoded as a channel layout.
  * Return 0 if the channel layout was a real one.
  */
-#define FF_LAYOUT2COUNT(l) (((l) & 0x8000000000000000ULL) ? \
-                           (int)((l) & 0x7FFFFFFF) : 0)
+#define FF_LAYOUT2COUNT(l) (((l)->order == AV_CHANNEL_ORDER_UNSPEC) ? \
+                            (l)->nb_channels : 0)
+
+#define KNOWN(l) (!FF_LAYOUT2COUNT(l)) /* for readability */
 
 /**
  * Construct an empty AVFilterChannelLayouts/AVFilterFormats struct --
@@ -126,7 +128,7 @@ av_warn_unused_result
 AVFilterChannelLayouts *ff_all_channel_counts(void);
 
 av_warn_unused_result
-AVFilterChannelLayouts *ff_make_format64_list(const int64_t *fmts);
+AVFilterChannelLayouts *ff_make_channel_layout_list(const AVChannelLayout *fmts);
 
 /**
  * Helpers for query_formats() which set all free audio links to the same list
@@ -137,11 +139,11 @@ av_warn_unused_result
 int ff_set_common_channel_layouts(AVFilterContext *ctx,
                                   AVFilterChannelLayouts *layouts);
 /**
- * Equivalent to ff_set_common_channel_layouts(ctx, ff_make_format64_list(fmts))
+ * Equivalent to ff_set_common_channel_layouts(ctx, ff_make_channel_layout_list(fmts))
  */
 av_warn_unused_result
 int ff_set_common_channel_layouts_from_list(AVFilterContext *ctx,
-                                            const int64_t *fmts);
+                                            const AVChannelLayout *fmts);
 /**
  * Equivalent to ff_set_common_channel_layouts(ctx, ff_all_channel_counts())
  */
@@ -178,7 +180,8 @@ av_warn_unused_result
 int ff_set_common_formats_from_list(AVFilterContext *ctx, const int *fmts);
 
 av_warn_unused_result
-int ff_add_channel_layout(AVFilterChannelLayouts **l, uint64_t channel_layout);
+int ff_add_channel_layout(AVFilterChannelLayouts **l,
+                          const AVChannelLayout *channel_layout);
 
 /**
  * Add *ref as a new reference to f.
@@ -209,6 +212,12 @@ av_warn_unused_result
 AVFilterFormats *ff_make_format_list(const int *fmts);
 
 /**
+ * Equivalent to ff_make_format_list({const int[]}{ fmt, -1 })
+ */
+av_warn_unused_result
+AVFilterFormats *ff_make_formats_list_singleton(int fmt);
+
+/**
  * Add fmt to the list of media formats contained in *avff.
  * If *avff is NULL the function allocates the filter formats struct
  * and puts its pointer in *avff.
@@ -230,7 +239,7 @@ AVFilterFormats *ff_all_formats(enum AVMediaType type);
  * properties
  */
 av_warn_unused_result
-int ff_formats_pixdesc_filter(AVFilterFormats **rfmts, unsigned want, unsigned rej);
+AVFilterFormats *ff_formats_pixdesc_filter(unsigned want, unsigned rej);
 
 //* format is software, non-planar with sub-sampling
 #define FF_PIX_FMT_FLAG_SW_FLAT_SUB (1 << 24)

@@ -24,12 +24,13 @@
  * @url{http://tools.ietf.org/id/draft-pantos-http-live-streaming}
  */
 
-#include <float.h>
+#include "config_components.h"
+
 #include <time.h>
 
 #include "avformat.h"
-#include "avio_internal.h"
 #include "internal.h"
+#include "mux.h"
 
 #include "libavutil/avassert.h"
 #include "libavutil/internal.h"
@@ -158,6 +159,7 @@ static int segment_mux_init(AVFormatContext *s)
     av_dict_copy(&oc->metadata, s->metadata, 0);
     oc->opaque             = s->opaque;
     oc->io_close           = s->io_close;
+    oc->io_close2          = s->io_close2;
     oc->io_open            = s->io_open;
     oc->flags              = s->flags;
 
@@ -165,11 +167,9 @@ static int segment_mux_init(AVFormatContext *s)
         AVStream *st, *ist = s->streams[i];
         AVCodecParameters *ipar = ist->codecpar, *opar;
 
-        if (!(st = avformat_new_stream(oc, NULL)))
+        st = ff_stream_clone(oc, ist);
+        if (!st)
             return AVERROR(ENOMEM);
-        ret = ff_stream_encode_params_copy(st, ist);
-        if (ret < 0)
-            return ret;
         opar = st->codecpar;
         if (!oc->oformat->codec_tag ||
             av_codec_get_id (oc->oformat->codec_tag, ipar->codec_tag) == opar->codec_id ||
@@ -569,7 +569,7 @@ static int open_null_ctx(AVIOContext **ctx)
     uint8_t *buf = av_malloc(buf_size);
     if (!buf)
         return AVERROR(ENOMEM);
-    *ctx = avio_alloc_context(buf, buf_size, AVIO_FLAG_WRITE, NULL, NULL, NULL, NULL);
+    *ctx = avio_alloc_context(buf, buf_size, 1, NULL, NULL, NULL, NULL);
     if (!*ctx) {
         av_free(buf);
         return AVERROR(ENOMEM);
@@ -984,15 +984,17 @@ static int seg_write_trailer(struct AVFormatContext *s)
     return ret;
 }
 
-static int seg_check_bitstream(struct AVFormatContext *s, const AVPacket *pkt)
+static int seg_check_bitstream(AVFormatContext *s, AVStream *st,
+                               const AVPacket *pkt)
 {
     SegmentContext *seg = s->priv_data;
     AVFormatContext *oc = seg->avf;
     if (oc->oformat->check_bitstream) {
-        int ret = oc->oformat->check_bitstream(oc, pkt);
+        AVStream *const ost = oc->streams[st->index];
+        int ret = oc->oformat->check_bitstream(oc, ost, pkt);
         if (ret == 1) {
-            FFStream *const  sti = ffstream( s->streams[pkt->stream_index]);
-            FFStream *const osti = ffstream(oc->streams[pkt->stream_index]);
+            FFStream *const  sti = ffstream(st);
+            FFStream *const osti = ffstream(ost);
              sti->bsfc = osti->bsfc;
             osti->bsfc = NULL;
         }

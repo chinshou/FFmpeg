@@ -89,23 +89,6 @@ static av_cold void uninit(AVFilterContext *ctx)
         rubberband_delete(s->rbs);
 }
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVSampleFormat sample_fmts[] = {
-        AV_SAMPLE_FMT_FLTP,
-        AV_SAMPLE_FMT_NONE,
-    };
-    int ret = ff_set_common_all_channel_counts(ctx);
-    if (ret < 0)
-        return ret;
-
-    ret = ff_set_common_formats_from_list(ctx, sample_fmts);
-    if (ret < 0)
-        return ret;
-
-    return ff_set_common_all_samplerates(ctx);
-}
-
 static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 {
     AVFilterContext *ctx = inlink->dst;
@@ -152,7 +135,7 @@ static int config_input(AVFilterLink *inlink)
 
     if (s->rbs)
         rubberband_delete(s->rbs);
-    s->rbs = rubberband_new(inlink->sample_rate, inlink->channels, opts, 1. / s->tempo, s->pitch);
+    s->rbs = rubberband_new(inlink->sample_rate, inlink->ch_layout.nb_channels, opts, 1. / s->tempo, s->pitch);
     if (!s->rbs)
         return AVERROR(ENOMEM);
 
@@ -222,12 +205,12 @@ static const AVFilterPad rubberband_outputs[] = {
 const AVFilter ff_af_rubberband = {
     .name          = "rubberband",
     .description   = NULL_IF_CONFIG_SMALL("Apply time-stretching and pitch-shifting."),
-    .query_formats = query_formats,
     .priv_size     = sizeof(RubberBandContext),
     .priv_class    = &rubberband_class,
     .uninit        = uninit,
     .activate      = activate,
     FILTER_INPUTS(rubberband_inputs),
     FILTER_OUTPUTS(rubberband_outputs),
+    FILTER_SINGLE_SAMPLEFMT(AV_SAMPLE_FMT_FLTP),
     .process_command = process_command,
 };

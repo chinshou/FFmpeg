@@ -180,7 +180,7 @@ static av_cold void uninit(AVFilterContext *ctx)
 static av_cold int query_formats(AVFilterContext *ctx)
 {
     SineContext *sine = ctx->priv;
-    static const int64_t chlayouts[] = { AV_CH_LAYOUT_MONO, -1 };
+    static const AVChannelLayout chlayouts[] = { AV_CHANNEL_LAYOUT_MONO, { 0 } };
     int sample_rates[] = { sine->sample_rate, -1 };
     static const enum AVSampleFormat sample_fmts[] = { AV_SAMPLE_FMT_S16,
                                                        AV_SAMPLE_FMT_NONE };
@@ -263,12 +263,12 @@ static const AVFilterPad sine_outputs[] = {
 const AVFilter ff_asrc_sine = {
     .name          = "sine",
     .description   = NULL_IF_CONFIG_SMALL("Generate sine wave audio signal."),
-    .query_formats = query_formats,
     .init          = init,
     .uninit        = uninit,
     .activate      = activate,
     .priv_size     = sizeof(SineContext),
     .inputs        = NULL,
     FILTER_OUTPUTS(sine_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .priv_class    = &sine_class,
 };

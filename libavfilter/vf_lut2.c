@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "config_components.h"
+
 #include "libavutil/attributes.h"
 #include "libavutil/common.h"
 #include "libavutil/eval.h"
@@ -566,10 +568,10 @@ const AVFilter ff_vf_lut2 = {
     .priv_size     = sizeof(LUT2Context),
     .priv_class    = &lut2_class,
     .uninit        = uninit,
-    .query_formats = query_formats,
     .activate      = activate,
     FILTER_INPUTS(inputs),
     FILTER_OUTPUTS(outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
                      AVFILTER_FLAG_SLICE_THREADS,
     .process_command = process_command,
@@ -655,11 +657,11 @@ const AVFilter ff_vf_tlut2 = {
     .description   = NULL_IF_CONFIG_SMALL("Compute and apply a lookup table from two successive frames."),
     .priv_size     = sizeof(LUT2Context),
     .priv_class    = &tlut2_class,
-    .query_formats = query_formats,
     .init          = init,
     .uninit        = uninit,
     FILTER_INPUTS(tlut2_inputs),
     FILTER_OUTPUTS(tlut2_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
                      AVFILTER_FLAG_SLICE_THREADS,
     .process_command = process_command,

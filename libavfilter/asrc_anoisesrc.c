@@ -84,7 +84,7 @@ AVFILTER_DEFINE_CLASS(anoisesrc);
 static av_cold int query_formats(AVFilterContext *ctx)
 {
     ANoiseSrcContext *s = ctx->priv;
-    static const int64_t chlayouts[] = { AV_CH_LAYOUT_MONO, -1 };
+    static const AVChannelLayout chlayouts[] = { AV_CHANNEL_LAYOUT_MONO, { 0 } };
     int sample_rates[] = { s->sample_rate, -1 };
     static const enum AVSampleFormat sample_fmts[] = {
         AV_SAMPLE_FMT_DBL,
@@ -235,10 +235,10 @@ static const AVFilterPad anoisesrc_outputs[] = {
 const AVFilter ff_asrc_anoisesrc = {
     .name          = "anoisesrc",
     .description   = NULL_IF_CONFIG_SMALL("Generate a noise audio signal."),
-    .query_formats = query_formats,
     .priv_size     = sizeof(ANoiseSrcContext),
     .inputs        = NULL,
     .activate      = activate,
     FILTER_OUTPUTS(anoisesrc_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .priv_class    = &anoisesrc_class,
 };

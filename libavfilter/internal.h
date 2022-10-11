@@ -28,7 +28,6 @@
 #include "avfilter.h"
 #include "formats.h"
 #include "framequeue.h"
-#include "version.h"
 #include "video.h"
 
 typedef struct AVFilterCommand {
@@ -146,6 +145,45 @@ static av_always_inline int ff_filter_execute(AVFilterContext *ctx, avfilter_act
     return ctx->internal->execute(ctx, func, arg, ret, nb_jobs);
 }
 
+enum FilterFormatsState {
+    /**
+     * The default value meaning that this filter supports all formats
+     * and (for audio) sample rates and channel layouts/counts as long
+     * as these properties agree for all inputs and outputs.
+     * This state is only allowed in case all inputs and outputs actually
+     * have the same type.
+     * The union is unused in this state.
+     *
+     * This value must always be zero (for default static initialization).
+     */
+    FF_FILTER_FORMATS_PASSTHROUGH = 0,
+    FF_FILTER_FORMATS_QUERY_FUNC,       ///< formats.query active.
+    FF_FILTER_FORMATS_PIXFMT_LIST,      ///< formats.pixels_list active.
+    FF_FILTER_FORMATS_SAMPLEFMTS_LIST,  ///< formats.samples_list active.
+    FF_FILTER_FORMATS_SINGLE_PIXFMT,    ///< formats.pix_fmt active
+    FF_FILTER_FORMATS_SINGLE_SAMPLEFMT, ///< formats.sample_fmt active.
+};
+
+#define FILTER_QUERY_FUNC(func)        \
+        .formats.query_func   = func,  \
+        .formats_state        = FF_FILTER_FORMATS_QUERY_FUNC
+#define FILTER_PIXFMTS_ARRAY(array)    \
+        .formats.pixels_list  = array, \
+        .formats_state        = FF_FILTER_FORMATS_PIXFMT_LIST
+#define FILTER_SAMPLEFMTS_ARRAY(array) \
+        .formats.samples_list = array, \
+        .formats_state        = FF_FILTER_FORMATS_SAMPLEFMTS_LIST
+#define FILTER_PIXFMTS(...)            \
+    FILTER_PIXFMTS_ARRAY(((const enum AVPixelFormat []) { __VA_ARGS__, AV_PIX_FMT_NONE }))
+#define FILTER_SAMPLEFMTS(...)         \
+    FILTER_SAMPLEFMTS_ARRAY(((const enum AVSampleFormat[]) { __VA_ARGS__, AV_SAMPLE_FMT_NONE }))
+#define FILTER_SINGLE_PIXFMT(pix_fmt_)  \
+        .formats.pix_fmt = pix_fmt_,    \
+        .formats_state   = FF_FILTER_FORMATS_SINGLE_PIXFMT
+#define FILTER_SINGLE_SAMPLEFMT(sample_fmt_) \
+        .formats.sample_fmt = sample_fmt_,   \
+        .formats_state      = FF_FILTER_FORMATS_SINGLE_SAMPLEFMT
+
 #define FILTER_INOUTPADS(inout, array) \
        .inout        = array, \
        .nb_ ## inout = FF_ARRAY_ELEMS(array)
@@ -198,7 +236,7 @@ int ff_parse_sample_rate(int *ret, const char *arg, void *log_ctx);
  * @return >= 0 in case of success, a negative AVERROR code on error
  */
 av_warn_unused_result
-int ff_parse_channel_layout(int64_t *ret, int *nret, const char *arg,
+int ff_parse_channel_layout(AVChannelLayout *ret, int *nret, const char *arg,
                             void *log_ctx);
 
 void ff_update_link_current_pts(AVFilterLink *link, int64_t pts);
@@ -218,8 +256,6 @@ void ff_avfilter_link_set_in_status(AVFilterLink *link, int status, int64_t pts)
  */
 void ff_avfilter_link_set_out_status(AVFilterLink *link, int status, int64_t pts);
 
-void ff_command_queue_pop(AVFilterContext *filter);
-
 #define D2TS(d)      (isnan(d) ? AV_NOPTS_VALUE : (int64_t)(d))
 #define TS2D(ts)     ((ts) == AV_NOPTS_VALUE ? NAN : (double)(ts))
 #define TS2T(ts, tb) ((ts) == AV_NOPTS_VALUE ? NAN : (double)(ts) * av_q2d(tb))
@@ -228,11 +264,11 @@ void ff_command_queue_pop(AVFilterContext *filter);
 
 #define FF_TPRINTF_START(ctx, func) ff_tlog(NULL, "%-16s: ", #func)
 
-char *ff_get_ref_perms_string(char *buf, size_t buf_size, int perms);
-
-void ff_tlog_ref(void *ctx, AVFrame *ref, int end);
-
+#ifdef TRACE
 void ff_tlog_link(void *ctx, AVFilterLink *link, int end);
+#else
+#define ff_tlog_link(ctx, link, end) do { } while(0)
+#endif
 
 /**
  * Append a new input/output pad to the filter's list of such pads.

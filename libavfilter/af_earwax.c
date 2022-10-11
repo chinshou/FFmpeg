@@ -88,7 +88,7 @@ static int query_formats(AVFilterContext *ctx)
 
     if ((ret = ff_add_format                 (&formats, AV_SAMPLE_FMT_S16P                )) < 0 ||
         (ret = ff_set_common_formats         (ctx     , formats                           )) < 0 ||
-        (ret = ff_add_channel_layout         (&layout , AV_CH_LAYOUT_STEREO               )) < 0 ||
+        (ret = ff_add_channel_layout         (&layout , &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO)) < 0 ||
         (ret = ff_set_common_channel_layouts (ctx     , layout                            )) < 0 ||
         (ret = ff_set_common_samplerates_from_list(ctx, sample_rates)) < 0)
         return ret;
@@ -232,9 +232,9 @@ static const AVFilterPad earwax_outputs[] = {
 const AVFilter ff_af_earwax = {
     .name           = "earwax",
     .description    = NULL_IF_CONFIG_SMALL("Widen the stereo image."),
-    .query_formats  = query_formats,
     .priv_size      = sizeof(EarwaxContext),
     .uninit         = uninit,
     FILTER_INPUTS(earwax_inputs),
     FILTER_OUTPUTS(earwax_outputs),
+    FILTER_QUERY_FUNC(query_formats),
 };

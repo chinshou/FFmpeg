@@ -27,6 +27,7 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/time.h"
 #include "internal.h"
+#include "mux.h"
 #include "network.h"
 #include "os_support.h"
 #include "rtpenc_chain.h"
@@ -133,7 +134,7 @@ static int sap_write_header(AVFormatContext *s)
         freeaddrinfo(ai);
     }
 
-    contexts = av_mallocz_array(s->nb_streams, sizeof(AVFormatContext*));
+    contexts = av_calloc(s->nb_streams, sizeof(*contexts));
     if (!contexts) {
         ret = AVERROR(ENOMEM);
         goto fail;

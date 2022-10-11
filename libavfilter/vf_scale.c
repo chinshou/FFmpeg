@@ -138,6 +138,7 @@ typedef struct ScaleContext {
     char *out_color_matrix;
 
     int in_range;
+    int in_frame_range;
     int out_range;
 
     int out_h_chr_pos;
@@ -322,6 +323,8 @@ static av_cold int init_dict(AVFilterContext *ctx, AVDictionary **opts)
     scale->opts = *opts;
     *opts = NULL;
 
+    scale->in_frame_range = AVCOL_RANGE_UNSPECIFIED;
+
     return 0;
 }
 
@@ -341,37 +344,35 @@ static av_cold void uninit(AVFilterContext *ctx)
 static int query_formats(AVFilterContext *ctx)
 {
     AVFilterFormats *formats;
+    const AVPixFmtDescriptor *desc;
     enum AVPixelFormat pix_fmt;
     int ret;
 
-    if (ctx->inputs[0]) {
-        const AVPixFmtDescriptor *desc = NULL;
-        formats = NULL;
-        while ((desc = av_pix_fmt_desc_next(desc))) {
-            pix_fmt = av_pix_fmt_desc_get_id(desc);
-            if ((sws_isSupportedInput(pix_fmt) ||
-                 sws_isSupportedEndiannessConversion(pix_fmt))
-                && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
-                return ret;
-            }
-        }
-        if ((ret = ff_formats_ref(formats, &ctx->inputs[0]->outcfg.formats)) < 0)
+    desc    = NULL;
+    formats = NULL;
+    while ((desc = av_pix_fmt_desc_next(desc))) {
+        pix_fmt = av_pix_fmt_desc_get_id(desc);
+        if ((sws_isSupportedInput(pix_fmt) ||
+             sws_isSupportedEndiannessConversion(pix_fmt))
+            && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
             return ret;
-    }
-    if (ctx->outputs[0]) {
-        const AVPixFmtDescriptor *desc = NULL;
-        formats = NULL;
-        while ((desc = av_pix_fmt_desc_next(desc))) {
-            pix_fmt = av_pix_fmt_desc_get_id(desc);
-            if ((sws_isSupportedOutput(pix_fmt) || pix_fmt == AV_PIX_FMT_PAL8 ||
-                 sws_isSupportedEndiannessConversion(pix_fmt))
-                && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
-                return ret;
-            }
         }
-        if ((ret = ff_formats_ref(formats, &ctx->outputs[0]->incfg.formats)) < 0)
-            return ret;
     }
+    if ((ret = ff_formats_ref(formats, &ctx->inputs[0]->outcfg.formats)) < 0)
+        return ret;
+
+    desc    = NULL;
+    formats = NULL;
+    while ((desc = av_pix_fmt_desc_next(desc))) {
+        pix_fmt = av_pix_fmt_desc_get_id(desc);
+        if ((sws_isSupportedOutput(pix_fmt) || pix_fmt == AV_PIX_FMT_PAL8 ||
+             sws_isSupportedEndiannessConversion(pix_fmt))
+            && (ret = ff_add_format(&formats, pix_fmt)) < 0) {
+            return ret;
+        }
+    }
+    if ((ret = ff_formats_ref(formats, &ctx->outputs[0]->incfg.formats)) < 0)
+        return ret;
 
     return 0;
 }
@@ -490,18 +491,18 @@ static int config_props(AVFilterLink *outlink)
     if ((ret = scale_eval_dimensions(ctx)) < 0)
         goto fail;
 
-    ff_scale_adjust_dimensions(inlink, &scale->w, &scale->h,
+    outlink->w = scale->w;
+    outlink->h = scale->h;
+
+    ff_scale_adjust_dimensions(inlink, &outlink->w, &outlink->h,
                                scale->force_original_aspect_ratio,
                                scale->force_divisible_by);
 
-    if (scale->w > INT_MAX ||
-        scale->h > INT_MAX ||
-        (scale->h * inlink->w) > INT_MAX ||
-        (scale->w * inlink->h) > INT_MAX)
+    if (outlink->w > INT_MAX ||
+        outlink->h > INT_MAX ||
+        (outlink->h * inlink->w) > INT_MAX ||
+        (outlink->w * inlink->h) > INT_MAX)
         av_log(ctx, AV_LOG_ERROR, "Rescaled value for width or height is too big.\n");
-
-    outlink->w = scale->w;
-    outlink->h = scale->h;
 
     /* TODO: make algorithm configurable */
 
@@ -546,6 +547,9 @@ static int config_props(AVFilterLink *outlink)
             if (scale->in_range != AVCOL_RANGE_UNSPECIFIED)
                 av_opt_set_int(s, "src_range",
                                scale->in_range == AVCOL_RANGE_JPEG, 0);
+            else if (scale->in_frame_range != AVCOL_RANGE_UNSPECIFIED)
+                av_opt_set_int(s, "src_range",
+                               scale->in_frame_range == AVCOL_RANGE_JPEG, 0);
             if (scale->out_range != AVCOL_RANGE_UNSPECIFIED)
                 av_opt_set_int(s, "dst_range",
                                scale->out_range == AVCOL_RANGE_JPEG, 0);
@@ -692,6 +696,13 @@ static int scale_frame(AVFilterLink *link, AVFrame *in, AVFrame **frame_out)
                     in->sample_aspect_ratio.den != link->sample_aspect_ratio.den ||
                     in->sample_aspect_ratio.num != link->sample_aspect_ratio.num;
 
+    if (in->color_range != AVCOL_RANGE_UNSPECIFIED &&
+        scale->in_range == AVCOL_RANGE_UNSPECIFIED &&
+        in->color_range != scale->in_frame_range) {
+        scale->in_frame_range = in->color_range;
+        frame_changed = 1;
+    }
+
     if (scale->eval_mode == EVAL_MODE_FRAME || frame_changed) {
         unsigned vars_w[VARS_NB] = { 0 }, vars_h[VARS_NB] = { 0 };
 
@@ -707,9 +718,9 @@ static int scale_frame(AVFilterLink *link, AVFrame *in, AVFrame **frame_out)
             goto scale;
 
         if (scale->eval_mode == EVAL_MODE_INIT) {
-            snprintf(buf, sizeof(buf)-1, "%d", outlink->w);
+            snprintf(buf, sizeof(buf) - 1, "%d", scale->w);
             av_opt_set(scale, "w", buf, 0);
-            snprintf(buf, sizeof(buf)-1, "%d", outlink->h);
+            snprintf(buf, sizeof(buf) - 1, "%d", scale->h);
             av_opt_set(scale, "h", buf, 0);
 
             ret = scale_parse_expr(ctx, NULL, &scale->w_pexpr, "width", scale->w_expr);
@@ -967,7 +978,7 @@ static const AVOption scale_options[] = {
 };
 
 static const AVClass scale_class = {
-    .class_name       = "scale",
+    .class_name       = "scale(2ref)",
     .item_name        = av_default_item_name,
     .option           = scale_options,
     .version          = LIBAVUTIL_VERSION_INT,
@@ -996,21 +1007,12 @@ const AVFilter ff_vf_scale = {
     .description     = NULL_IF_CONFIG_SMALL("Scale the input video size and/or convert the image format."),
     .init_dict       = init_dict,
     .uninit          = uninit,
-    .query_formats   = query_formats,
     .priv_size       = sizeof(ScaleContext),
     .priv_class      = &scale_class,
     FILTER_INPUTS(avfilter_vf_scale_inputs),
     FILTER_OUTPUTS(avfilter_vf_scale_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .process_command = process_command,
-};
-
-static const AVClass scale2ref_class = {
-    .class_name       = "scale2ref",
-    .item_name        = av_default_item_name,
-    .option           = scale_options,
-    .version          = LIBAVUTIL_VERSION_INT,
-    .category         = AV_CLASS_CATEGORY_FILTER,
-    .child_class_iterate = child_class_iterate,
 };
 
 static const AVFilterPad avfilter_vf_scale2ref_inputs[] = {
@@ -1046,10 +1048,10 @@ const AVFilter ff_vf_scale2ref = {
     .description     = NULL_IF_CONFIG_SMALL("Scale the input video size and/or convert the image format to the given reference."),
     .init_dict       = init_dict,
     .uninit          = uninit,
-    .query_formats   = query_formats,
     .priv_size       = sizeof(ScaleContext),
-    .priv_class      = &scale2ref_class,
+    .priv_class      = &scale_class,
     FILTER_INPUTS(avfilter_vf_scale2ref_inputs),
     FILTER_OUTPUTS(avfilter_vf_scale2ref_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .process_command = process_command,
 };

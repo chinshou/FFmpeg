@@ -24,13 +24,11 @@
  * @see http://epubs.surrey.ac.uk/531590/1/MPEG-7%20Video%20Signature%20Author%27s%20Copy.pdf
  */
 
-#include <float.h>
 #include "libavcodec/put_bits.h"
 #include "libavformat/avformat.h"
 #include "libavutil/opt.h"
 #include "libavutil/avstring.h"
-#include "libavutil/intreadwrite.h"
-#include "libavutil/timestamp.h"
+#include "libavutil/file_open.h"
 #include "avfilter.h"
 #include "internal.h"
 #include "signature.h"
@@ -69,23 +67,18 @@ static const AVOption signature_options[] = {
 
 AVFILTER_DEFINE_CLASS(signature);
 
-static int query_formats(AVFilterContext *ctx)
-{
-    /* all formats with a separate gray value */
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_GRAY8,
-        AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
-        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
-        AV_PIX_FMT_YUV440P, AV_PIX_FMT_YUV444P,
-        AV_PIX_FMT_YUVJ411P, AV_PIX_FMT_YUVJ420P,
-        AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ444P,
-        AV_PIX_FMT_YUVJ440P,
-        AV_PIX_FMT_NV12, AV_PIX_FMT_NV21,
-        AV_PIX_FMT_NONE
-    };
-
-    return ff_set_common_formats_from_list(ctx, pix_fmts);
-}
+/* all formats with a separate gray value */
+static const enum AVPixelFormat pix_fmts[] = {
+    AV_PIX_FMT_GRAY8,
+    AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
+    AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
+    AV_PIX_FMT_YUV440P, AV_PIX_FMT_YUV444P,
+    AV_PIX_FMT_YUVJ411P, AV_PIX_FMT_YUVJ420P,
+    AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ444P,
+    AV_PIX_FMT_YUVJ440P,
+    AV_PIX_FMT_NV12, AV_PIX_FMT_NV21,
+    AV_PIX_FMT_NONE
+};
 
 static int config_input(AVFilterLink *inlink)
 {
@@ -224,7 +217,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     dw1 = inlink->w / 32;
     if (inlink->w % 32)
         dw2 = dw1 + 1;
-    denom = (sc->divide) ? dh1 * dh2 * dw1 * dw2 : 1;
+    denom = (sc->divide) ? dh1 * (int64_t)dh2 * dw1 * dw2 : 1;
 
     for (i = 0; i < 32; i++) {
         rowcount = 0;
@@ -250,7 +243,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
         }
     }
 
-    denom = (sc->divide) ? 1 : dh1 * dh2 * dw1 * dw2;
+    denom = (sc->divide) ? 1 : dh1 * (int64_t)dh2 * dw1 * dw2;
 
     for (i = 0; i < ELEMENT_COUNT; i++) {
         const ElemCat* elemcat = elements[i];
@@ -391,7 +384,7 @@ static int xml_export(AVFilterContext *ctx, StreamContext *sc, const char* filen
     FILE* f;
     unsigned int pot3[5] = { 3*3*3*3, 3*3*3, 3*3, 3, 1 };
 
-    f = fopen(filename, "w");
+    f = avpriv_fopen_utf8(filename, "w");
     if (!f) {
         int err = AVERROR(EINVAL);
         char buf[128];
@@ -505,7 +498,7 @@ static int binary_export(AVFilterContext *ctx, StreamContext *sc, const char* fi
     if (!buffer)
         return AVERROR(ENOMEM);
 
-    f = fopen(filename, "wb");
+    f = avpriv_fopen_utf8(filename, "wb");
     if (!f) {
         int err = AVERROR(EINVAL);
         char buf[128];
@@ -760,8 +753,8 @@ const AVFilter ff_vf_signature = {
     .priv_class    = &signature_class,
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
     FILTER_OUTPUTS(signature_outputs),
     .inputs        = NULL,
+    FILTER_PIXFMTS_ARRAY(pix_fmts),
     .flags         = AVFILTER_FLAG_DYNAMIC_INPUTS,
 };

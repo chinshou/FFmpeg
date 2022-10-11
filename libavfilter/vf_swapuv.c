@@ -25,7 +25,6 @@
 
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
-#include "libavutil/version.h"
 #include "avfilter.h"
 #include "formats.h"
 #include "internal.h"
@@ -112,10 +111,10 @@ static const AVFilterPad swapuv_outputs[] = {
 const AVFilter ff_vf_swapuv = {
     .name          = "swapuv",
     .description   = NULL_IF_CONFIG_SMALL("Swap U and V components."),
-    .query_formats = query_formats,
     .priv_size     = sizeof(SwapUVContext),
     .priv_class    = &swapuv_class,
     FILTER_INPUTS(swapuv_inputs),
     FILTER_OUTPUTS(swapuv_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };

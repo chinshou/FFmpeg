@@ -47,25 +47,6 @@ typedef struct ATiltContext {
     int (*filter_channels)(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs);
 } ATiltContext;
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVSampleFormat sample_fmts[] = {
-        AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_DBLP,
-        AV_SAMPLE_FMT_NONE
-    };
-    int ret;
-
-    ret = ff_set_common_formats_from_list(ctx, sample_fmts);
-    if (ret < 0)
-        return ret;
-
-    ret = ff_set_common_all_channel_counts(ctx);
-    if (ret < 0)
-        return ret;
-
-    return ff_set_common_all_samplerates(ctx);
-}
-
 static double prewarp(double w, double T, double wp)
 {
     return wp * tan(w * T * 0.5) / tan(wp * T * 0.5);
@@ -144,8 +125,8 @@ static int filter_channels_## name(AVFilterContext *ctx, void *arg, \
     ThreadData *td = arg;                                           \
     AVFrame *out = td->out;                                         \
     AVFrame *in = td->in;                                           \
-    const int start = (in->channels * jobnr) / nb_jobs;             \
-    const int end = (in->channels * (jobnr+1)) / nb_jobs;           \
+    const int start = (in->ch_layout.nb_channels * jobnr) / nb_jobs; \
+    const int end = (in->ch_layout.nb_channels * (jobnr+1)) / nb_jobs; \
     const type level = s->level;                                    \
                                                                     \
     for (int ch = start; ch < end; ch++) {                          \
@@ -215,7 +196,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     }
 
     td.in = in; td.out = out;
-    ctx->internal->execute(ctx, s->filter_channels, &td, NULL, FFMIN(inlink->channels,
+    ff_filter_execute(ctx, s->filter_channels, &td, NULL, FFMIN(inlink->ch_layout.nb_channels,
                                                                ff_filter_get_nb_threads(ctx)));
 
     if (out != in)
@@ -272,15 +253,15 @@ static const AVFilterPad outputs[] = {
     },
 };
 
-AVFilter ff_af_atilt = {
+const AVFilter ff_af_atilt = {
     .name            = "atilt",
     .description     = NULL_IF_CONFIG_SMALL("Apply spectral tilt to audio."),
-    .query_formats   = query_formats,
     .priv_size       = sizeof(ATiltContext),
     .priv_class      = &atilt_class,
     .uninit          = uninit,
     FILTER_INPUTS(inputs),
     FILTER_OUTPUTS(outputs),
+    FILTER_SAMPLEFMTS(AV_SAMPLE_FMT_FLTP, AV_SAMPLE_FMT_DBLP),
     .process_command = process_command,
     .flags           = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC |
                        AVFILTER_FLAG_SLICE_THREADS,

@@ -71,16 +71,6 @@ static const AVOption sierpinski_options[] = {
 
 AVFILTER_DEFINE_CLASS(sierpinski);
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_0BGR32,
-        AV_PIX_FMT_NONE
-    };
-
-    return ff_set_common_formats_from_list(ctx, pix_fmts);
-}
-
 static int fill_sierpinski(SierpinskiContext *s, int x, int y)
 {
     int pos_x = x + s->pos_x;
@@ -147,18 +137,19 @@ static int draw_carpet_slice(AVFilterContext *ctx, void *arg, int job, int nb_jo
     return 0;
 }
 
-static int config_output(AVFilterLink *inlink)
+static int config_output(AVFilterLink *outlink)
 {
-    AVFilterContext *ctx = inlink->src;
+    AVFilterContext *ctx = outlink->src;
     SierpinskiContext *s = ctx->priv;
 
     if (av_image_check_size(s->w, s->h, 0, ctx) < 0)
         return AVERROR(EINVAL);
 
-    inlink->w = s->w;
-    inlink->h = s->h;
-    inlink->time_base = av_inv_q(s->frame_rate);
-    inlink->sample_aspect_ratio = (AVRational) {1, 1};
+    outlink->w = s->w;
+    outlink->h = s->h;
+    outlink->time_base = av_inv_q(s->frame_rate);
+    outlink->sample_aspect_ratio = (AVRational) {1, 1};
+    outlink->frame_rate = s->frame_rate;
     if (s->seed == -1)
         s->seed = av_get_random_seed();
     av_lfg_init(&s->lfg, s->seed);
@@ -225,8 +216,8 @@ const AVFilter ff_vsrc_sierpinski = {
     .description   = NULL_IF_CONFIG_SMALL("Render a Sierpinski fractal."),
     .priv_size     = sizeof(SierpinskiContext),
     .priv_class    = &sierpinski_class,
-    .query_formats = query_formats,
     .inputs        = NULL,
     FILTER_OUTPUTS(sierpinski_outputs),
+    FILTER_SINGLE_PIXFMT(AV_PIX_FMT_0BGR32),
     .flags         = AVFILTER_FLAG_SLICE_THREADS,
 };

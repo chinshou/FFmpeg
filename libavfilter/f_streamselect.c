@@ -48,7 +48,7 @@ static const AVOption streamselect_options[] = {
     { NULL }
 };
 
-AVFILTER_DEFINE_CLASS(streamselect);
+AVFILTER_DEFINE_CLASS_EXT(streamselect, "(a)streamselect", streamselect_options);
 
 static int process_frame(FFFrameSync *fs)
 {
@@ -118,8 +118,12 @@ static int config_output(AVFilterLink *outlink)
         break;
     case AVMEDIA_TYPE_AUDIO:
         outlink->sample_rate    = inlink->sample_rate;
-        outlink->channels       = inlink->channels;
+        outlink->ch_layout.nb_channels       = inlink->ch_layout.nb_channels;
+#if FF_API_OLD_CHANNEL_LAYOUT
+FF_DISABLE_DEPRECATION_WARNINGS
         outlink->channel_layout = inlink->channel_layout;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
         break;
     }
 
@@ -318,7 +322,7 @@ const AVFilter ff_vf_streamselect = {
     .name            = "streamselect",
     .description     = NULL_IF_CONFIG_SMALL("Select video streams"),
     .init            = init,
-    .query_formats   = query_formats,
+    FILTER_QUERY_FUNC(query_formats),
     .process_command = process_command,
     .uninit          = uninit,
     .activate        = activate,
@@ -327,18 +331,15 @@ const AVFilter ff_vf_streamselect = {
     .flags           = AVFILTER_FLAG_DYNAMIC_INPUTS | AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };
 
-#define astreamselect_options streamselect_options
-AVFILTER_DEFINE_CLASS(astreamselect);
-
 const AVFilter ff_af_astreamselect = {
     .name            = "astreamselect",
     .description     = NULL_IF_CONFIG_SMALL("Select audio streams"),
+    .priv_class      = &streamselect_class,
     .init            = init,
-    .query_formats   = query_formats,
+    FILTER_QUERY_FUNC(query_formats),
     .process_command = process_command,
     .uninit          = uninit,
     .activate        = activate,
     .priv_size       = sizeof(StreamSelectContext),
-    .priv_class      = &astreamselect_class,
     .flags           = AVFILTER_FLAG_DYNAMIC_INPUTS | AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };

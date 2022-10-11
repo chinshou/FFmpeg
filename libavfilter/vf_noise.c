@@ -305,8 +305,9 @@ static av_cold int init(AVFilterContext *ctx)
     n->line_noise     = ff_line_noise_c;
     n->line_noise_avg = ff_line_noise_avg_c;
 
-    if (ARCH_X86)
-        ff_noise_init_x86(n);
+#if ARCH_X86
+    ff_noise_init_x86(n);
+#endif
 
     return 0;
 }
@@ -342,9 +343,9 @@ const AVFilter ff_vf_noise = {
     .priv_size     = sizeof(NoiseContext),
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
     FILTER_INPUTS(noise_inputs),
     FILTER_OUTPUTS(noise_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .priv_class    = &noise_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC | AVFILTER_FLAG_SLICE_THREADS,
 };

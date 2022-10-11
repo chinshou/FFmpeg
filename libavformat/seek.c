@@ -25,8 +25,11 @@
 #include "libavutil/mathematics.h"
 #include "libavutil/timestamp.h"
 
+#include "libavcodec/avcodec.h"
+
 #include "avformat.h"
 #include "avio_internal.h"
+#include "demux.h"
 #include "internal.h"
 
 void avpriv_update_cur_dts(AVFormatContext *s, AVStream *ref_st, int64_t timestamp)
@@ -283,7 +286,7 @@ int ff_seek_frame_binary(AVFormatContext *s, int stream_index,
                          int64_t target_ts, int flags)
 {
     const AVInputFormat *const avif = s->iformat;
-    int64_t av_uninit(pos_min), av_uninit(pos_max), pos, pos_limit;
+    int64_t pos_min = 0, pos_max = 0, pos, pos_limit;
     int64_t ts_min, ts_max, ts;
     int index;
     int64_t ret;
@@ -750,4 +753,14 @@ int avformat_flush(AVFormatContext *s)
 {
     ff_read_frame_flush(s);
     return 0;
+}
+
+void ff_rescale_interval(AVRational tb_in, AVRational tb_out,
+                         int64_t *min_ts, int64_t *ts, int64_t *max_ts)
+{
+    *ts     = av_rescale_q    (*    ts, tb_in, tb_out);
+    *min_ts = av_rescale_q_rnd(*min_ts, tb_in, tb_out,
+                               AV_ROUND_UP   | AV_ROUND_PASS_MINMAX);
+    *max_ts = av_rescale_q_rnd(*max_ts, tb_in, tb_out,
+                               AV_ROUND_DOWN | AV_ROUND_PASS_MINMAX);
 }

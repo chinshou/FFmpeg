@@ -28,7 +28,6 @@
 
 #include "avcodec.h"
 #include "encode.h"
-#include "internal.h"
 #include "put_bits.h"
 
 #define FRAC_BITS   15   /* fractional bits for sb_samples and dct */
@@ -79,14 +78,10 @@ static av_cold int MPA_encode_init(AVCodecContext *avctx)
     MpegAudioContext *s = avctx->priv_data;
     int freq = avctx->sample_rate;
     int bitrate = avctx->bit_rate;
-    int channels = avctx->channels;
+    int channels = avctx->ch_layout.nb_channels;
     int i, v, table;
     float a;
 
-    if (channels <= 0 || channels > 2){
-        av_log(avctx, AV_LOG_ERROR, "encoding %d channel(s) is not allowed in mp2\n", channels);
-        return AVERROR(EINVAL);
-    }
     bitrate = bitrate / 1000;
     s->nb_channels = channels;
     avctx->frame_size = MPA_FRAME_SIZE;
@@ -95,9 +90,9 @@ static av_cold int MPA_encode_init(AVCodecContext *avctx)
     /* encoding freq */
     s->lsf = 0;
     for(i=0;i<3;i++) {
-        if (avpriv_mpa_freq_tab[i] == freq)
+        if (ff_mpa_freq_tab[i] == freq)
             break;
-        if ((avpriv_mpa_freq_tab[i] / 2) == freq) {
+        if ((ff_mpa_freq_tab[i] / 2) == freq) {
             s->lsf = 1;
             break;
         }
@@ -110,12 +105,12 @@ static av_cold int MPA_encode_init(AVCodecContext *avctx)
 
     /* encoding bitrate & frequency */
     for(i=1;i<15;i++) {
-        if (avpriv_mpa_bitrate_tab[s->lsf][1][i] == bitrate)
+        if (ff_mpa_bitrate_tab[s->lsf][1][i] == bitrate)
             break;
     }
     if (i == 15 && !avctx->bit_rate) {
         i = 14;
-        bitrate = avpriv_mpa_bitrate_tab[s->lsf][1][i];
+        bitrate = ff_mpa_bitrate_tab[s->lsf][1][i];
         avctx->bit_rate = bitrate * 1000;
     }
     if (i == 15){
@@ -779,7 +774,7 @@ static int MPA_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     return 0;
 }
 
-static const AVCodecDefault mp2_defaults[] = {
+static const FFCodecDefault mp2_defaults[] = {
     { "b", "0" },
     { NULL },
 };

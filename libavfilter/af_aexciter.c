@@ -195,7 +195,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
     dst = (double *)out->data[0];
     for (int n = 0; n < in->nb_samples; n++) {
-        for (int c = 0; c < inlink->channels; c++) {
+        for (int c = 0; c < inlink->ch_layout.nb_channels; c++) {
             double sample = src[c] * level_in;
 
             sample = distortion_process(s, &s->cp[c], sample);
@@ -208,31 +208,14 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
                 dst[c] = sample;
         }
 
-        src += inlink->channels;
-        dst += inlink->channels;
+        src += inlink->ch_layout.nb_channels;
+        dst += inlink->ch_layout.nb_channels;
     }
 
     if (in != out)
         av_frame_free(&in);
 
     return ff_filter_frame(outlink, out);
-}
-
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVSampleFormat sample_fmts[] = {
-        AV_SAMPLE_FMT_DBL,
-        AV_SAMPLE_FMT_NONE
-    };
-    int ret = ff_set_common_all_channel_counts(ctx);
-    if (ret < 0)
-        return ret;
-
-    ret = ff_set_common_formats_from_list(ctx, sample_fmts);
-    if (ret < 0)
-        return ret;
-
-    return ff_set_common_all_samplerates(ctx);
 }
 
 static av_cold void uninit(AVFilterContext *ctx)
@@ -248,11 +231,11 @@ static int config_input(AVFilterLink *inlink)
     AExciterContext *s = ctx->priv;
 
     if (!s->cp)
-        s->cp = av_calloc(inlink->channels, sizeof(*s->cp));
+        s->cp = av_calloc(inlink->ch_layout.nb_channels, sizeof(*s->cp));
     if (!s->cp)
         return AVERROR(ENOMEM);
 
-    for (int i = 0; i < inlink->channels; i++)
+    for (int i = 0; i < inlink->ch_layout.nb_channels; i++)
         set_params(&s->cp[i], s->blend, s->drive, inlink->sample_rate,
                    s->freq, s->ceil);
 
@@ -294,9 +277,9 @@ const AVFilter ff_af_aexciter = {
     .priv_size     = sizeof(AExciterContext),
     .priv_class    = &aexciter_class,
     .uninit        = uninit,
-    .query_formats = query_formats,
     FILTER_INPUTS(avfilter_af_aexciter_inputs),
     FILTER_OUTPUTS(avfilter_af_aexciter_outputs),
+    FILTER_SINGLE_SAMPLEFMT(AV_SAMPLE_FMT_DBL),
     .process_command = process_command,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL,
 };

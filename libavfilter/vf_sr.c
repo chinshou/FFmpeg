@@ -66,28 +66,25 @@ static av_cold int init(AVFilterContext *context)
     return ff_dnn_init(&sr_context->dnnctx, DFT_PROCESS_FRAME, context);
 }
 
-static int query_formats(AVFilterContext *context)
-{
-    const enum AVPixelFormat pixel_formats[] = {AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P,
-                                                AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P, AV_PIX_FMT_GRAY8,
-                                                AV_PIX_FMT_NONE};
-
-    return ff_set_common_formats_from_list(context, pixel_formats);
-}
+static const enum AVPixelFormat pixel_formats[] = {
+    AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUV444P,
+    AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P, AV_PIX_FMT_GRAY8,
+    AV_PIX_FMT_NONE
+};
 
 static int config_output(AVFilterLink *outlink)
 {
     AVFilterContext *context = outlink->src;
     SRContext *ctx = context->priv;
-    DNNReturnType result;
+    int result;
     AVFilterLink *inlink = context->inputs[0];
     int out_width, out_height;
 
     // have a try run in case that the dnn model resize the frame
     result = ff_dnn_get_output(&ctx->dnnctx, inlink->w, inlink->h, &out_width, &out_height);
-    if (result != DNN_SUCCESS) {
+    if (result != 0) {
         av_log(ctx, AV_LOG_ERROR, "could not get output from the model\n");
-        return AVERROR(EIO);
+        return result;
     }
 
     if (inlink->w != out_width || inlink->h != out_height) {
@@ -124,7 +121,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     SRContext *ctx = context->priv;
     AVFilterLink *outlink = context->outputs[0];
     AVFrame *out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
-    DNNReturnType dnn_result;
+    int dnn_result;
 
     if (!out){
         av_log(context, AV_LOG_ERROR, "could not allocate memory for output frame\n");
@@ -142,11 +139,11 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         dnn_result = ff_dnn_execute_model(&ctx->dnnctx, in, out);
     }
 
-    if (dnn_result != DNN_SUCCESS){
+    if (dnn_result != 0){
         av_log(ctx, AV_LOG_ERROR, "failed to execute loaded model\n");
         av_frame_free(&in);
         av_frame_free(&out);
-        return AVERROR(EIO);
+        return dnn_result;
     }
 
     do {
@@ -162,8 +159,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         sws_scale(ctx->sws_uv_scale, (const uint8_t **)(in->data + 2), in->linesize + 2,
                   0, ctx->sws_uv_height, out->data + 2, out->linesize + 2);
     }
-
-    av_frame_free(&in);
+    if (in != out) {
+        av_frame_free(&in);
+    }
     return ff_filter_frame(outlink, out);
 }
 
@@ -198,8 +196,8 @@ const AVFilter ff_vf_sr = {
     .priv_size     = sizeof(SRContext),
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
     FILTER_INPUTS(sr_inputs),
     FILTER_OUTPUTS(sr_outputs),
+    FILTER_PIXFMTS_ARRAY(pixel_formats),
     .priv_class    = &sr_class,
 };

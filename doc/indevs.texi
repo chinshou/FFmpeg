@@ -625,6 +625,12 @@ Save the currently used video capture filter device and its
 parameters (if the filter supports it) to a file.
 If a file with the same name exists it will be overwritten.
 
+@item use_video_device_timestamps
+If set to @option{false}, the timestamp for video frames will be
+derived from the wallclock instead of the timestamp provided by
+the capture device. This allows working around devices that
+provide unreliable timestamps.
+
 @end table
 
 @subsection Examples
@@ -1283,11 +1289,11 @@ Specify the samplerate in Hz, by default 48kHz is used.
 Specify the channels in use, by default 2 (stereo) is set.
 
 @item frame_size
-Specify the number of bytes per frame, by default it is set to 1024.
+This option does nothing and is deprecated.
 
 @item fragment_size
-Specify the minimal buffering fragment in PulseAudio, it will affect the
-audio latency. By default it is unset.
+Specify the size in bytes of the minimal buffering fragment in PulseAudio, it
+will affect the audio latency. By default it is set to 50 ms amount of data.
 
 @item wallclock
 Set the initial PTS using the current time. Default is 1.

@@ -21,11 +21,11 @@
 #ifndef SWSCALE_SWSCALE_INTERNAL_H
 #define SWSCALE_SWSCALE_INTERNAL_H
 
+#include <stdatomic.h>
+
 #include "config.h"
-#include "version.h"
 
 #include "libavutil/avassert.h"
-#include "libavutil/avutil.h"
 #include "libavutil/common.h"
 #include "libavutil/frame.h"
 #include "libavutil/intreadwrite.h"
@@ -35,6 +35,7 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/slicethread.h"
 #include "libavutil/ppc/util_altivec.h"
+#include "libavutil/half2float.h"
 
 #define STR(s) AV_TOSTRING(s) // AV_STRINGIFY is too long
 
@@ -301,14 +302,16 @@ typedef struct SwsContext {
      */
     const AVClass *av_class;
 
+    struct SwsContext *parent;
+
     AVSliceThread      *slicethread;
     struct SwsContext **slice_ctx;
     int                *slice_err;
     int              nb_slice_ctx;
 
     // values passed to current sws_receive_slice() call
-    unsigned int dst_slice_start;
-    unsigned int dst_slice_height;
+    int dst_slice_start;
+    int dst_slice_height;
 
     /**
      * Note that src, dst, srcStride, dstStride will be copied in the
@@ -557,26 +560,31 @@ typedef struct SwsContext {
     yuv2packedX_fn yuv2packedX;
     yuv2anyX_fn yuv2anyX;
 
+    /// Opaque data pointer passed to all input functions.
+    void *input_opaque;
+
     /// Unscaled conversion of luma plane to YV12 for horizontal scaler.
     void (*lumToYV12)(uint8_t *dst, const uint8_t *src, const uint8_t *src2, const uint8_t *src3,
-                      int width, uint32_t *pal);
+                      int width, uint32_t *pal, void *opq);
     /// Unscaled conversion of alpha plane to YV12 for horizontal scaler.
     void (*alpToYV12)(uint8_t *dst, const uint8_t *src, const uint8_t *src2, const uint8_t *src3,
-                      int width, uint32_t *pal);
+                      int width, uint32_t *pal, void *opq);
     /// Unscaled conversion of chroma planes to YV12 for horizontal scaler.
     void (*chrToYV12)(uint8_t *dstU, uint8_t *dstV,
                       const uint8_t *src1, const uint8_t *src2, const uint8_t *src3,
-                      int width, uint32_t *pal);
+                      int width, uint32_t *pal, void *opq);
 
     /**
      * Functions to read planar input, such as planar RGB, and convert
      * internally to Y/UV/A.
      */
     /** @{ */
-    void (*readLumPlanar)(uint8_t *dst, const uint8_t *src[4], int width, int32_t *rgb2yuv);
+    void (*readLumPlanar)(uint8_t *dst, const uint8_t *src[4], int width, int32_t *rgb2yuv,
+                          void *opq);
     void (*readChrPlanar)(uint8_t *dstU, uint8_t *dstV, const uint8_t *src[4],
-                          int width, int32_t *rgb2yuv);
-    void (*readAlpPlanar)(uint8_t *dst, const uint8_t *src[4], int width, int32_t *rgb2yuv);
+                          int width, int32_t *rgb2yuv, void *opq);
+    void (*readAlpPlanar)(uint8_t *dst, const uint8_t *src[4], int width, int32_t *rgb2yuv,
+                          void *opq);
     /** @} */
 
     /**
@@ -670,6 +678,10 @@ typedef struct SwsContext {
     unsigned int xyz_scratch_allocated;
 
     unsigned int dst_slice_align;
+    atomic_int   stride_unaligned_warned;
+    atomic_int   data_unaligned_warned;
+
+    Half2FloatTables *h2f_tables;
 } SwsContext;
 //FIXME check init (where 0)
 
@@ -686,6 +698,7 @@ av_cold void ff_sws_init_range_convert(SwsContext *c);
 
 SwsFunc ff_yuv2rgb_init_x86(SwsContext *c);
 SwsFunc ff_yuv2rgb_init_ppc(SwsContext *c);
+SwsFunc ff_yuv2rgb_init_loongarch(SwsContext *c);
 
 static av_always_inline int is16BPS(enum AVPixelFormat pix_fmt)
 {
@@ -831,6 +844,13 @@ static av_always_inline int isFloat(enum AVPixelFormat pix_fmt)
     return desc->flags & AV_PIX_FMT_FLAG_FLOAT;
 }
 
+static av_always_inline int isFloat16(enum AVPixelFormat pix_fmt)
+{
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    av_assert0(desc);
+    return (desc->flags & AV_PIX_FMT_FLAG_FLOAT) && desc->comp[0].depth == 16;
+}
+
 static av_always_inline int isALPHA(enum AVPixelFormat pix_fmt)
 {
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
@@ -886,6 +906,44 @@ static av_always_inline int usePal(enum AVPixelFormat pix_fmt)
     }
 }
 
+/*
+ * Identity formats where the data is in the high bits, and the low bits are shifted away.
+ */
+static av_always_inline int isDataInHighBits(enum AVPixelFormat pix_fmt)
+{
+    int i;
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    av_assert0(desc);
+    if (desc->flags & (AV_PIX_FMT_FLAG_BITSTREAM | AV_PIX_FMT_FLAG_HWACCEL))
+        return 0;
+    for (i = 0; i < desc->nb_components; i++) {
+        if (!desc->comp[i].shift)
+            return 0;
+        if ((desc->comp[i].shift + desc->comp[i].depth) & 0x7)
+            return 0;
+    }
+    return 1;
+}
+
+/*
+ * Identity formats where the chroma planes are swapped (CrCb order).
+ */
+static av_always_inline int isSwappedChroma(enum AVPixelFormat pix_fmt)
+{
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
+    av_assert0(desc);
+    if (!isYUV(pix_fmt))
+        return 0;
+    if ((desc->flags & AV_PIX_FMT_FLAG_ALPHA) && desc->nb_components < 4)
+        return 0;
+    if (desc->nb_components < 3)
+        return 0;
+    if (!isPlanarYUV(pix_fmt) || isSemiPlanarYUV(pix_fmt))
+        return desc->comp[1].offset > desc->comp[2].offset;
+    else
+        return desc->comp[1].plane > desc->comp[2].plane;
+}
+
 extern const uint64_t ff_dither4[2];
 extern const uint64_t ff_dither8[2];
 
@@ -926,6 +984,7 @@ void ff_sws_init_swscale_vsx(SwsContext *c);
 void ff_sws_init_swscale_x86(SwsContext *c);
 void ff_sws_init_swscale_aarch64(SwsContext *c);
 void ff_sws_init_swscale_arm(SwsContext *c);
+void ff_sws_init_swscale_loongarch(SwsContext *c);
 
 void ff_hyscale_fast_c(SwsContext *c, int16_t *dst, int dstWidth,
                        const uint8_t *src, int srcW, int xInc);
@@ -1099,4 +1158,6 @@ void ff_sws_slice_worker(void *priv, int jobnr, int threadnr,
 //number of extra lines to process
 #define MAX_LINES_AHEAD 4
 
+//shuffle filter and filterPos for hyScale and hcScale filters in avx2
+int ff_shuffle_filter_coefficients(SwsContext *c, int* filterPos, int filterSize, int16_t *filter, int dstW);
 #endif /* SWSCALE_SWSCALE_INTERNAL_H */

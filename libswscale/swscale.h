@@ -33,7 +33,13 @@
 #include "libavutil/frame.h"
 #include "libavutil/log.h"
 #include "libavutil/pixfmt.h"
+#include "version_major.h"
+#ifndef HAVE_AV_CONFIG_H
+/* When included as part of the ffmpeg build, only include the major version
+ * to avoid unnecessary rebuilds. When included externally, keep including
+ * the full version information. */
 #include "version.h"
+#endif
 
 /**
  * @defgroup libsws libswscale
@@ -318,14 +324,22 @@ unsigned int sws_receive_slice_alignment(const struct SwsContext *c);
  * @param brightness 16.16 fixed point brightness correction
  * @param contrast 16.16 fixed point contrast correction
  * @param saturation 16.16 fixed point saturation correction
+#if LIBSWSCALE_VERSION_MAJOR > 6
+ * @return negative error code on error, non negative otherwise
+#else
  * @return -1 if not supported
+#endif
  */
 int sws_setColorspaceDetails(struct SwsContext *c, const int inv_table[4],
                              int srcRange, const int table[4], int dstRange,
                              int brightness, int contrast, int saturation);
 
 /**
+#if LIBSWSCALE_VERSION_MAJOR > 6
+ * @return negative error code on error, non negative otherwise
+#else
  * @return -1 if not supported
+#endif
  */
 int sws_getColorspaceDetails(struct SwsContext *c, int **inv_table,
                              int *srcRange, int **table, int *dstRange,

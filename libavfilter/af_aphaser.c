@@ -83,26 +83,6 @@ static av_cold int init(AVFilterContext *ctx)
     return 0;
 }
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVSampleFormat sample_fmts[] = {
-        AV_SAMPLE_FMT_DBL, AV_SAMPLE_FMT_DBLP,
-        AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_FLTP,
-        AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_S32P,
-        AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S16P,
-        AV_SAMPLE_FMT_NONE
-    };
-    int ret = ff_set_common_all_channel_counts(ctx);
-    if (ret < 0)
-        return ret;
-
-    ret = ff_set_common_formats_from_list(ctx, sample_fmts);
-    if (ret < 0)
-        return ret;
-
-    return ff_set_common_all_samplerates(ctx);
-}
-
 #define MOD(a, b) (((a) >= (b)) ? (a) - (b) : (a))
 
 #define PHASER_PLANAR(name, type)                                      \
@@ -197,7 +177,7 @@ static int config_output(AVFilterLink *outlink)
         av_log(outlink->src, AV_LOG_ERROR, "delay is too small\n");
         return AVERROR(EINVAL);
     }
-    s->delay_buffer = av_calloc(s->delay_buffer_length, sizeof(*s->delay_buffer) * inlink->channels);
+    s->delay_buffer = av_calloc(s->delay_buffer_length, sizeof(*s->delay_buffer) * inlink->ch_layout.nb_channels);
     s->modulation_buffer_length = inlink->sample_rate / s->speed + 0.5;
     s->modulation_buffer = av_malloc_array(s->modulation_buffer_length, sizeof(*s->modulation_buffer));
 
@@ -243,7 +223,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *inbuf)
     }
 
     s->phaser(s, inbuf->extended_data, outbuf->extended_data,
-              outbuf->nb_samples, outbuf->channels);
+              outbuf->nb_samples, outbuf->ch_layout.nb_channels);
 
     if (inbuf != outbuf)
         av_frame_free(&inbuf);
@@ -278,11 +258,14 @@ static const AVFilterPad aphaser_outputs[] = {
 const AVFilter ff_af_aphaser = {
     .name          = "aphaser",
     .description   = NULL_IF_CONFIG_SMALL("Add a phasing effect to the audio."),
-    .query_formats = query_formats,
     .priv_size     = sizeof(AudioPhaserContext),
     .init          = init,
     .uninit        = uninit,
     FILTER_INPUTS(aphaser_inputs),
     FILTER_OUTPUTS(aphaser_outputs),
+    FILTER_SAMPLEFMTS(AV_SAMPLE_FMT_DBL, AV_SAMPLE_FMT_DBLP,
+                      AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_FLTP,
+                      AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_S32P,
+                      AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S16P),
     .priv_class    = &aphaser_class,
 };

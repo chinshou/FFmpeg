@@ -74,6 +74,8 @@ enum XFadeTransitions {
     SQUEEZEH,
     SQUEEZEV,
     ZOOMIN,
+    FADEFAST,
+    FADESLOW,
     NB_TRANSITIONS,
 };
 
@@ -117,29 +119,24 @@ typedef struct ThreadData {
     float progress;
 } ThreadData;
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_YUVA444P,
-        AV_PIX_FMT_YUVJ444P,
-        AV_PIX_FMT_YUV444P,
-        AV_PIX_FMT_GBRP, AV_PIX_FMT_GBRAP, AV_PIX_FMT_GRAY8,
-        AV_PIX_FMT_YUVA444P9, AV_PIX_FMT_GBRP9,
-        AV_PIX_FMT_YUV444P10,
-        AV_PIX_FMT_YUVA444P10,
-        AV_PIX_FMT_GBRP10, AV_PIX_FMT_GBRAP10, AV_PIX_FMT_GRAY10,
-        AV_PIX_FMT_YUV444P12,
-        AV_PIX_FMT_YUVA444P12,
-        AV_PIX_FMT_GBRP12, AV_PIX_FMT_GBRAP12, AV_PIX_FMT_GRAY12,
-        AV_PIX_FMT_YUV444P14, AV_PIX_FMT_GBRP14,
-        AV_PIX_FMT_YUV444P16,
-        AV_PIX_FMT_YUVA444P16,
-        AV_PIX_FMT_GBRP16, AV_PIX_FMT_GBRAP16, AV_PIX_FMT_GRAY16,
-        AV_PIX_FMT_NONE
-    };
-
-    return ff_set_common_formats_from_list(ctx, pix_fmts);
-}
+static const enum AVPixelFormat pix_fmts[] = {
+    AV_PIX_FMT_YUVA444P,
+    AV_PIX_FMT_YUVJ444P,
+    AV_PIX_FMT_YUV444P,
+    AV_PIX_FMT_GBRP, AV_PIX_FMT_GBRAP, AV_PIX_FMT_GRAY8,
+    AV_PIX_FMT_YUVA444P9, AV_PIX_FMT_GBRP9,
+    AV_PIX_FMT_YUV444P10,
+    AV_PIX_FMT_YUVA444P10,
+    AV_PIX_FMT_GBRP10, AV_PIX_FMT_GBRAP10, AV_PIX_FMT_GRAY10,
+    AV_PIX_FMT_YUV444P12,
+    AV_PIX_FMT_YUVA444P12,
+    AV_PIX_FMT_GBRP12, AV_PIX_FMT_GBRAP12, AV_PIX_FMT_GRAY12,
+    AV_PIX_FMT_YUV444P14, AV_PIX_FMT_GBRP14,
+    AV_PIX_FMT_YUV444P16,
+    AV_PIX_FMT_YUVA444P16,
+    AV_PIX_FMT_GBRP16, AV_PIX_FMT_GBRAP16, AV_PIX_FMT_GRAY16,
+    AV_PIX_FMT_NONE
+};
 
 static av_cold void uninit(AVFilterContext *ctx)
 {
@@ -198,6 +195,8 @@ static const AVOption xfade_options[] = {
     {   "squeezeh",   "squeeze h transition",   0, AV_OPT_TYPE_CONST, {.i64=SQUEEZEH},   0, 0, FLAGS, "transition" },
     {   "squeezev",   "squeeze v transition",   0, AV_OPT_TYPE_CONST, {.i64=SQUEEZEV},   0, 0, FLAGS, "transition" },
     {   "zoomin",     "zoom in transition",     0, AV_OPT_TYPE_CONST, {.i64=ZOOMIN},     0, 0, FLAGS, "transition" },
+    {   "fadefast",   "fast fade transition",   0, AV_OPT_TYPE_CONST, {.i64=FADEFAST},   0, 0, FLAGS, "transition" },
+    {   "fadeslow",   "slow fade transition",   0, AV_OPT_TYPE_CONST, {.i64=FADESLOW},   0, 0, FLAGS, "transition" },
     { "duration", "set cross fade duration", OFFSET(duration), AV_OPT_TYPE_DURATION, {.i64=1000000}, 0, 60000000, FLAGS },
     { "offset",   "set cross fade start relative to first input stream", OFFSET(offset), AV_OPT_TYPE_DURATION, {.i64=0}, INT64_MIN, INT64_MAX, FLAGS },
     { "expr",   "set expression for custom transition", OFFSET(custom_str), AV_OPT_TYPE_STRING, {.str=NULL}, 0, 0, FLAGS },
@@ -434,7 +433,7 @@ static void slideleft##name##_transition(AVFilterContext *ctx,                  
             for (int x = 0; x < width; x++) {                                        \
                 const int zx = z + x;                                                \
                 const int zz = zx % width + width * (zx < 0);                        \
-                dst[x] = (zx > 0) && (zx < width) ? xf1[zz] : xf0[zz];               \
+                dst[x] = (zx >= 0) && (zx < width) ? xf1[zz] : xf0[zz];              \
             }                                                                        \
                                                                                      \
             dst += out->linesize[p] / div;                                           \
@@ -467,7 +466,7 @@ static void slideright##name##_transition(AVFilterContext *ctx,                 
             for (int x = 0; x < out->width; x++) {                                   \
                 const int zx = z + x;                                                \
                 const int zz = zx % width + width * (zx < 0);                        \
-                dst[x] = (zx > 0) && (zx < width) ? xf1[zz] : xf0[zz];               \
+                dst[x] = (zx >= 0) && (zx < width) ? xf1[zz] : xf0[zz];              \
             }                                                                        \
                                                                                      \
             dst += out->linesize[p] / div;                                           \
@@ -500,7 +499,7 @@ static void slideup##name##_transition(AVFilterContext *ctx,                    
             const type *xf1 = (const type *)(b->data[p] + zz * b->linesize[p]);     \
                                                                                     \
             for (int x = 0; x < out->width; x++) {                                  \
-                dst[x] = (zy > 0) && (zy < height) ? xf1[x] : xf0[x];               \
+                dst[x] = (zy >= 0) && (zy < height) ? xf1[x] : xf0[x];              \
             }                                                                       \
                                                                                     \
             dst += out->linesize[p] / div;                                          \
@@ -531,7 +530,7 @@ static void slidedown##name##_transition(AVFilterContext *ctx,                  
             const type *xf1 = (const type *)(b->data[p] + zz * b->linesize[p]);     \
                                                                                     \
             for (int x = 0; x < out->width; x++) {                                  \
-                dst[x] = (zy > 0) && (zy < height) ? xf1[x] : xf0[x];               \
+                dst[x] = (zy >= 0) && (zy < height) ? xf1[x] : xf0[x];              \
             }                                                                       \
                                                                                     \
             dst += out->linesize[p] / div;                                          \
@@ -1675,6 +1674,70 @@ static void zoomin##name##_transition(AVFilterContext *ctx,                     
 ZOOMIN_TRANSITION(8, uint8_t, 1)
 ZOOMIN_TRANSITION(16, uint16_t, 2)
 
+#define FADEFAST_TRANSITION(name, type, div)                                         \
+static void fadefast##name##_transition(AVFilterContext *ctx,                        \
+                            const AVFrame *a, const AVFrame *b, AVFrame *out,        \
+                            float progress,                                          \
+                            int slice_start, int slice_end, int jobnr)               \
+{                                                                                    \
+    XFadeContext *s = ctx->priv;                                                     \
+    const int height = slice_end - slice_start;                                      \
+    const float imax = 1.f / s->max_value;                                           \
+                                                                                     \
+    for (int p = 0; p < s->nb_planes; p++) {                                         \
+        const type *xf0 = (const type *)(a->data[p] + slice_start * a->linesize[p]); \
+        const type *xf1 = (const type *)(b->data[p] + slice_start * b->linesize[p]); \
+        type *dst = (type *)(out->data[p] + slice_start * out->linesize[p]);         \
+                                                                                     \
+        for (int y = 0; y < height; y++) {                                           \
+            for (int x = 0; x < out->width; x++) {                                   \
+                dst[x] = mix(xf0[x], xf1[x], powf(progress, 1.f +                    \
+                                                  logf(1.f+FFABS(xf0[x]-xf1[x])*imax)\
+                                                  ));                                \
+            }                                                                        \
+                                                                                     \
+            dst += out->linesize[p] / div;                                           \
+            xf0 += a->linesize[p] / div;                                             \
+            xf1 += b->linesize[p] / div;                                             \
+        }                                                                            \
+    }                                                                                \
+}
+
+FADEFAST_TRANSITION(8, uint8_t, 1)
+FADEFAST_TRANSITION(16, uint16_t, 2)
+
+#define FADESLOW_TRANSITION(name, type, div)                                         \
+static void fadeslow##name##_transition(AVFilterContext *ctx,                        \
+                            const AVFrame *a, const AVFrame *b, AVFrame *out,        \
+                            float progress,                                          \
+                            int slice_start, int slice_end, int jobnr)               \
+{                                                                                    \
+    XFadeContext *s = ctx->priv;                                                     \
+    const int height = slice_end - slice_start;                                      \
+    const float imax = 1.f / s->max_value;                                           \
+                                                                                     \
+    for (int p = 0; p < s->nb_planes; p++) {                                         \
+        const type *xf0 = (const type *)(a->data[p] + slice_start * a->linesize[p]); \
+        const type *xf1 = (const type *)(b->data[p] + slice_start * b->linesize[p]); \
+        type *dst = (type *)(out->data[p] + slice_start * out->linesize[p]);         \
+                                                                                     \
+        for (int y = 0; y < height; y++) {                                           \
+            for (int x = 0; x < out->width; x++) {                                   \
+                dst[x] = mix(xf0[x], xf1[x], powf(progress, 1.f +                    \
+                                                  logf(2.f-FFABS(xf0[x]-xf1[x])*imax)\
+                                                  ));                                \
+            }                                                                        \
+                                                                                     \
+            dst += out->linesize[p] / div;                                           \
+            xf0 += a->linesize[p] / div;                                             \
+            xf1 += b->linesize[p] / div;                                             \
+        }                                                                            \
+    }                                                                                \
+}
+
+FADESLOW_TRANSITION(8, uint8_t, 1)
+FADESLOW_TRANSITION(16, uint16_t, 2)
+
 static inline double getpix(void *priv, double x, double y, int plane, int nb)
 {
     XFadeContext *s = priv;
@@ -1717,10 +1780,6 @@ static int config_output(AVFilterLink *outlink)
     XFadeContext *s = ctx->priv;
     const AVPixFmtDescriptor *pix_desc = av_pix_fmt_desc_get(inlink0->format);
 
-    if (inlink0->format != inlink1->format) {
-        av_log(ctx, AV_LOG_ERROR, "inputs must be of same pixel format\n");
-        return AVERROR(EINVAL);
-    }
     if (inlink0->w != inlink1->w || inlink0->h != inlink1->h) {
         av_log(ctx, AV_LOG_ERROR, "First input link %s parameters "
                "(size %dx%d) do not match the corresponding "
@@ -1825,6 +1884,8 @@ static int config_output(AVFilterLink *outlink)
     case SQUEEZEH:   s->transitionf = s->depth <= 8 ? squeezeh8_transition   : squeezeh16_transition;   break;
     case SQUEEZEV:   s->transitionf = s->depth <= 8 ? squeezev8_transition   : squeezev16_transition;   break;
     case ZOOMIN:     s->transitionf = s->depth <= 8 ? zoomin8_transition     : zoomin16_transition;     break;
+    case FADEFAST:   s->transitionf = s->depth <= 8 ? fadefast8_transition   : fadefast16_transition;   break;
+    case FADESLOW:   s->transitionf = s->depth <= 8 ? fadeslow8_transition   : fadeslow16_transition;   break;
     default: return AVERROR_BUG;
     }
 
@@ -2005,10 +2066,10 @@ const AVFilter ff_vf_xfade = {
     .description   = NULL_IF_CONFIG_SMALL("Cross fade one video with another video."),
     .priv_size     = sizeof(XFadeContext),
     .priv_class    = &xfade_class,
-    .query_formats = query_formats,
     .activate      = xfade_activate,
     .uninit        = uninit,
     FILTER_INPUTS(xfade_inputs),
     FILTER_OUTPUTS(xfade_outputs),
+    FILTER_PIXFMTS_ARRAY(pix_fmts),
     .flags         = AVFILTER_FLAG_SLICE_THREADS,
 };

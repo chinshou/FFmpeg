@@ -55,23 +55,6 @@ typedef struct ADecorrelateContext {
                            AVFrame *in, AVFrame *out);
 } ADecorrelateContext;
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVSampleFormat sample_fmts[] = {
-        AV_SAMPLE_FMT_DBLP,
-        AV_SAMPLE_FMT_NONE
-    };
-    int ret = ff_set_common_formats_from_list(ctx, sample_fmts);
-    if (ret < 0)
-        return ret;
-
-    ret = ff_set_common_all_channel_counts(ctx);
-    if (ret < 0)
-        return ret;
-
-    return ff_set_common_all_samplerates(ctx);
-}
-
 static int ap_init(APContext *ap, int fs, double delay)
 {
     const int delay_samples = lrint(round(delay * fs));
@@ -148,12 +131,12 @@ static int config_input(AVFilterLink *inlink)
         s->seed = av_get_random_seed();
     av_lfg_init(&s->c, s->seed);
 
-    s->nb_channels = inlink->channels;
-    s->ap = av_calloc(inlink->channels, sizeof(*s->ap));
+    s->nb_channels = inlink->ch_layout.nb_channels;
+    s->ap = av_calloc(inlink->ch_layout.nb_channels, sizeof(*s->ap));
     if (!s->ap)
         return AVERROR(ENOMEM);
 
-    for (int i = 0; i < inlink->channels; i++) {
+    for (int i = 0; i < inlink->ch_layout.nb_channels; i++) {
         for (int j = 0; j < s->stages; j++) {
             ret = ap_init(&s->ap[i][j], inlink->sample_rate,
                           (double)av_lfg_get(&s->c) / 0xffffffff * 2.2917e-3 + 0.83333e-3);
@@ -177,8 +160,8 @@ static int filter_channels(AVFilterContext *ctx, void *arg, int jobnr, int nb_jo
     ThreadData *td = arg;
     AVFrame *out = td->out;
     AVFrame *in = td->in;
-    const int start = (in->channels * jobnr) / nb_jobs;
-    const int end = (in->channels * (jobnr+1)) / nb_jobs;
+    const int start = (in->ch_layout.nb_channels * jobnr) / nb_jobs;
+    const int end = (in->ch_layout.nb_channels * (jobnr+1)) / nb_jobs;
 
     for (int ch = start; ch < end; ch++)
         s->filter_channel(ctx, ch, in, out);
@@ -206,7 +189,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
 
     td.in = in; td.out = out;
     ff_filter_execute(ctx, filter_channels, &td, NULL,
-                      FFMIN(inlink->channels, ff_filter_get_nb_threads(ctx)));
+                      FFMIN(inlink->ch_layout.nb_channels, ff_filter_get_nb_threads(ctx)));
 
     if (out != in)
         av_frame_free(&in);
@@ -257,12 +240,12 @@ static const AVFilterPad outputs[] = {
 const AVFilter ff_af_adecorrelate = {
     .name            = "adecorrelate",
     .description     = NULL_IF_CONFIG_SMALL("Apply decorrelation to input audio."),
-    .query_formats   = query_formats,
     .priv_size       = sizeof(ADecorrelateContext),
     .priv_class      = &adecorrelate_class,
     .uninit          = uninit,
     FILTER_INPUTS(inputs),
     FILTER_OUTPUTS(outputs),
+    FILTER_SINGLE_SAMPLEFMT(AV_SAMPLE_FMT_DBLP),
     .flags           = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC |
                        AVFILTER_FLAG_SLICE_THREADS,
 };

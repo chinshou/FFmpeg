@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "config_components.h"
+
 #include "libavutil/common.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/opt.h"
@@ -345,9 +347,9 @@ const AVFilter ff_vf_avgblur_opencl = {
     .priv_class     = &avgblur_opencl_class,
     .init           = &ff_opencl_filter_init,
     .uninit         = &avgblur_opencl_uninit,
-    .query_formats  = &ff_opencl_filter_query_formats,
     FILTER_INPUTS(avgblur_opencl_inputs),
     FILTER_OUTPUTS(avgblur_opencl_outputs),
+    FILTER_SINGLE_PIXFMT(AV_PIX_FMT_OPENCL),
     .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };
 
@@ -384,9 +386,9 @@ const AVFilter ff_vf_boxblur_opencl = {
     .priv_class     = &boxblur_opencl_class,
     .init           = &ff_opencl_filter_init,
     .uninit         = &avgblur_opencl_uninit,
-    .query_formats  = &ff_opencl_filter_query_formats,
     FILTER_INPUTS(avgblur_opencl_inputs),
     FILTER_OUTPUTS(avgblur_opencl_outputs),
+    FILTER_SINGLE_PIXFMT(AV_PIX_FMT_OPENCL),
     .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };
 

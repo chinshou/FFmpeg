@@ -21,14 +21,10 @@
  * implementing an classification filter using deep learning networks.
  */
 
-#include "libavformat/avio.h"
+#include "libavutil/file_open.h"
 #include "libavutil/opt.h"
-#include "libavutil/pixdesc.h"
-#include "libavutil/avassert.h"
-#include "libavutil/imgutils.h"
 #include "filters.h"
 #include "dnn_filter_common.h"
-#include "formats.h"
 #include "internal.h"
 #include "libavutil/time.h"
 #include "libavutil/avstring.h"
@@ -131,7 +127,7 @@ static int read_classify_label_file(AVFilterContext *context)
     FILE *file;
     DnnClassifyContext *ctx = context->priv;
 
-    file = av_fopen_utf8(ctx->labels_filename, "r");
+    file = avpriv_fopen_utf8(ctx->labels_filename, "r");
     if (!file){
         av_log(context, AV_LOG_ERROR, "failed to open file %s\n", ctx->labels_filename);
         return AVERROR(EINVAL);
@@ -197,18 +193,14 @@ static av_cold int dnn_classify_init(AVFilterContext *context)
     return 0;
 }
 
-static int dnn_classify_query_formats(AVFilterContext *context)
-{
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_RGB24, AV_PIX_FMT_BGR24,
-        AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAYF32,
-        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
-        AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
-        AV_PIX_FMT_NV12,
-        AV_PIX_FMT_NONE
-    };
-    return ff_set_common_formats_from_list(context, pix_fmts);
-}
+static const enum AVPixelFormat pix_fmts[] = {
+    AV_PIX_FMT_RGB24, AV_PIX_FMT_BGR24,
+    AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAYF32,
+    AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
+    AV_PIX_FMT_YUV444P, AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
+    AV_PIX_FMT_NV12,
+    AV_PIX_FMT_NONE
+};
 
 static int dnn_classify_flush_frame(AVFilterLink *outlink, int64_t pts, int64_t *out_pts)
 {
@@ -217,7 +209,7 @@ static int dnn_classify_flush_frame(AVFilterLink *outlink, int64_t pts, int64_t 
     DNNAsyncStatusType async_state;
 
     ret = ff_dnn_flush(&ctx->dnnctx);
-    if (ret != DNN_SUCCESS) {
+    if (ret != 0) {
         return -1;
     }
 
@@ -257,7 +249,7 @@ static int dnn_classify_activate(AVFilterContext *filter_ctx)
         if (ret < 0)
             return ret;
         if (ret > 0) {
-            if (ff_dnn_execute_model_classification(&ctx->dnnctx, in, NULL, ctx->target) != DNN_SUCCESS) {
+            if (ff_dnn_execute_model_classification(&ctx->dnnctx, in, NULL, ctx->target) != 0) {
                 return AVERROR(EIO);
             }
         }
@@ -321,9 +313,9 @@ const AVFilter ff_vf_dnn_classify = {
     .priv_size     = sizeof(DnnClassifyContext),
     .init          = dnn_classify_init,
     .uninit        = dnn_classify_uninit,
-    .query_formats = dnn_classify_query_formats,
     FILTER_INPUTS(dnn_classify_inputs),
     FILTER_OUTPUTS(dnn_classify_outputs),
+    FILTER_PIXFMTS_ARRAY(pix_fmts),
     .priv_class    = &dnn_classify_class,
     .activate      = dnn_classify_activate,
 };

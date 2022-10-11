@@ -284,6 +284,7 @@ static int config_props(AVFilterLink *outlink)
     outlink->w = life->w;
     outlink->h = life->h;
     outlink->time_base = av_inv_q(life->frame_rate);
+    outlink->frame_rate = life->frame_rate;
 
     return 0;
 }
@@ -445,7 +446,7 @@ const AVFilter ff_vsrc_life = {
     .priv_class    = &life_class,
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
     .inputs        = NULL,
     FILTER_OUTPUTS(life_outputs),
+    FILTER_QUERY_FUNC(query_formats),
 };

@@ -52,20 +52,15 @@ static const AVOption pullup_options[] = {
 
 AVFILTER_DEFINE_CLASS(pullup);
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUVJ440P,
-        AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ420P,
-        AV_PIX_FMT_YUV444P,  AV_PIX_FMT_YUV440P,
-        AV_PIX_FMT_YUV422P,  AV_PIX_FMT_YUV420P,
-        AV_PIX_FMT_YUV411P,  AV_PIX_FMT_YUV410P,
-        AV_PIX_FMT_YUVJ411P, AV_PIX_FMT_GRAY8,
-        AV_PIX_FMT_NONE
-    };
-
-    return ff_set_common_formats_from_list(ctx, pix_fmts);
-}
+static const enum AVPixelFormat pix_fmts[] = {
+    AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUVJ440P,
+    AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ420P,
+    AV_PIX_FMT_YUV444P,  AV_PIX_FMT_YUV440P,
+    AV_PIX_FMT_YUV422P,  AV_PIX_FMT_YUV420P,
+    AV_PIX_FMT_YUV411P,  AV_PIX_FMT_YUV410P,
+    AV_PIX_FMT_YUVJ411P, AV_PIX_FMT_GRAY8,
+    AV_PIX_FMT_NONE
+};
 
 #define ABS(a) (((a) ^ ((a) >> 31)) - ((a) >> 31))
 
@@ -212,8 +207,9 @@ static int config_input(AVFilterLink *inlink)
     s->comb = comb_c;
     s->var  = var_c;
 
-    if (ARCH_X86)
-        ff_pullup_init_x86(s);
+#if ARCH_X86
+    ff_pullup_init_x86(s);
+#endif
     return 0;
 }
 
@@ -765,7 +761,7 @@ const AVFilter ff_vf_pullup = {
     .priv_size     = sizeof(PullupContext),
     .priv_class    = &pullup_class,
     .uninit        = uninit,
-    .query_formats = query_formats,
     FILTER_INPUTS(pullup_inputs),
     FILTER_OUTPUTS(pullup_outputs),
+    FILTER_PIXFMTS_ARRAY(pix_fmts),
 };
