@@ -19,13 +19,9 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "libavutil/thread.h"
+#include <stdatomic.h>
 #include "libavformat/internal.h"
 #include "avformat.h"
-#include "rtp.h"
-#include "rdt.h"
-#include "url.h"
-#include "version.h"
 
 /* (de)muxers */
 extern const AVOutputFormat ff_a64_muxer;
@@ -56,6 +52,7 @@ extern const AVInputFormat  ff_amrnb_demuxer;
 extern const AVInputFormat  ff_amrwb_demuxer;
 extern const AVOutputFormat ff_amv_muxer;
 extern const AVInputFormat  ff_anm_demuxer;
+extern const AVInputFormat  ff_apac_demuxer;
 extern const AVInputFormat  ff_apc_demuxer;
 extern const AVInputFormat  ff_ape_demuxer;
 extern const AVInputFormat  ff_apm_demuxer;
@@ -85,6 +82,7 @@ extern const AVOutputFormat ff_au_muxer;
 extern const AVInputFormat  ff_av1_demuxer;
 extern const AVInputFormat  ff_avi_demuxer;
 extern const AVOutputFormat ff_avi_muxer;
+extern const AVOutputFormat ff_avif_muxer;
 extern const AVInputFormat  ff_avisynth_demuxer;
 extern const AVOutputFormat ff_avm2_muxer;
 extern const AVInputFormat  ff_avr_demuxer;
@@ -92,6 +90,7 @@ extern const AVInputFormat  ff_avs_demuxer;
 extern const AVInputFormat  ff_avs2_demuxer;
 extern const AVOutputFormat ff_avs2_muxer;
 extern const AVInputFormat  ff_avs3_demuxer;
+extern const AVOutputFormat ff_avs3_muxer;
 extern const AVInputFormat  ff_bethsoftvid_demuxer;
 extern const AVInputFormat  ff_bfi_demuxer;
 extern const AVInputFormat  ff_bintext_demuxer;
@@ -99,10 +98,12 @@ extern const AVInputFormat  ff_bink_demuxer;
 extern const AVInputFormat  ff_binka_demuxer;
 extern const AVInputFormat  ff_bit_demuxer;
 extern const AVOutputFormat ff_bit_muxer;
+extern const AVInputFormat  ff_bitpacked_demuxer;
 extern const AVInputFormat  ff_bmv_demuxer;
 extern const AVInputFormat  ff_bfstm_demuxer;
 extern const AVInputFormat  ff_brstm_demuxer;
 extern const AVInputFormat  ff_boa_demuxer;
+extern const AVInputFormat  ff_bonk_demuxer;
 extern const AVInputFormat  ff_c93_demuxer;
 extern const AVInputFormat  ff_caf_demuxer;
 extern const AVOutputFormat ff_caf_muxer;
@@ -126,6 +127,8 @@ extern const AVOutputFormat ff_daud_muxer;
 extern const AVInputFormat  ff_dcstr_demuxer;
 extern const AVInputFormat  ff_derf_demuxer;
 extern const AVInputFormat  ff_dfa_demuxer;
+extern const AVInputFormat  ff_dfpwm_demuxer;
+extern const AVOutputFormat ff_dfpwm_muxer;
 extern const AVInputFormat  ff_dhav_demuxer;
 extern const AVInputFormat  ff_dirac_demuxer;
 extern const AVOutputFormat ff_dirac_muxer;
@@ -215,6 +218,7 @@ extern const AVInputFormat  ff_image2pipe_demuxer;
 extern const AVOutputFormat ff_image2pipe_muxer;
 extern const AVInputFormat  ff_image2_alias_pix_demuxer;
 extern const AVInputFormat  ff_image2_brender_pix_demuxer;
+extern const AVInputFormat  ff_imf_demuxer;
 extern const AVInputFormat  ff_ingenient_demuxer;
 extern const AVInputFormat  ff_ipmovie_demuxer;
 extern const AVOutputFormat ff_ipod_muxer;
@@ -233,6 +237,7 @@ extern const AVInputFormat  ff_jv_demuxer;
 extern const AVInputFormat  ff_kux_demuxer;
 extern const AVInputFormat  ff_kvag_demuxer;
 extern const AVOutputFormat ff_kvag_muxer;
+extern const AVInputFormat  ff_laf_demuxer;
 extern const AVOutputFormat ff_latm_muxer;
 extern const AVInputFormat  ff_lmlm4_demuxer;
 extern const AVInputFormat  ff_loas_demuxer;
@@ -396,6 +401,7 @@ extern const AVOutputFormat ff_sbc_muxer;
 extern const AVInputFormat  ff_sbg_demuxer;
 extern const AVInputFormat  ff_scc_demuxer;
 extern const AVOutputFormat ff_scc_muxer;
+extern const AVInputFormat  ff_scd_demuxer;
 extern const AVInputFormat  ff_sdp_demuxer;
 extern const AVInputFormat  ff_sdr2_demuxer;
 extern const AVInputFormat  ff_sds_demuxer;
@@ -504,26 +510,33 @@ extern const AVInputFormat  ff_image_cri_pipe_demuxer;
 extern const AVInputFormat  ff_image_dds_pipe_demuxer;
 extern const AVInputFormat  ff_image_dpx_pipe_demuxer;
 extern const AVInputFormat  ff_image_exr_pipe_demuxer;
+extern const AVInputFormat  ff_image_gem_pipe_demuxer;
 extern const AVInputFormat  ff_image_gif_pipe_demuxer;
+extern const AVInputFormat  ff_image_hdr_pipe_demuxer;
 extern const AVInputFormat  ff_image_j2k_pipe_demuxer;
 extern const AVInputFormat  ff_image_jpeg_pipe_demuxer;
 extern const AVInputFormat  ff_image_jpegls_pipe_demuxer;
+extern const AVInputFormat  ff_image_jpegxl_pipe_demuxer;
 extern const AVInputFormat  ff_image_pam_pipe_demuxer;
 extern const AVInputFormat  ff_image_pbm_pipe_demuxer;
 extern const AVInputFormat  ff_image_pcx_pipe_demuxer;
+extern const AVInputFormat  ff_image_pfm_pipe_demuxer;
 extern const AVInputFormat  ff_image_pgmyuv_pipe_demuxer;
 extern const AVInputFormat  ff_image_pgm_pipe_demuxer;
 extern const AVInputFormat  ff_image_pgx_pipe_demuxer;
+extern const AVInputFormat  ff_image_phm_pipe_demuxer;
 extern const AVInputFormat  ff_image_photocd_pipe_demuxer;
 extern const AVInputFormat  ff_image_pictor_pipe_demuxer;
 extern const AVInputFormat  ff_image_png_pipe_demuxer;
 extern const AVInputFormat  ff_image_ppm_pipe_demuxer;
 extern const AVInputFormat  ff_image_psd_pipe_demuxer;
 extern const AVInputFormat  ff_image_qdraw_pipe_demuxer;
+extern const AVInputFormat  ff_image_qoi_pipe_demuxer;
 extern const AVInputFormat  ff_image_sgi_pipe_demuxer;
 extern const AVInputFormat  ff_image_svg_pipe_demuxer;
 extern const AVInputFormat  ff_image_sunrast_pipe_demuxer;
 extern const AVInputFormat  ff_image_tiff_pipe_demuxer;
+extern const AVInputFormat  ff_image_vbn_pipe_demuxer;
 extern const AVInputFormat  ff_image_webp_pipe_demuxer;
 extern const AVInputFormat  ff_image_xbm_pipe_demuxer;
 extern const AVInputFormat  ff_image_xpm_pipe_demuxer;
