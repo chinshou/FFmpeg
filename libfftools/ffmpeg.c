@@ -329,7 +329,9 @@ static void term_exit_sigsafe(void)
 void term_exit(void)
 {
     av_log(NULL, AV_LOG_QUIET, "%s", "");
+#if 0    
     term_exit_sigsafe();
+#endif    
 }
 
 static volatile int received_sigterm = 0;
@@ -399,6 +401,7 @@ static BOOL WINAPI CtrlHandler(DWORD fdwCtrlType)
 
 void term_init(void)
 {
+#if 0
 #if defined __linux__
     struct sigaction action = {0};
     action.sa_handler = sigterm_handler;
@@ -442,6 +445,7 @@ void term_init(void)
 #endif
 #if HAVE_SETCONSOLECTRLHANDLER
     SetConsoleCtrlHandler((PHANDLER_ROUTINE) CtrlHandler, TRUE);
+#endif
 #endif
 }
 
@@ -508,11 +512,15 @@ static void ffmpeg_cleanup(int ret)
 {
     int i, j;
 
+#if 0
     if (do_benchmark) {
         int maxrss = getmaxrss() / 1024;
         av_log(NULL, AV_LOG_INFO, "bench: maxrss=%ikB\n", maxrss);
     }
-
+#endif    
+    if (ffmpeg_exited)
+      return;
+      
     for (i = 0; i < nb_filtergraphs; i++) {
         FilterGraph *fg = filtergraphs[i];
         avfilter_graph_free(&fg->graph);

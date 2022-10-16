@@ -92,7 +92,7 @@ void register_exit(void (*cb)(int ret))
 
 void report_and_exit(int ret)
 {
-    av_log(NULL, AV_LOG_FATAL, "%s\n", av_err2str(ret));
+    av_log(NULL, AV_LOG_FATAL, "report_and_exit %d\n", ret);
     exit_program(AVUNERROR(ret));
 }
 
@@ -100,6 +100,7 @@ void exit_program(int ret)
 {
     if (program_exit)
         program_exit(ret);
+    program_exit = NULL;
 
     //exit(ret);
 }

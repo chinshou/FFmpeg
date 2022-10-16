@@ -180,7 +180,7 @@ int auto_conversion_filters = 1;
 int64_t stats_period = 500000;
 
 
-static int file_overwrite     = 0;
+static int file_overwrite     = 1;
 static int no_file_overwrite  = 0;
 #if FFMPEG_OPT_PSNR
 static int do_psnr            = 0;
@@ -1105,6 +1105,7 @@ static void assert_file_overwrite(const char *filename)
 {
     const char *proto_name = avio_find_protocol_name(filename);
 
+#if 0
     if (file_overwrite && no_file_overwrite) {
         fprintf(stderr, "Error, both -y and -n supplied. Exiting.\n");
         exit_program(1);
@@ -1129,6 +1130,7 @@ static void assert_file_overwrite(const char *filename)
             }
         }
     }
+#endif    
 
     if (proto_name && !strcmp(proto_name, "file")) {
         for (int i = 0; i < nb_input_files; i++) {
