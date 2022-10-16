@@ -21,6 +21,7 @@
 
 #include <stdatomic.h>
 #include "libavformat/internal.h"
+#include "libavutil/thread.h"
 #include "avformat.h"
 
 /* (de)muxers */

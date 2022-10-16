@@ -10,11 +10,11 @@ export PKG_CONFIG_PATH=/usr/x86_64-mingw32/lib/pkgconfig/
  --enable-libx264 --enable-libbluray --enable-libvo-amrwbenc \
  --enable-openssl  --disable-ffplay --enable-libcelt \
  --enable-libwebp --enable-libxml2 --enable-libsrt --enable-decklink \
- --disable-muxer=encx \
+ --disable-muxer=encx --enable-libdav1d \
  --disable-muxer=encx_audio \
  --disable-demuxer=encx_audio \
  --disable-demuxer=encx \
- --enable-libx265 \
+ --enable-libx265 --enable-libmfx \
  --enable-libxavs --disable-outdev=sdl --extra-cflags="-I/usr/x86_64-mingw32/include -I/home/hubdog/Projects/ffmpeg-win/BlackmagicDeckLinkSDK11.0/Win/include"  \
  --extra-ldflags="-L/usr/x86_64-mingw32/lib -static -static-libgcc -static-libstdc++ "  \
  --extra-cxxflags="-I/home/hubdog/Projects/ffmpeg-win/BlackmagicDeckLinkSDK11.0/Win/include "  \

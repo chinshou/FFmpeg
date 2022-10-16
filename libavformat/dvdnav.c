@@ -10,6 +10,8 @@
 #include "lang.h"
 #include "dvd.h"
 
+
+#include "../libavutil/mem.h"
 #include "../libavutil/log.h"
 #include "../libavutil/avstring.h"
 
@@ -18,6 +20,8 @@
 #include <dvdread/ifo_read.h>
 #include <dvdread/ifo_print.h>
 #include <dvdread/nav_read.h>
+#include <stdio.h>
+#include <string.h>
 #include "dvdint.h"
 
 #define DVD_READ_CACHE 1

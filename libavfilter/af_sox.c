@@ -254,7 +254,7 @@ AVFilter ff_af_sox = {
     .priv_class    = &sox_class,
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
+    FILTER_QUERY_FUNC(query_formats),
     .inputs = (const AVFilterPad[]) {
         {
             .name             = "default",

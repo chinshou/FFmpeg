@@ -130,6 +130,7 @@ Component options:
   --disable-avformat       disable libavformat build
   --disable-swresample     disable libswresample build
   --disable-swscale        disable libswscale build
+  --disable-fftools        disable libfftools build
   --disable-postproc       disable libpostproc build
   --disable-avfilter       disable libavfilter build
   --disable-pthreads       disable pthreads [autodetect]
@@ -1962,6 +1963,7 @@ LIBRARY_LIST="
     avcodec
     swresample
     avutil
+    fftools
 "
 
 LICENSE_LIST="
@@ -3840,6 +3842,9 @@ swscale_suggest="libm stdatomic"
 avcodec_extralibs="pthreads_extralibs iconv_extralibs dxva2_extralibs lcms2_extralibs"
 avfilter_extralibs="pthreads_extralibs"
 avutil_extralibs="d3d11va_extralibs nanosleep_extralibs pthreads_extralibs vaapi_drm_extralibs vaapi_x11_extralibs vdpau_x11_extralibs"
+
+fftools_deps="avutil avfilter swscale avcodec avdevice avformat swresample"
+fftools_suggest="libm libsoxr stdatomic"
 
 # programs
 ffmpeg_deps="avcodec avfilter avformat threads"
@@ -7126,7 +7131,7 @@ EOF
 
 # add some linker flags
 check_ldflags -Wl,--warn-common
-check_ldflags -Wl,-rpath-link=:libpostproc:libswresample:libswscale:libavfilter:libavdevice:libavformat:libavcodec:libavutil
+check_ldflags -Wl,-rpath-link=:libpostproc:libswresample:libswscale:libavfilter:libavdevice:libavformat:libavcodec:libavutil:libfftools
 enabled rpath && add_ldexeflags -Wl,-rpath,$libdir && add_ldsoflags -Wl,-rpath,$libdir
 test_ldflags -Wl,-Bsymbolic && append SHFLAGS -Wl,-Bsymbolic
 
@@ -8002,6 +8007,7 @@ extralibs_avfilter="$avfilter_extralibs"
 extralibs_postproc="$postproc_extralibs"
 extralibs_swscale="$swscale_extralibs"
 extralibs_swresample="$swresample_extralibs"
+extralibs_fftools="$fftools_extralibs"
 EOF
 
 for lib in $LIBRARY_LIST; do

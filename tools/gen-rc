@@ -45,6 +45,7 @@ EOF
 # gen-rc libpostproc   "FFmpeg postprocessing library"
 # gen-rc libswscale    "FFmpeg image rescaling library"
 # gen-rc libswresample "FFmpeg audio resampling library"
+# gen-rc libfftools    "FFmpeg converter library"
 
 ## Sanity checks and argument parsing
 if test $# -lt 2 || test $# -gt 3; then
