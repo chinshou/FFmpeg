@@ -47,6 +47,7 @@
 #include "libavutil/eval.h"
 #include "libavutil/dict.h"
 #include "libavutil/opt.h"
+#include "ffmpeg.h"
 #include "cmdutils.h"
 #include "fopen_utf8.h"
 #include "opt_common.h"
@@ -101,7 +102,12 @@ void exit_program(int ret)
     if (program_exit)
         program_exit(ret);
     program_exit = NULL;
-
+    extern EncodeCallback* enc_callback;
+    
+    if (enc_callback && enc_callback->do_error){
+      if (ret)
+      	enc_callback->do_error(enc_callback->owner, ret); 
+    } 
     //exit(ret);
 }
 

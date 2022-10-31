@@ -891,7 +891,7 @@ static int guess_input_channel_layout(InputStream *ist)
 
 /* Add all the streams from the given input file to the global
  * list of input streams. */
-static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
+static void add_input_streams(OptionsContext *o, AVFormatContext *ic, int64_t seek_time)
 {
     int i, ret;
 
@@ -920,6 +920,7 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
         ist->max_pts = INT64_MIN;
 
         ist->ts_scale = 1.0;
+        ist->seek_time = seek_time;
         MATCH_PER_STREAM_OPT(ts_scale, dbl, ist->ts_scale, ic, st);
 
         ist->autorotate = 1;
@@ -1358,9 +1359,10 @@ static int open_input_file(OptionsContext *o, const char *filename)
     if (!o->seek_timestamp && ic->start_time != AV_NOPTS_VALUE)
         timestamp += ic->start_time;
 
+    int64_t seek_timestamp = 0;
     /* if seeking requested, we execute it */
     if (o->start_time != AV_NOPTS_VALUE) {
-        int64_t seek_timestamp = timestamp;
+        seek_timestamp = timestamp;
 
         if (!(ic->iformat->flags & AVFMT_SEEK_TO_PTS)) {
             int dts_heuristic = 0;
@@ -1383,7 +1385,7 @@ static int open_input_file(OptionsContext *o, const char *filename)
     }
 
     /* update the current parameters so that they match the one of the input stream */
-    add_input_streams(o, ic);
+    add_input_streams(o, ic, seek_timestamp);
 
     /* dump the file content */
     av_dump_format(ic, nb_input_files, filename, 0);
@@ -1736,7 +1738,9 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
         av_dict_set(&ost->swr_opts, "output_sample_bits", "24", 0);
 
     ost->source_index = source_index;
+    ost->sync_ist = NULL;
     if (source_index >= 0) {
+        ost->sync_ist = input_streams[source_index];
         input_streams[source_index]->discard = 0;
         input_streams[source_index]->st->discard = input_streams[source_index]->user_set_discard;
     }
@@ -2667,15 +2671,16 @@ loop_end:
         if(o->    data_disable && ist->st->codecpar->codec_type == AVMEDIA_TYPE_DATA)
             return;
 
+		OutputStream* ost= NULL;
         switch (ist->st->codecpar->codec_type) {
-        case AVMEDIA_TYPE_VIDEO:      new_video_stream     (o, oc, src_idx); break;
-        case AVMEDIA_TYPE_AUDIO:      new_audio_stream     (o, oc, src_idx); break;
-        case AVMEDIA_TYPE_SUBTITLE:   new_subtitle_stream  (o, oc, src_idx); break;
-        case AVMEDIA_TYPE_DATA:       new_data_stream      (o, oc, src_idx); break;
-        case AVMEDIA_TYPE_ATTACHMENT: new_attachment_stream(o, oc, src_idx); break;
+        case AVMEDIA_TYPE_VIDEO:      ost = new_video_stream     (o, oc, src_idx); break;
+        case AVMEDIA_TYPE_AUDIO:      ost = new_audio_stream     (o, oc, src_idx); break;
+        case AVMEDIA_TYPE_SUBTITLE:   ost = new_subtitle_stream  (o, oc, src_idx); break;
+        case AVMEDIA_TYPE_DATA:       ost = new_data_stream      (o, oc, src_idx); break;
+        case AVMEDIA_TYPE_ATTACHMENT: ost = new_attachment_stream(o, oc, src_idx); break;
         case AVMEDIA_TYPE_UNKNOWN:
             if (copy_unknown_streams) {
-                new_unknown_stream   (o, oc, src_idx);
+                ost = new_unknown_stream   (o, oc, src_idx);
                 break;
             }
         default:
@@ -2690,6 +2695,9 @@ loop_end:
                 exit_program(1);
             }
         }
+
+	if (ost)
+		ost->sync_ist = ist;
     }
 }
 

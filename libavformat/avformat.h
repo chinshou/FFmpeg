@@ -537,7 +537,6 @@ typedef struct AVOutputFormat {
 
     const AVClass *priv_class; ///< AVClass for the private context
     
-    struct AVOutputFormat *next;
     /*****************************************************************
      * No fields below this line are part of the public API. They
      * may not be used outside of libavformat and can be changed and
@@ -692,8 +691,6 @@ typedef struct AVInputFormat {
      * @see av_probe_input_format2
      */
     const char *mime_type;
-    
-    struct AVInputFormat *next;
 
     /*****************************************************************
      * No fields below this line are part of the public API. They
@@ -1865,7 +1862,6 @@ const char *avformat_configuration(void);
  */
 const char *avformat_license(void);
 
-void av_register_all(void);
 void av_register_input_format(AVInputFormat *format);
 void av_register_output_format(AVOutputFormat *format);
 
@@ -1890,20 +1886,6 @@ int avformat_network_init(void);
  * once for each time you called avformat_network_init.
  */
 int avformat_network_deinit(void);
-
-/**
- * If f is NULL, returns the first registered input format,
- * if f is non-NULL, returns the next registered input format after f
- * or NULL if f is the last one.
- */
-AVInputFormat  *av_iformat_next(const AVInputFormat  *f);
-
-/**
- * If f is NULL, returns the first registered output format,
- * if f is non-NULL, returns the next registered output format after f
- * or NULL if f is the last one.
- */
-AVOutputFormat *av_oformat_next(const AVOutputFormat *f);
 
 /**
  * Iterate over all registered muxers.

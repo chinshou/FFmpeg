@@ -154,6 +154,8 @@ int         nb_output_files   = 0;
 FilterGraph **filtergraphs;
 int        nb_filtergraphs;
 
+EncodeCallback* enc_callback = NULL;
+
 #if HAVE_TERMIOS_H
 
 /* init terminal so that we can grab keys */
@@ -165,6 +167,22 @@ static int restore_tty;
    Convert subtitles to video with alpha to insert them in filter graphs.
    This is a temporary solution until libavfilter gets real subtitles support.
  */
+static double get_current_pts(OutputStream* ost){
+  
+  if (ost->sync_ist) 
+    return ((ost->sync_ist->pts - ost->sync_ist->seek_time) / AV_TIME_BASE);
+  else
+    return av_stream_get_end_pts(ost->st) * av_q2d(ost->st->time_base);
+   
+}
+
+static double get_duration(AVFormatContext* ic){
+  if (ic->duration != AV_NOPTS_VALUE)
+    //seconds
+    return ic->duration / AV_TIME_BASE;
+  
+  return 0;
+}
 
 static int sub2video_get_blank_frame(InputStream *ist)
 {
@@ -328,7 +346,7 @@ static void term_exit_sigsafe(void)
 
 void term_exit(void)
 {
-    av_log(NULL, AV_LOG_QUIET, "%s", "");
+    av_log(NULL, AV_LOG_QUIET, "term_exit %s", "");
 #if 0    
     term_exit_sigsafe();
 #endif    
@@ -591,6 +609,20 @@ static void ffmpeg_cleanup(int ret)
 
         av_dict_free(&ost->sws_dict);
         av_dict_free(&ost->swr_opts);
+
+        //free resource related with bitmap conversion
+        if (ost->enc_ctx && ost->enc_ctx->codec_type == AVMEDIA_TYPE_VIDEO)
+        {
+		if (ost->sws_ctx)
+		  sws_freeContext(ost->sws_ctx);
+		if (ost->sws_ctx_chg)
+		  sws_freeContext(ost->sws_ctx_chg);
+		//todo:fixme it seems failed with align free
+		//if (ost->frame_rgb)
+		//  av_frame_free(ost->frame_rgb);
+		//if (ost->rgb_buf)
+		//  av_free(ost->rgb_buf);      
+        }
 
         if (ost->enc_ctx)
             av_freep(&ost->enc_ctx->stats_in);
@@ -1431,7 +1463,21 @@ static int reap_filters(int flush)
             case AVMEDIA_TYPE_VIDEO:
                 if (!ost->frame_aspect_ratio.num)
                     enc->sample_aspect_ratio = filtered_frame->sample_aspect_ratio;
-
+#if 1
+                if (enc_callback && enc_callback->video_buffer){
+                    int modified = 0;
+                    
+                    if (ost->sws_ctx){
+           	         sws_scale(ost->sws_ctx, filtered_frame->data, filtered_frame->linesize, 0,
+	                  	ost->filter->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
+	                 enc_callback->video_buffer(enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
+	                 if (modified){
+	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
+	                       ost->filter->filter->inputs[0]->h, filtered_frame->data, filtered_frame->linesize);
+	                 }
+                    }
+                }
+#endif                                    
                 do_video_out(of, ost, filtered_frame);
                 break;
             case AVMEDIA_TYPE_AUDIO:
@@ -1441,6 +1487,10 @@ static int reap_filters(int flush)
                            "Audio filter graph output is not normalized and encoder does not support parameter changes\n");
                     break;
                 }
+                if (enc_callback && enc_callback->audio_buffer){
+                	enc_callback->audio_buffer(enc_callback->owner, filtered_frame, get_current_pts(ost));
+                }
+                
                 do_audio_out(of, ost, filtered_frame);
                 break;
             default:
@@ -2995,6 +3045,7 @@ static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
     AVCodecContext *dec_ctx = NULL;
     OutputFile      *of = output_files[ost->file_index];
     int ret;
+    int picture_size = 0;
 
     set_encoder_id(output_files[ost->file_index], ost);
 
@@ -3130,6 +3181,15 @@ static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
                 parse_forced_key_frames(ost->forced_keyframes, ost, ost->enc_ctx);
             }
         }
+        ost->sws_ctx = sws_getContext(enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, enc_ctx->width, enc_ctx->height, AV_PIX_FMT_RGB32, SWS_BICUBIC, NULL, NULL, NULL);
+        ost->sws_ctx_chg = sws_getContext(enc_ctx->width, enc_ctx->height, AV_PIX_FMT_RGB32, enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, SWS_BICUBIC, NULL, NULL, NULL);        
+        ost->frame_rgb = av_frame_alloc();       
+        picture_size = av_image_get_buffer_size(AV_PIX_FMT_RGB32, enc_ctx->width, enc_ctx->height,1);
+        ost->frame_rgb->width= enc_ctx->width;
+        ost->frame_rgb->height= enc_ctx->height;
+                
+        ost->rgb_buf = av_malloc(picture_size);
+        av_image_fill_arrays(ost->frame_rgb->data,ost->frame_rgb->linesize, ost->rgb_buf, AV_PIX_FMT_RGB32, enc_ctx->width,enc_ctx->height, 1);
         break;
     case AVMEDIA_TYPE_SUBTITLE:
         enc_ctx->time_base = AV_TIME_BASE_Q;
@@ -3952,6 +4012,8 @@ static int transcode_from_filter(FilterGraph *graph, InputStream **best_ist)
     return 0;
 }
 
+
+
 /**
  * Run a single step of transcoding.
  *
@@ -4032,6 +4094,15 @@ static int transcode_step(void)
     }
 
     ret = process_input(ist->file_index);
+    
+    //report encode progress
+    if (enc_callback && enc_callback->encode_progress){
+    	double current = get_current_pts(ost);
+    	double duration = get_duration(input_files[ist->file_index]->ctx);
+    	
+    	enc_callback->encode_progress(enc_callback->owner, current, duration);
+    }
+        
     if (ret == AVERROR(EAGAIN)) {
         if (input_files[ist->file_index]->eagain)
             ost->unavailable = 1;
@@ -4074,9 +4145,24 @@ static int transcode(void)
         int64_t cur_time= av_gettime_relative();
 
         /* if 'q' pressed, exits */
-        if (stdin_interaction)
-            if (check_keyboard_interaction(cur_time) < 0)
-                break;
+        //if (stdin_interaction)
+        //    if (check_keyboard_interaction(cur_time) < 0)
+        //        break;
+        int state = 0;
+        if (enc_callback ){
+               enc_callback->check_state(enc_callback->owner, &state);
+        	if (1==state ){
+        	  //stop
+        	  //sigterm_handler(SIGINT);
+        	  break;
+        	}
+        	else if (2==state)
+        	  //pause
+        	{
+        	  av_usleep(10000);
+        	  continue;        	
+        	}        	  
+        }
 
         /* check if there's any stream where output is still needed */
         if (!need_output()) {
@@ -4216,10 +4302,12 @@ static int64_t getmaxrss(void)
 #endif
 }
 
-int ffmpeg_main(int argc, char **argv)
+int ffmpeg_main(int argc, char **argv, EncodeCallback* callback)
 {
     int ret;
     BenchmarkTimeStamps ti;
+    
+    enc_callback = callback;
 
     init_dynload();
 
@@ -4278,6 +4366,10 @@ int ffmpeg_main(int argc, char **argv)
     if ((decode_error_stat[0] + decode_error_stat[1]) * max_error_rate < decode_error_stat[1])
         exit_program(69);
 
-    exit_program(received_nb_signals ? 255 : main_return_code);
+    //exit_program(received_nb_signals ? 255 : main_return_code);
+    ffmpeg_cleanup(received_nb_signals ? 255 : main_return_code);
+    if (enc_callback && enc_callback->finish){
+    	enc_callback->finish(enc_callback->owner);
+    }
     return main_return_code;
 }

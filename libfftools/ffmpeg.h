@@ -48,6 +48,8 @@
 #include "libavutil/threadmessage.h"
 
 #include "libswresample/swresample.h"
+#include "libswscale/swscale.h"
+#include "libswscale/swscale_internal.h"
 
 // deprecated features
 #define FFMPEG_OPT_PSNR 1
@@ -419,6 +421,7 @@ typedef struct InputStream {
     int nb_dts_buffer;
 
     int got_output;
+    int64_t seek_time;
 } InputStream;
 
 typedef struct LastFrameDuration {
@@ -475,6 +478,16 @@ enum forced_keyframes_const {
     FKF_NB
 };
 
+typedef struct EncodeCallback {
+    void* owner;
+    void (*check_state)(void* owner, int* state);
+    void (*encode_progress)(void* owner,double current, double duration);
+    void (*video_buffer)(void* owner,AVFrame* filter_frame, double ts, int* modified);
+    void (*audio_buffer)(void* owner,AVFrame* filter_frame, double ts);            
+    void (*finish)(void* owner);
+    void (*do_error)(void* owner, int error_code);            
+}EncodeCallback;
+
 #define ABORT_ON_FLAG_EMPTY_OUTPUT        (1 <<  0)
 #define ABORT_ON_FLAG_EMPTY_OUTPUT_STREAM (1 <<  1)
 
@@ -490,6 +503,7 @@ typedef struct OutputStream {
     int index;               /* stream index in the output file */
     int source_index;        /* InputStream index */
     AVStream *st;            /* stream in the output file */
+    InputStream *sync_ist;      /* stream in the output file */
     /* number of frames emitted by the video-encoding sync code */
     int64_t vsync_frame_number;
     /* predicted pts of the next frame to be encoded
@@ -610,6 +624,12 @@ typedef struct OutputStream {
 
     int sq_idx_encode;
     int sq_idx_mux;
+    
+    SwsContext* sws_ctx;
+    SwsContext* sws_ctx_chg;
+    void* rgb_buf;
+    AVFrame* frame_rgb;
+    
 } OutputStream;
 
 typedef struct Muxer Muxer;
@@ -685,7 +705,7 @@ extern HWDevice *filter_hw_device;
 extern unsigned nb_output_dumped;
 extern int main_return_code;
 
-int ffmpeg_main(int argc, char **argv);
+int ffmpeg_main(int argc, char **argv, EncodeCallback* callback);
 void term_init(void);
 void term_exit(void);
 
