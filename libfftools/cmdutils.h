@@ -34,6 +34,11 @@
 #undef main /* We don't want SDL to override our main() */
 #endif
 
+
+#define EXIT_PG_NULL {exit_program(1);return NULL;}
+#define EXIT_PG {exit_program(1);return;}
+#define EXIT_PG_INT {exit_program(1);return -1;}
+
 /**
  * program name, defined by the program for show_version().
  */
@@ -63,12 +68,12 @@ void register_exit(void (*cb)(int ret));
  *       library functions can return both, so call this only
  *       with AVERROR(EFOO) of your own.
  */
-void report_and_exit(int ret) av_noreturn;
+void report_and_exit(int ret);// av_noreturn;
 
 /**
  * Wraps exit with a program-specific cleanup routine.
  */
-void exit_program(int ret) av_noreturn;
+void exit_program(int ret);// av_noreturn;
 
 /**
  * Initialize dynamic library loading
