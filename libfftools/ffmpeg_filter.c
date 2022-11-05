@@ -118,8 +118,10 @@ static const char *choose_pix_fmts(OutputFilter *ofilter, AVBPrint *bprint)
             const char *name = av_get_pix_fmt_name(*p);
             av_bprintf(bprint, "%s%c", name, p[1] == AV_PIX_FMT_NONE ? '\0' : '|');
         }
-        if (!av_bprint_is_complete(bprint))
-            report_and_exit(AVERROR(ENOMEM));
+        if (!av_bprint_is_complete(bprint)){
+            report_and_exit(20);
+            return NULL;
+        }
         return bprint->str;
     } else
         return NULL;
@@ -182,8 +184,10 @@ int init_simple_filtergraph(InputStream *ist, OutputStream *ost)
     OutputFilter *ofilter;
     InputFilter  *ifilter;
 
-    if (!fg)
-        report_and_exit(AVERROR(ENOMEM));
+    if (!fg){
+        report_and_exit(21);
+        return 0;
+    }
     fg->index = nb_filtergraphs;
 
     ofilter = ALLOC_ARRAY_ELEM(fg->outputs, fg->nb_outputs);
@@ -199,8 +203,10 @@ int init_simple_filtergraph(InputStream *ist, OutputStream *ost)
     ifilter->format = -1;
 
     ifilter->frame_queue = av_fifo_alloc2(8, sizeof(AVFrame*), AV_FIFO_FLAG_AUTO_GROW);
-    if (!ifilter->frame_queue)
-        report_and_exit(AVERROR(ENOMEM));
+    if (!ifilter->frame_queue){
+        report_and_exit(22);
+        return 0;
+    }
 
     GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = ifilter;
@@ -223,8 +229,10 @@ static char *describe_filter_link(FilterGraph *fg, AVFilterInOut *inout, int in)
     else
         res = av_asprintf("%s:%s", ctx->filter->name,
                           avfilter_pad_get_name(pads, inout->pad_idx));
-    if (!res)
-        report_and_exit(AVERROR(ENOMEM));
+    if (!res){
+        report_and_exit(23);
+        return NULL;
+    }
     return res;
 }
 
@@ -239,7 +247,7 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
     if (type != AVMEDIA_TYPE_VIDEO && type != AVMEDIA_TYPE_AUDIO) {
         av_log(NULL, AV_LOG_FATAL, "Only video and audio filters supported "
                "currently.\n");
-        exit_program(1);
+        EXIT_PG;
     }
 
     if (in->name) {
@@ -251,7 +259,7 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
         if (file_idx < 0 || file_idx >= nb_input_files) {
             av_log(NULL, AV_LOG_FATAL, "Invalid file index %d in filtergraph description %s.\n",
                    file_idx, fg->graph_desc);
-            exit_program(1);
+            EXIT_PG;
         }
         s = input_files[file_idx]->ctx;
 
@@ -269,13 +277,13 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
         if (!st) {
             av_log(NULL, AV_LOG_FATAL, "Stream specifier '%s' in filtergraph description %s "
                    "matches no streams.\n", p, fg->graph_desc);
-            exit_program(1);
+            EXIT_PG;
         }
         ist = input_streams[input_files[file_idx]->ist_index + st->index];
         if (ist->user_set_discard == AVDISCARD_ALL) {
             av_log(NULL, AV_LOG_FATAL, "Stream specifier '%s' in filtergraph description %s "
                    "matches a disabled input stream.\n", p, fg->graph_desc);
-            exit_program(1);
+            EXIT_PG;
         }
     } else {
         /* find the first unused stream of corresponding type */
@@ -290,7 +298,7 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
             av_log(NULL, AV_LOG_FATAL, "Cannot find a matching stream for "
                    "unlabeled input pad %d on filter %s\n", in->pad_idx,
                    in->filter_ctx->name);
-            exit_program(1);
+            EXIT_PG;
         }
     }
     av_assert0(ist);
@@ -308,8 +316,10 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
     ifilter->name   = describe_filter_link(fg, in, 1);
 
     ifilter->frame_queue = av_fifo_alloc2(8, sizeof(AVFrame*), AV_FIFO_FLAG_AUTO_GROW);
-    if (!ifilter->frame_queue)
-        report_and_exit(AVERROR(ENOMEM));
+    if (!ifilter->frame_queue){
+        report_and_exit(24);
+        return;
+    }
 
     GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = ifilter;
@@ -637,7 +647,7 @@ static int configure_output_filter(FilterGraph *fg, OutputFilter *ofilter,
 {
     if (!ofilter->ost) {
         av_log(NULL, AV_LOG_FATAL, "Filter %s has an unconnected output\n", ofilter->name);
-        exit_program(1);
+        EXIT_PG_NULL;
     }
 
     switch (avfilter_pad_get_type(out->filter_ctx->output_pads, out->pad_idx)) {
@@ -656,7 +666,7 @@ void check_filter_outputs(void)
             OutputFilter *output = filtergraphs[i]->outputs[n];
             if (!output->ost) {
                 av_log(NULL, AV_LOG_FATAL, "Filter %s has an unconnected output\n", output->name);
-                exit_program(1);
+                EXIT_PG;
             }
         }
     }

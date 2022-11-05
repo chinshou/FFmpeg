@@ -706,6 +706,7 @@ extern unsigned nb_output_dumped;
 extern int main_return_code;
 
 int ffmpeg_main(int argc, char **argv, EncodeCallback* callback);
+void ffmpeg_cleanup(int ret);
 void term_init(void);
 void term_exit(void);
 

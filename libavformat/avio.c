@@ -186,7 +186,6 @@ int ffurl_connect(URLContext *uc, AVDictionary **options)
     int err;
     AVDictionary *tmp_opts = NULL;
     AVDictionaryEntry *e;
-
     if (!options)
         options = &tmp_opts;
 
@@ -304,7 +303,6 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     if (av_strstart(filename, "https:", NULL) || av_strstart(filename, "tls:", NULL))
         av_log(NULL, AV_LOG_WARNING, "https protocol not found, recompile FFmpeg with "
                                      "openssl, gnutls or securetransport enabled.\n");
-
     const URLProtocol *up = NULL;
       while (up = ffurl_protocol_next(up)) {
           if (!strcmp(proto_str, up->name))

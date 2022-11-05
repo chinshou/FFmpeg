@@ -648,7 +648,7 @@ static unsigned get_codecs_sorted(const AVCodecDescriptor ***rcodecs)
     while ((desc = avcodec_descriptor_next(desc)))
         nb_codecs++;
     if (!(codecs = av_calloc(nb_codecs, sizeof(*codecs))))
-        report_and_exit(AVERROR(ENOMEM));
+        report_and_exit(50);
     desc = NULL;
     while ((desc = avcodec_descriptor_next(desc)))
         codecs[i++] = desc;

@@ -94,21 +94,31 @@ void register_exit(void (*cb)(int ret))
 void report_and_exit(int ret)
 {
     av_log(NULL, AV_LOG_FATAL, "report_and_exit %d\n", ret);
-    exit_program(AVUNERROR(ret));
+    //exit_program(AVUNERROR(ret));
+    extern int g_state;
+    g_state = 1;
 }
 
 void exit_program(int ret)
 {
+#if 0
     if (program_exit)
         program_exit(ret);
-    program_exit = NULL;
+    else
+        return;
+#endif        
+    extern int g_state;
+    if (g_state)
+    	return;
     extern EncodeCallback* enc_callback;
     
+#if 1    
     if (enc_callback && enc_callback->do_error){
       if (ret)
       	enc_callback->do_error(enc_callback->owner, ret); 
-    } 
-    //exit(ret);
+    }
+#endif     
+    g_state = 1;   
 }
 
 double parse_number_or_die(const char *context, const char *numstr, int type,
@@ -139,7 +149,7 @@ int64_t parse_time_or_die(const char *context, const char *timestr,
     if (av_parse_time(&us, timestr, is_duration) < 0) {
         av_log(NULL, AV_LOG_FATAL, "Invalid %s specification for %s: %s\n",
                is_duration ? "duration" : "date", context, timestr);
-        exit_program(1);
+        EXIT_PG_NULL;
     }
     return us;
 }
@@ -377,7 +387,7 @@ void parse_options(void *optctx, int argc, char **argv, const OptionDef *options
             opt++;
 
             if ((ret = parse_option(optctx, opt, argv[optindex], options)) < 0)
-                exit_program(1);
+                EXIT_PG;
             optindex += ret;
         } else {
             if (parse_arg_function)
@@ -663,7 +673,7 @@ static void init_parse_context(OptionParseContext *octx,
     octx->nb_groups = nb_groups;
     octx->groups    = av_calloc(octx->nb_groups, sizeof(*octx->groups));
     if (!octx->groups)
-        report_and_exit(AVERROR(ENOMEM));
+        report_and_exit(10);
 
     for (i = 0; i < octx->nb_groups; i++)
         octx->groups[i].group_def = &groups[i];
@@ -942,7 +952,7 @@ AVDictionary *filter_codec_opts(AVDictionary *opts, enum AVCodecID codec_id,
             switch (check_stream_specifier(s, st, p + 1)) {
             case  1: *p = 0; break;
             case  0:         continue;
-            default:         exit_program(1);
+            default:         EXIT_PG_NULL;
             }
 
         if (av_opt_find(&cc, t->key, NULL, flags, AV_OPT_SEARCH_FAKE_OBJ) ||
@@ -972,7 +982,7 @@ AVDictionary **setup_find_stream_info_opts(AVFormatContext *s,
         return NULL;
     opts = av_calloc(s->nb_streams, sizeof(*opts));
     if (!opts)
-        report_and_exit(AVERROR(ENOMEM));
+        report_and_exit(11);
     for (i = 0; i < s->nb_streams; i++)
         opts[i] = filter_codec_opts(codec_opts, s->streams[i]->codecpar->codec_id,
                                     s, s->streams[i], NULL);
@@ -982,13 +992,13 @@ AVDictionary **setup_find_stream_info_opts(AVFormatContext *s,
 void *grow_array(void *array, int elem_size, int *size, int new_size)
 {
     if (new_size >= INT_MAX / elem_size) {
-        av_log(NULL, AV_LOG_ERROR, "Array too big.\n");
-        exit_program(1);
+        av_log(NULL, AV_LOG_ERROR, "Array too big %d %d.\n", new_size, elem_size);
+        EXIT_PG_NULL;
     }
     if (*size < new_size) {
         uint8_t *tmp = av_realloc_array(array, new_size, elem_size);
         if (!tmp)
-            report_and_exit(AVERROR(ENOMEM));
+            report_and_exit(12);
         memset(tmp + *size*elem_size, 0, (new_size-*size) * elem_size);
         *size = new_size;
         return tmp;
@@ -1002,7 +1012,7 @@ void *allocate_array_elem(void *ptr, size_t elem_size, int *nb_elems)
 
     if (!(new_elem = av_mallocz(elem_size)) ||
         av_dynarray_add_nofree(ptr, nb_elems, new_elem) < 0)
-        report_and_exit(AVERROR(ENOMEM));
+        report_and_exit(13);
     return new_elem;
 }
 
