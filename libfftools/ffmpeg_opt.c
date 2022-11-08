@@ -1200,7 +1200,6 @@ static int open_input_file(OptionsContext *o, const char *filename)
     char *    data_codec_name = NULL;
     int scan_all_pmts_set = 0;
 
-    av_log(NULL, AV_LOG_ERROR, "Open input file 1\n");
     if (o->stop_time != INT64_MAX && o->recording_time != INT64_MAX) {
         o->stop_time = INT64_MAX;
         av_log(NULL, AV_LOG_WARNING, "-t and -to cannot be used together; using -t.\n");
@@ -1228,10 +1227,9 @@ static int open_input_file(OptionsContext *o, const char *filename)
 
     stdin_interaction &= strncmp(filename, "pipe:", 5) &&
                          strcmp(filename, "/dev/stdin");
-    av_log(NULL, AV_LOG_ERROR, "Open input file 2\n");
+
     /* get default parameters from command line */
     ic = avformat_alloc_context();
-    av_log(NULL, AV_LOG_ERROR, "Open input file 3\n");    
     if (!ic){
         report_and_exit(35);
         return 1;
@@ -1303,9 +1301,7 @@ static int open_input_file(OptionsContext *o, const char *filename)
         scan_all_pmts_set = 1;
     }
     /* open the input file with generic avformat function */
-    av_log(NULL, AV_LOG_ERROR, "Open input file %s 4\n", filename);        
     err = avformat_open_input(&ic, filename, file_iformat, &o->g->format_opts);
-    av_log(NULL, AV_LOG_ERROR, "Open input file 4.1 %d\n", err);        
     if (err < 0) {
         print_error(filename, err);
         if (err == AVERROR_PROTOCOL_NOT_FOUND)
@@ -1317,7 +1313,6 @@ static int open_input_file(OptionsContext *o, const char *filename)
     remove_avoptions(&o->g->format_opts, o->g->codec_opts);
     assert_avoptions(o->g->format_opts);
 
-    av_log(NULL, AV_LOG_ERROR, "Open input file 5\n");        
     /* apply forced codec ids */
     for (i = 0; i < ic->nb_streams; i++)
         choose_decoder(o, ic, ic->streams[i], HWACCEL_NONE, AV_HWDEVICE_TYPE_NONE);
@@ -1477,7 +1472,6 @@ static int open_input_file(OptionsContext *o, const char *filename)
     }
 
     input_stream_potentially_available = 1;
-    av_log(NULL, AV_LOG_ERROR, "Open input file 6\n");            
 
     return 0;
 }
