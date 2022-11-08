@@ -480,6 +480,7 @@ enum forced_keyframes_const {
 
 typedef struct EncodeCallback {
     void* owner;
+    int  flip;
     void (*check_state)(void* owner, int* state);
     void (*encode_progress)(void* owner,double current, double duration);
     void (*video_buffer)(void* owner,AVFrame* filter_frame, double ts, int* modified);
@@ -627,6 +628,7 @@ typedef struct OutputStream {
     
     SwsContext* sws_ctx;
     SwsContext* sws_ctx_chg;
+    int u_sub, v_sub;
     void* rgb_buf;
     AVFrame* frame_rgb;
     
