@@ -22,7 +22,6 @@ OBJS = allfilters.o                                                     \
        graphdump.o                                                      \
        graphparser.o                                                    \
        version.o                                                        \
-       subreader.o  							\
        video.o                                                          \
 
 OBJS-$(HAVE_LIBC_MSVCRT)                     += file_open.o
@@ -623,9 +622,6 @@ SKIPHEADERS-$(CONFIG_OPENCL)                 += opencl.h
 SKIPHEADERS-$(CONFIG_VAAPI)                  += vaapi_vpp.h
 SKIPHEADERS-$(CONFIG_VULKAN)                 += vulkan.h vulkan_filter.h
 
-
-CFLAGS += -I/usr/i686-mingw32/include/ass
-EXTRALIBS += -lass -lfreetype -liconv
 
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats integral
