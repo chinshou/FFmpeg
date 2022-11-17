@@ -70,12 +70,14 @@ struct waveform_ctx {
     int started;    
 	int samplerate;
 	int channels;
-};                                                                                                                                                   
+};                       
+
+static AVFormatContext *cc = NULL;                                                                                                                              
                                                                                                                                                      
 static void CALLBACK waveInProc(HWAVEIN hwi, UINT uMsg, DWORD_PTR dwInstance,                                                                        
                                 DWORD_PTR dwParam1, DWORD_PTR dwParam2)                                                                              
 {                                                                                                                                                    
-    AVFormatContext *s = (AVFormatContext *) dwInstance;                                                                                             
+    AVFormatContext *s = cc;//(AVFormatContext *) dwInstance;                                                                                             
     struct waveform_ctx *ctx = s->priv_data;                                                                                                         
                                                                                                                                                      
     if (uMsg == WIM_DATA) {                                                                                                                          
@@ -190,7 +192,7 @@ static int waveform_read_header(AVFormatContext *s)
         return AVERROR(EIO);                                                                                                                           
     }                                                                                                                                                
                                                                                                                                                      
-    if (!strcmp(s->filename, "list")) {                                                                                                              
+    if (!strcmp(s->url, "list")) {                                                                                                              
         for (i = -1; i < num_devs; i++) {                                                                                                            
             result = waveInGetDevCaps(i, &caps, sizeof(caps));                                                                                       
             if (result != MMSYSERR_NOERROR)                                                                                                          
@@ -212,10 +214,10 @@ static int waveform_read_header(AVFormatContext *s)
             av_log(s, AV_LOG_INFO, " wChannels      %d\n", caps.wChannels);                                                                          
         }                                                                                                                                            
         return AVERROR(EIO);                                                                                                                           
-    } else if (!strcmp(s->filename, "mapper"))                                                                                                       
+    } else if (!strcmp(s->url, "mapper"))                                                                                                       
         device_id = -1; /* WAVE_MAPPER */                                                                                                            
     else                                                                                                                                             
-        device_id = atoi(s->filename);                                                                                                               
+        device_id = atoi(s->url);                                                                                                               
                                                                                                                                                      
     if (device_id < -1 || device_id >= num_devs) {                                                                                                   
         av_log(s, AV_LOG_ERROR, "Invalid device id %d\n", device_id);                                                                                
@@ -249,7 +251,8 @@ static int waveform_read_header(AVFormatContext *s)
     fx.nBlockAlign     = fx.nChannels * (fx.wBitsPerSample >> 3);                                                                                    
     fx.nAvgBytesPerSec = fx.nSamplesPerSec * fx.nBlockAlign;                                                                                         
     fx.cbSize          = 0;                                                                                                                          
-                                                                                                                                                     
+     av_log(s, AV_LOG_ERROR, "wave 4\n");     
+    cc=s;                                                                                                                                                
     for (;;) {                                                                                                                                       
         result = waveInOpen(&ctx->wi, device_id, &fx, (DWORD) waveInProc,                                                                            
                             (DWORD) s, CALLBACK_FUNCTION | WAVE_FORMAT_DIRECT);                                                                      

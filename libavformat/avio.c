@@ -74,9 +74,6 @@ const AVClass ffurl_context_class = {
     .option           = options,
     .version          = LIBAVUTIL_VERSION_INT,
     .child_next       = urlcontext_child_next,
-#if FF_API_CHILD_CLASS_NEXT
-    .child_class_next = ff_urlcontext_child_class_next,
-#endif
     .child_class_iterate = ff_urlcontext_child_class_iterate,
 };
 /*@}*/
@@ -132,11 +129,10 @@ static int url_alloc_for_protocol(URLContext **puc, const URLProtocol *up,
             goto fail;
         }
         if (up->priv_data_class) {
-            int proto_len= strlen(up->name);
-            char *start = strchr(uc->filename, ',');
+            char *start;
             *(const AVClass **)uc->priv_data = up->priv_data_class;
             av_opt_set_defaults(uc->priv_data);
-            if(!strncmp(up->name, uc->filename, proto_len) && uc->filename + proto_len == start){
+            if (av_strstart(uc->filename, up->name, (const char**)&start) && *start == ',') {
                 int ret= 0;
                 char *p= start;
                 char sep= *++p;
@@ -190,7 +186,6 @@ int ffurl_connect(URLContext *uc, AVDictionary **options)
     int err;
     AVDictionary *tmp_opts = NULL;
     AVDictionaryEntry *e;
-
     if (!options)
         options = &tmp_opts;
 
@@ -308,7 +303,6 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     if (av_strstart(filename, "https:", NULL) || av_strstart(filename, "tls:", NULL))
         av_log(NULL, AV_LOG_WARNING, "https protocol not found, recompile FFmpeg with "
                                      "openssl, gnutls or securetransport enabled.\n");
-
     const URLProtocol *up = NULL;
       while (up = ffurl_protocol_next(up)) {
           if (!strcmp(proto_str, up->name))
@@ -345,8 +339,11 @@ int ffurl_open_whitelist(URLContext **puc, const char *filename, int flags,
     int ret = ffurl_alloc(puc, filename, flags, int_cb);
     if (ret < 0)
         return ret;
-    if (parent)
-        av_opt_copy(*puc, parent);
+    if (parent) {
+        ret = av_opt_copy(*puc, parent);
+        if (ret < 0)
+            goto fail;
+    }
     if (options &&
         (ret = av_opt_set_dict(*puc, options)) < 0)
         goto fail;
@@ -380,13 +377,6 @@ int ffurl_open_whitelist(URLContext **puc, const char *filename, int flags,
 fail:
     ffurl_closep(puc);
     return ret;
-}
-
-int ffurl_open(URLContext **puc, const char *filename, int flags,
-               const AVIOInterruptCB *int_cb, AVDictionary **options)
-{
-    return ffurl_open_whitelist(puc, filename, flags,
-                                int_cb, options, NULL, NULL, NULL);
 }
 
 static inline int retry_transfer_wrapper(URLContext *h, uint8_t *buf,
@@ -526,7 +516,7 @@ int avio_check(const char *url, int flags)
     return ret;
 }
 
-int avpriv_io_move(const char *url_src, const char *url_dst)
+int ffurl_move(const char *url_src, const char *url_dst)
 {
     URLContext *h_src, *h_dst;
     int ret = ffurl_alloc(&h_src, url_src, AVIO_FLAG_READ_WRITE, NULL);
@@ -548,7 +538,7 @@ int avpriv_io_move(const char *url_src, const char *url_dst)
     return ret;
 }
 
-int avpriv_io_delete(const char *url)
+int ffurl_delete(const char *url)
 {
     URLContext *h;
     int ret = ffurl_alloc(&h, url, AVIO_FLAG_WRITE, NULL);
@@ -563,6 +553,12 @@ int avpriv_io_delete(const char *url)
     ffurl_close(h);
     return ret;
 }
+
+#if !FF_API_AVIODIRCONTEXT
+struct AVIODirContext {
+    struct URLContext *url_context;
+};
+#endif
 
 int avio_open_dir(AVIODirContext **s, const char *url, AVDictionary **options)
 {
@@ -700,7 +696,7 @@ int ff_check_interrupt(AVIOInterruptCB *cb)
 
 int ff_rename(const char *url_src, const char *url_dst, void *logctx)
 {
-    int ret = avpriv_io_move(url_src, url_dst);
+    int ret = ffurl_move(url_src, url_dst);
     if (ret < 0)
         av_log(logctx, AV_LOG_ERROR, "failed to rename file %s to %s: %s\n", url_src, url_dst, av_err2str(ret));
     return ret;

@@ -32,7 +32,7 @@
 #include "libavutil/timestamp.h"
 
 #include "avcodec.h"
-#include "internal.h"
+#include "decode.h"
 
 #include "mediacodec.h"
 #include "mediacodec_surface.h"
@@ -265,8 +265,7 @@ static void mediacodec_buffer_release(void *opaque, uint8_t *data)
         ff_AMediaCodec_releaseOutputBuffer(ctx->codec, buffer->index, 0);
     }
 
-    if (ctx->delay_flush)
-        ff_mediacodec_dec_unref(ctx);
+    ff_mediacodec_dec_unref(ctx);
     av_freep(&buffer);
 }
 
@@ -293,11 +292,6 @@ static int mediacodec_wrap_hw_buffer(AVCodecContext *avctx,
     } else {
         frame->pts = info->presentationTimeUs;
     }
-#if FF_API_PKT_PTS
-FF_DISABLE_DEPRECATION_WARNINGS
-    frame->pkt_pts = frame->pts;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     frame->pkt_dts = AV_NOPTS_VALUE;
     frame->color_range = avctx->color_range;
     frame->color_primaries = avctx->color_primaries;
@@ -326,8 +320,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
     buffer->ctx = s;
     buffer->serial = atomic_load(&s->serial);
-    if (s->delay_flush)
-        ff_mediacodec_dec_ref(s);
+    ff_mediacodec_dec_ref(s);
 
     buffer->index = index;
     buffer->pts = info->presentationTimeUs;
@@ -386,11 +379,6 @@ static int mediacodec_wrap_sw_buffer(AVCodecContext *avctx,
     } else {
         frame->pts = info->presentationTimeUs;
     }
-#if FF_API_PKT_PTS
-FF_DISABLE_DEPRECATION_WARNINGS
-    frame->pkt_pts = frame->pts;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     frame->pkt_dts = AV_NOPTS_VALUE;
 
     av_log(avctx, AV_LOG_TRACE,
@@ -882,7 +870,7 @@ int ff_mediacodec_dec_receive(AVCodecContext *avctx, MediaCodecDecContext *s,
 */
 int ff_mediacodec_dec_flush(AVCodecContext *avctx, MediaCodecDecContext *s)
 {
-    if (!s->surface || atomic_load(&s->refcount) == 1) {
+    if (!s->surface || !s->delay_flush || atomic_load(&s->refcount) == 1) {
         int ret;
 
         /* No frames (holding a reference to the codec) are retained by the

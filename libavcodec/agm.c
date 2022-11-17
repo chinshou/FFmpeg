@@ -20,18 +20,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #define BITSTREAM_READER_LE
 
+#include "libavutil/mem_internal.h"
+
 #include "avcodec.h"
 #include "bytestream.h"
+#include "codec_internal.h"
 #include "copy_block.h"
+#include "decode.h"
 #include "get_bits.h"
 #include "idctdsp.h"
-#include "internal.h"
 
 static const uint8_t unscaled_luma[64] = {
     16, 11, 10, 16, 24, 40, 51, 61, 12, 12, 14, 19,
@@ -423,8 +424,8 @@ static int decode_inter_plane(AGMContext *s, GetBitContext *gb, int size,
                 int map = s->map[x];
 
                 if (orig_mv_x >= -32) {
-                    if (y * 8 + mv_y < 0 || y * 8 + mv_y + 8 >= h ||
-                        x * 8 + mv_x < 0 || x * 8 + mv_x + 8 >= w)
+                    if (y * 8 + mv_y < 0 || y * 8 + mv_y + 8 > h ||
+                        x * 8 + mv_x < 0 || x * 8 + mv_x + 8 > w)
                         return AVERROR_INVALIDDATA;
 
                     copy_block8(frame->data[plane] + (s->blocks_h - 1 - y) * 8 * frame->linesize[plane] + x * 8,
@@ -591,7 +592,7 @@ static int decode_raw_intra_rgb(AVCodecContext *avctx, GetByteContext *gbyte, AV
     return 0;
 }
 
-static int fill_pixels(uint8_t **y0, uint8_t **y1,
+av_always_inline static int fill_pixels(uint8_t **y0, uint8_t **y1,
                        uint8_t **u, uint8_t **v,
                        int ylinesize, int ulinesize, int vlinesize,
                        uint8_t *fill,
@@ -1091,13 +1092,12 @@ static int decode_huffman2(AVCodecContext *avctx, int header, int size)
     return 0;
 }
 
-static int decode_frame(AVCodecContext *avctx, void *data,
+static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
                         int *got_frame, AVPacket *avpkt)
 {
     AGMContext *s = avctx->priv_data;
     GetBitContext *gb = &s->gb;
     GetByteContext *gbyte = &s->gbyte;
-    AVFrame *frame = data;
     int w, h, width, height, header;
     unsigned compressed_size;
     long skip;
@@ -1283,18 +1283,17 @@ static av_cold int decode_close(AVCodecContext *avctx)
     return 0;
 }
 
-AVCodec ff_agm_decoder = {
-    .name             = "agm",
-    .long_name        = NULL_IF_CONFIG_SMALL("Amuse Graphics Movie"),
-    .type             = AVMEDIA_TYPE_VIDEO,
-    .id               = AV_CODEC_ID_AGM,
+const FFCodec ff_agm_decoder = {
+    .p.name           = "agm",
+    CODEC_LONG_NAME("Amuse Graphics Movie"),
+    .p.type           = AVMEDIA_TYPE_VIDEO,
+    .p.id             = AV_CODEC_ID_AGM,
+    .p.capabilities   = AV_CODEC_CAP_DR1,
     .priv_data_size   = sizeof(AGMContext),
     .init             = decode_init,
     .close            = decode_close,
-    .decode           = decode_frame,
+    FF_CODEC_DECODE_CB(decode_frame),
     .flush            = decode_flush,
-    .capabilities     = AV_CODEC_CAP_DR1,
-    .caps_internal    = FF_CODEC_CAP_INIT_THREADSAFE |
-                        FF_CODEC_CAP_INIT_CLEANUP |
+    .caps_internal    = FF_CODEC_CAP_INIT_CLEANUP |
                         FF_CODEC_CAP_EXPORTS_CROPPING,
 };
