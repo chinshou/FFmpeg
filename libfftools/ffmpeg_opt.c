@@ -1279,14 +1279,29 @@ static int open_input_file(OptionsContext *o, const char *filename)
     MATCH_PER_TYPE_OPT(codec_names, str, subtitle_codec_name, ic, "s");
     MATCH_PER_TYPE_OPT(codec_names, str,     data_codec_name, ic, "d");
 
-    if (video_codec_name)
+    if (video_codec_name){
         ic->video_codec    = find_codec_or_die(video_codec_name   , AVMEDIA_TYPE_VIDEO   , 0);
-    if (audio_codec_name)
+        if (!ic->video_codec)
+           return -1;
+    }
+    if (audio_codec_name){
         ic->audio_codec    = find_codec_or_die(audio_codec_name   , AVMEDIA_TYPE_AUDIO   , 0);
-    if (subtitle_codec_name)
+        if (!ic->audio_codec)
+           return -1;
+        
+    }
+    if (subtitle_codec_name){
         ic->subtitle_codec = find_codec_or_die(subtitle_codec_name, AVMEDIA_TYPE_SUBTITLE, 0);
-    if (data_codec_name)
+        if (!ic->subtitle_codec)
+           return -1;
+        
+    }
+    if (data_codec_name){
         ic->data_codec     = find_codec_or_die(data_codec_name    , AVMEDIA_TYPE_DATA    , 0);
+        if (!ic->data_codec)
+           return -1;
+        
+    }
 
     ic->video_codec_id     = video_codec_name    ? ic->video_codec->id    : AV_CODEC_ID_NONE;
     ic->audio_codec_id     = audio_codec_name    ? ic->audio_codec->id    : AV_CODEC_ID_NONE;
@@ -1550,6 +1565,8 @@ static int choose_encoder(OptionsContext *o, AVFormatContext *s,
             }
         } else if (strcmp(codec_name, "copy")) {
             *enc = find_codec_or_die(codec_name, ost->st->codecpar->codec_type, 1);
+            if (!*enc)
+            	return -1;
             ost->st->codecpar->codec_id = (*enc)->id;
         }
     }

@@ -306,6 +306,8 @@ int av_codec_is_encoder(const AVCodec *codec);
  */
 int av_codec_is_decoder(const AVCodec *codec);
 
+void avcodec_register(AVCodec *codec);
+
 /**
  * Return a name for the specified profile, if available.
  *
