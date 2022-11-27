@@ -481,6 +481,7 @@ enum forced_keyframes_const {
 typedef struct EncodeCallback {
     void* owner;
     int  flip;
+    int  rgb;
     void (*check_state)(void* owner, int* state);
     void (*encode_progress)(void* owner,double current, double duration);
     void (*video_buffer)(void* owner,AVFrame* filter_frame, double ts, int* modified);

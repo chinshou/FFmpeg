@@ -30,6 +30,7 @@
 #include "config.h"
 #include "config_components.h"
 #include "libavutil/thread.h"
+#include "libavutil/log.h"
 #include "codec.h"
 #include "codec_id.h"
 #include "codec_internal.h"
@@ -885,6 +886,9 @@ const FFCodec * codec_list[] = {
 #include "libavcodec/codec_list.c"
 #endif
 
+static int codec_count = 0;
+static FFCodec * codec_list2[100] = {NULL}; 
+
 static AVOnce av_codec_static_init = AV_ONCE_INIT;
 static void av_codec_init_static(void)
 {
@@ -897,17 +901,40 @@ static void av_codec_init_static(void)
 const AVCodec *av_codec_iterate(void **opaque)
 {
     uintptr_t i = (uintptr_t)*opaque;
-    const FFCodec *c = codec_list[i];
+    static const uintptr_t size = sizeof(codec_list)/sizeof(codec_list[0]) - 1;	
+	
+       //av_log(NULL, AV_LOG_ERROR,"iterate codec %d ", i);	
+	if (i<size){
+	    const FFCodec *c = codec_list[i];
 
-    ff_thread_once(&av_codec_static_init, av_codec_init_static);
+	    ff_thread_once(&av_codec_static_init, av_codec_init_static);
 
-    if (c) {
-        *opaque = (void*)(i + 1);
-        return &c->p;
-    }
+	    if (c) {
+	        *opaque = (void*)(i + 1);
+	        return &c->p;
+	    }
+	}
+	else if (i >= size && i< size + codec_count){	
+           av_log(NULL, AV_LOG_ERROR,"found codec %d ", i);			
+	   *opaque = (void*)(i + 1);
+	   return 	&codec_list2[i - size]->p;	
+	}
+    //av_log(NULL, AV_LOG_ERROR,"not found codec size:%d i:%d ",size, i);		
     return NULL;
 }
 
+av_cold void avcodec_register(AVCodec *codec)
+{
+
+    FFCodec* fcodec=(FFCodec*)codec;
+    fcodec->cb_type = FF_CODEC_CB_TYPE_ENCODE;        
+    codec_list2[codec_count++] = fcodec;
+
+    //if (codec->init_static_data)
+    	//codec->init_static_data((FFCodec*)codec);
+    return;
+
+}
 static enum AVCodecID remap_deprecated_codec_id(enum AVCodecID id)
 {
     switch(id){
