@@ -125,14 +125,14 @@ typedef struct FFCodec {
     /**
      * Internal codec capabilities FF_CODEC_CAP_*.
      */
-    unsigned caps_internal:29;
+    unsigned caps_internal;//:29;
 
     /**
      * This field determines the type of the codec (decoder/encoder)
      * and also the exact callback cb implemented by the codec.
      * cb_type uses enum FFCodecType values.
      */
-    unsigned cb_type:3;
+    unsigned cb_type;//:3;
 
     int priv_data_size;
     /**
