@@ -927,7 +927,6 @@ av_cold void avcodec_register(AVCodec *codec)
 {
 
     FFCodec* fcodec=(FFCodec*)codec;
-    fcodec->cb_type = FF_CODEC_CB_TYPE_ENCODE;        
     codec_list2[codec_count++] = fcodec;
 
     //if (codec->init_static_data)
