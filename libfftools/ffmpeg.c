@@ -882,7 +882,7 @@ static int init_output_stream_wrapper(OutputStream *ost, AVFrame *frame,
                ost->file_index, ost->index, error);
 
         if (fatal)
-            EXIT_PG_NULL;
+            EXIT_PG_INT;
     }
 
     return ret;
@@ -2438,7 +2438,7 @@ static int transcode_subtitles(InputStream *ist, AVPacket *pkt, int *got_output,
 
         ret = av_fifo_write(ist->sub2video.sub_queue, &subtitle, 1);
         if (ret < 0)
-            EXIT_PG_NULL;
+            EXIT_PG_INT;
         free_sub = 0;
     }
 
@@ -2590,7 +2590,7 @@ static int process_input_packet(InputStream *ist, const AVPacket *pkt, int no_eo
                        "data for stream #%d:%d\n", ist->file_index, ist->st->index);
             }
             if (!decode_failed || exit_on_error)
-                EXIT_PG_NULL;
+                EXIT_PG_INT;
             break;
         }
 
@@ -2620,7 +2620,7 @@ static int process_input_packet(InputStream *ist, const AVPacket *pkt, int no_eo
         int ret = send_filter_eof(ist);
         if (ret < 0) {
             av_log(NULL, AV_LOG_FATAL, "Error marking filters as finished\n");
-            EXIT_PG_NULL;
+            EXIT_PG_INT;
         }
     }
 
@@ -3332,7 +3332,7 @@ static int init_output_stream(OutputStream *ost, AVFrame *frame,
         if (ret < 0) {
             av_log(NULL, AV_LOG_FATAL,
                    "Error initializing the output stream codec context.\n");
-            EXIT_PG_NULL;
+            EXIT_PG_INT;
         }
 
         if (ost->enc_ctx->nb_coded_side_data) {
@@ -3922,7 +3922,7 @@ static int process_input(int file_index)
         if (ret != AVERROR_EOF) {
             print_error(is->url, ret);
             if (exit_on_error)
-                EXIT_PG_NULL;
+                EXIT_PG_INT;
         }
 
         for (i = 0; i < ifile->nb_streams; i++) {
@@ -4240,7 +4240,7 @@ static int transcode(void)
     for (i = 0; i < nb_output_files; i++) {
         ret = of_write_trailer(output_files[i]);
         if (ret < 0 && exit_on_error)
-            EXIT_PG_NULL;
+            EXIT_PG_INT;
     }
 
     /* dump report by using the first video and audio streams */
@@ -4254,13 +4254,13 @@ static int transcode(void)
         total_packets_written += packets_written;
         if (!packets_written && (abort_on_flags & ABORT_ON_FLAG_EMPTY_OUTPUT_STREAM)) {
             av_log(NULL, AV_LOG_FATAL, "Empty output on stream %d.\n", i);
-            EXIT_PG_NULL;
+            EXIT_PG_INT;
         }
     }
 
     if (!total_packets_written && (abort_on_flags & ABORT_ON_FLAG_EMPTY_OUTPUT)) {
         av_log(NULL, AV_LOG_FATAL, "Empty output\n");
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
     }
 
     /* close each decoder */
@@ -4376,24 +4376,24 @@ int ffmpeg_main(int argc, char **argv, EncodeCallback* callback)
     /* parse options and open all input/output files */
     ret = ffmpeg_parse_options(argc, argv);
     if (ret < 0){
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
     }
 
     if (nb_output_files <= 0 && nb_input_files == 0) {
         //show_usage();
         av_log(NULL, AV_LOG_WARNING, "Use -h to get full help or, even better, run 'man %s'\n", program_name);
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
     }
 
     /* file converter / grab */
     if (nb_output_files <= 0) {
         av_log(NULL, AV_LOG_FATAL, "At least one output file must be specified\n");
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
     }
 
     current_time = ti = get_benchmark_time_stamps();
     if (transcode() < 0)
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
 #if 0        
     if (do_benchmark) {
         int64_t utime, stime, rtime;

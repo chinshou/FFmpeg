@@ -647,7 +647,7 @@ static int configure_output_filter(FilterGraph *fg, OutputFilter *ofilter,
 {
     if (!ofilter->ost) {
         av_log(NULL, AV_LOG_FATAL, "Filter %s has an unconnected output\n", ofilter->name);
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
     }
 
     switch (avfilter_pad_get_type(out->filter_ctx->output_pads, out->pad_idx)) {
