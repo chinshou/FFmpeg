@@ -1248,6 +1248,43 @@ static void do_video_out(OutputFile *of,
 
     init_output_stream_wrapper(ost, next_picture, 1);
     sync_ipts = adjust_frame_pts_to_encoder_tb(of, ost, next_picture);
+    
+#if 1
+                //av_log(NULL, AV_LOG_ERROR, "bitmap flip context 0x%x", ost->sws_ctx);
+                if (enc_callback && enc_callback->video_buffer){
+                    //if (enc_callback->flip==1)
+                      //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
+                                       
+                    if (ost->sws_ctx && next_picture){
+                       int modified = 0;
+                    
+                       AVFrame save_frame= *next_picture;
+
+#if 1
+                        if (enc_callback->flip)
+                        {
+                           //flip the bitmap
+                             //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
+                             save_frame.data[0] += save_frame.linesize[0] * (ost->filter->filter->inputs[0]->h - 1);
+			      save_frame.linesize[0] *= -1;
+
+			      save_frame.data[1] += save_frame.linesize[1] * ((ost->filter->filter->inputs[0]->h >> ost->u_sub)  - 1);
+			      save_frame.linesize[1] *= -1;
+
+			      save_frame.data[2]+=save_frame.linesize[2] * ((ost->filter->filter->inputs[0]->h >> ost->v_sub) - 1);
+			      save_frame.linesize[2] *= -1;
+                        }
+#endif                        
+           	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
+	                  	ost->filter->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
+	                 enc_callback->video_buffer(enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
+	                 if (modified){
+	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
+	                       ost->filter->filter->inputs[0]->h, save_frame.data, save_frame.linesize);
+	                 }
+                    }
+                }
+#endif    
 
     if (ost->source_index >= 0)
         ist = input_streams[ost->source_index];
@@ -1467,41 +1504,7 @@ static int reap_filters(int flush)
             case AVMEDIA_TYPE_VIDEO:
                 if (!ost->frame_aspect_ratio.num)
                     enc->sample_aspect_ratio = filtered_frame->sample_aspect_ratio;
-#if 1
-                if (enc_callback && enc_callback->video_buffer){
-                    int modified = 0;
-                    
-                    AVFrame save_frame= *filtered_frame;
-                    //if (enc_callback->flip==1)
-                      //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
-                                       
-                    if (ost->sws_ctx){
-
-#if 1
-                        if (enc_callback->flip)
-                        {
-                           //flip the bitmap
-                             //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
-                             save_frame.data[0] += save_frame.linesize[0] * (ost->filter->filter->inputs[0]->h - 1);
-			      save_frame.linesize[0] *= -1;
-
-			      save_frame.data[1] += save_frame.linesize[1] * ((ost->filter->filter->inputs[0]->h >> ost->u_sub)  - 1);
-			      save_frame.linesize[1] *= -1;
-
-			      save_frame.data[2]+=save_frame.linesize[2] * ((ost->filter->filter->inputs[0]->h >> ost->v_sub) - 1);
-			      save_frame.linesize[2] *= -1;
-                        }
-#endif                        
-           	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
-	                  	ost->filter->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
-	                 enc_callback->video_buffer(enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
-	                 if (modified){
-	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
-	                       ost->filter->filter->inputs[0]->h, save_frame.data, save_frame.linesize);
-	                 }
-                    }
-                }
-#endif                                    
+                                    
                 do_video_out(of, ost, filtered_frame);
                 break;
             case AVMEDIA_TYPE_AUDIO:
