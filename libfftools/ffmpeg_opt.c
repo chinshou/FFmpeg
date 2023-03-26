@@ -1009,8 +1009,6 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic, int64_t se
 
         ist->dec = choose_decoder(o, ic, st, ist->hwaccel_id, ist->hwaccel_device_type);
         ist->decoder_opts = filter_codec_opts(o->g->codec_opts, ist->st->codecpar->codec_id, ic, st, ist->dec);
-        if (!ist->decoder_opts)
-           return;
 
         ist->reinit_filters = -1;
         MATCH_PER_STREAM_OPT(reinit_filters, i, ist->reinit_filters, ic, st);
@@ -1649,8 +1647,6 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
 
         ost->encoder_opts = filter_codec_opts(o->g->codec_opts, enc->codec_id,
                                               oc, st, enc->codec);
-        if (!ost->encoder_opts)
-          return NULL;
 
         MATCH_PER_STREAM_OPT(presets, str, preset, oc, st);
         ost->autoscale = 1;
