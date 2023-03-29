@@ -37,12 +37,14 @@ FATE_CHECKASM = fate-checkasm-aacpsdsp                                  \
                 fate-checkasm-v210enc                                   \
                 fate-checkasm-vc1dsp                                    \
                 fate-checkasm-vf_blend                                  \
+                fate-checkasm-vf_bwdif                                  \
                 fate-checkasm-vf_colorspace                             \
                 fate-checkasm-vf_eq                                     \
                 fate-checkasm-vf_gblur                                  \
                 fate-checkasm-vf_hflip                                  \
                 fate-checkasm-vf_nlmeans                                \
                 fate-checkasm-vf_threshold                              \
+                fate-checkasm-vf_sobel                                  \
                 fate-checkasm-videodsp                                  \
                 fate-checkasm-vorbisdsp                                 \
                 fate-checkasm-vp8dsp                                    \

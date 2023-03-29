@@ -24,6 +24,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/cpu.h"
 #include "libavutil/film_grain_params.h"
+#include "libavutil/hdr_dynamic_metadata.h"
 #include "libavutil/mastering_display_metadata.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/opt.h"
@@ -41,15 +42,13 @@
 typedef struct Libdav1dContext {
     AVClass *class;
     Dav1dContext *c;
-    /* This packet coincides with AVCodecInternal.in_pkt
-     * and is not owned by us. */
-    AVPacket *pkt;
     AVBufferPool *pool;
     int pool_size;
 
     Dav1dData data;
     int tile_threads;
     int frame_threads;
+    int max_frame_delay;
     int apply_grain;
     int operating_point;
     int all_layers;
@@ -218,8 +217,6 @@ static av_cold int libdav1d_init(AVCodecContext *c)
 #endif
     int res;
 
-    dav1d->pkt = c->internal->in_pkt;
-
     av_log(c, AV_LOG_INFO, "libdav1d %s\n", dav1d_version());
 
     dav1d_default_settings(&s);
@@ -246,7 +243,9 @@ static av_cold int libdav1d_init(AVCodecContext *c)
         s.n_threads = FFMAX(dav1d->frame_threads, dav1d->tile_threads);
     else
         s.n_threads = FFMIN(threads, DAV1D_MAX_THREADS);
-    s.max_frame_delay = (c->flags & AV_CODEC_FLAG_LOW_DELAY) ? 1 : 0;
+    if (dav1d->max_frame_delay > 0 && (c->flags & AV_CODEC_FLAG_LOW_DELAY))
+        av_log(c, AV_LOG_WARNING, "Low delay mode requested, forcing max_frame_delay 1\n");
+    s.max_frame_delay = (c->flags & AV_CODEC_FLAG_LOW_DELAY) ? 1 : dav1d->max_frame_delay;
     av_log(c, AV_LOG_DEBUG, "Using %d threads, %d max_frame_delay\n",
            s.n_threads, s.max_frame_delay);
 #else
@@ -256,8 +255,19 @@ static av_cold int libdav1d_init(AVCodecContext *c)
     s.n_frame_threads = dav1d->frame_threads
                       ? dav1d->frame_threads
                       : FFMIN(ceil(threads / s.n_tile_threads), DAV1D_MAX_FRAME_THREADS);
+    if (dav1d->max_frame_delay > 0)
+        s.n_frame_threads = FFMIN(s.n_frame_threads, dav1d->max_frame_delay);
     av_log(c, AV_LOG_DEBUG, "Using %d frame threads, %d tile threads\n",
            s.n_frame_threads, s.n_tile_threads);
+#endif
+
+#if FF_DAV1D_VERSION_AT_LEAST(6,8)
+    if (c->skip_frame >= AVDISCARD_NONKEY)
+        s.decode_frame_type = DAV1D_DECODEFRAMETYPE_KEY;
+    else if (c->skip_frame >= AVDISCARD_NONINTRA)
+        s.decode_frame_type = DAV1D_DECODEFRAMETYPE_INTRA;
+    else if (c->skip_frame >= AVDISCARD_NONREF)
+        s.decode_frame_type = DAV1D_DECODEFRAMETYPE_REFERENCE;
 #endif
 
     res = libdav1d_parse_extradata(c);
@@ -279,6 +289,13 @@ static void libdav1d_flush(AVCodecContext *c)
     dav1d_flush(dav1d->c);
 }
 
+typedef struct OpaqueData {
+    void    *pkt_orig_opaque;
+#if FF_API_REORDERED_OPAQUE
+    int64_t  reordered_opaque;
+#endif
+} OpaqueData;
+
 static void libdav1d_data_free(const uint8_t *data, void *opaque) {
     AVBufferRef *buf = opaque;
 
@@ -286,8 +303,10 @@ static void libdav1d_data_free(const uint8_t *data, void *opaque) {
 }
 
 static void libdav1d_user_data_free(const uint8_t *data, void *opaque) {
+    AVPacket *pkt = opaque;
     av_assert0(data == opaque);
-    av_free(opaque);
+    av_free(pkt->opaque);
+    av_packet_free(&pkt);
 }
 
 static int libdav1d_receive_frame(AVCodecContext *c, AVFrame *frame)
@@ -295,52 +314,68 @@ static int libdav1d_receive_frame(AVCodecContext *c, AVFrame *frame)
     Libdav1dContext *dav1d = c->priv_data;
     Dav1dData *data = &dav1d->data;
     Dav1dPicture pic = { 0 }, *p = &pic;
+    AVPacket *pkt;
+    OpaqueData *od = NULL;
 #if FF_DAV1D_VERSION_AT_LEAST(5,1)
     enum Dav1dEventFlags event_flags = 0;
 #endif
     int res;
 
     if (!data->sz) {
-        AVPacket *const pkt = dav1d->pkt;
+        pkt = av_packet_alloc();
+
+        if (!pkt)
+            return AVERROR(ENOMEM);
 
         res = ff_decode_get_packet(c, pkt);
-        if (res < 0 && res != AVERROR_EOF)
+        if (res < 0 && res != AVERROR_EOF) {
+            av_packet_free(&pkt);
             return res;
+        }
 
         if (pkt->size) {
             res = dav1d_data_wrap(data, pkt->data, pkt->size,
                                   libdav1d_data_free, pkt->buf);
             if (res < 0) {
-                av_packet_unref(pkt);
+                av_packet_free(&pkt);
                 return res;
             }
 
-            data->m.timestamp = pkt->pts;
-            data->m.offset    = pkt->pos;
-            data->m.duration  = pkt->duration;
-
             pkt->buf = NULL;
-            av_packet_unref(pkt);
 
-            if (c->reordered_opaque != AV_NOPTS_VALUE) {
-                uint8_t *reordered_opaque = av_memdup(&c->reordered_opaque,
-                                                      sizeof(c->reordered_opaque));
-                if (!reordered_opaque) {
+FF_DISABLE_DEPRECATION_WARNINGS
+            if (
+#if FF_API_REORDERED_OPAQUE
+                c->reordered_opaque != AV_NOPTS_VALUE ||
+#endif
+                (pkt->opaque && (c->flags & AV_CODEC_FLAG_COPY_OPAQUE))) {
+                od = av_mallocz(sizeof(*od));
+                if (!od) {
+                    av_packet_free(&pkt);
                     dav1d_data_unref(data);
                     return AVERROR(ENOMEM);
                 }
-
-                res = dav1d_data_wrap_user_data(data, reordered_opaque,
-                                                libdav1d_user_data_free, reordered_opaque);
-                if (res < 0) {
-                    av_free(reordered_opaque);
-                    dav1d_data_unref(data);
-                    return res;
-                }
+                od->pkt_orig_opaque  = pkt->opaque;
+#if FF_API_REORDERED_OPAQUE
+                od->reordered_opaque = c->reordered_opaque;
+#endif
+FF_ENABLE_DEPRECATION_WARNINGS
             }
-        } else if (res >= 0) {
-            av_packet_unref(pkt);
-            return AVERROR(EAGAIN);
+            pkt->opaque = od;
+
+            res = dav1d_data_wrap_user_data(data, (const uint8_t *)pkt,
+                                            libdav1d_user_data_free, pkt);
+            if (res < 0) {
+                av_free(pkt->opaque);
+                av_packet_free(&pkt);
+                dav1d_data_unref(data);
+                return res;
+            }
+            pkt = NULL;
+        } else {
+            av_packet_free(&pkt);
+            if (res >= 0)
+                return AVERROR(EAGAIN);
         }
     }
 
@@ -405,17 +440,29 @@ static int libdav1d_receive_frame(AVCodecContext *c, AVFrame *frame)
               INT_MAX);
     ff_set_sar(c, frame->sample_aspect_ratio);
 
-    if (p->m.user_data.data)
-        memcpy(&frame->reordered_opaque, p->m.user_data.data, sizeof(frame->reordered_opaque));
+    pkt = (AVPacket *)p->m.user_data.data;
+    od  = pkt->opaque;
+#if FF_API_REORDERED_OPAQUE
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (od && od->reordered_opaque != AV_NOPTS_VALUE)
+        frame->reordered_opaque = od->reordered_opaque;
     else
         frame->reordered_opaque = AV_NOPTS_VALUE;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+
+    // restore the original user opaque value for
+    // ff_decode_frame_props_from_pkt()
+    pkt->opaque = od ? od->pkt_orig_opaque : NULL;
+    av_freep(&od);
 
     // match timestamps and packet size
-    frame->pts = p->m.timestamp;
-    frame->pkt_dts = p->m.timestamp;
-    frame->pkt_pos = p->m.offset;
-    frame->pkt_size = p->m.size;
-    frame->duration = p->m.duration;
+    res = ff_decode_frame_props_from_pkt(c, frame, pkt);
+    pkt->opaque = NULL;
+    if (res < 0)
+        goto fail;
+
+    frame->pkt_dts = pkt->pts;
     frame->key_frame = p->frame_hdr->frame_type == DAV1D_FRAME_TYPE_KEY;
 
     switch (p->frame_hdr->frame_type) {
@@ -465,29 +512,57 @@ static int libdav1d_receive_frame(AVCodecContext *c, AVFrame *frame)
     }
     if (p->itut_t35) {
         GetByteContext gb;
-        unsigned int user_identifier;
+        int provider_code;
 
         bytestream2_init(&gb, p->itut_t35->payload, p->itut_t35->payload_size);
-        bytestream2_skip(&gb, 1); // terminal provider code
-        bytestream2_skip(&gb, 1); // terminal provider oriented code
-        user_identifier = bytestream2_get_be32(&gb);
-        switch (user_identifier) {
-        case MKBETAG('G', 'A', '9', '4'): { // closed captions
-            AVBufferRef *buf = NULL;
 
-            res = ff_parse_a53_cc(&buf, gb.buffer, bytestream2_get_bytes_left(&gb));
-            if (res < 0)
-                goto fail;
-            if (!res)
+        provider_code = bytestream2_get_be16(&gb);
+        switch (provider_code) {
+        case 0x31: { // atsc_provider_code
+            uint32_t user_identifier = bytestream2_get_be32(&gb);
+            switch (user_identifier) {
+            case MKBETAG('G', 'A', '9', '4'): { // closed captions
+                AVBufferRef *buf = NULL;
+
+                res = ff_parse_a53_cc(&buf, gb.buffer, bytestream2_get_bytes_left(&gb));
+                if (res < 0)
+                    goto fail;
+                if (!res)
+                    break;
+
+                if (!av_frame_new_side_data_from_buf(frame, AV_FRAME_DATA_A53_CC, buf))
+                    av_buffer_unref(&buf);
+
+                c->properties |= FF_CODEC_PROPERTY_CLOSED_CAPTIONS;
                 break;
-
-            if (!av_frame_new_side_data_from_buf(frame, AV_FRAME_DATA_A53_CC, buf))
-                av_buffer_unref(&buf);
-
-            c->properties |= FF_CODEC_PROPERTY_CLOSED_CAPTIONS;
+            }
+            default: // ignore unsupported identifiers
+                break;
+            }
             break;
         }
-        default: // ignore unsupported identifiers
+        case 0x3C: { // smpte_provider_code
+            AVDynamicHDRPlus *hdrplus;
+            int provider_oriented_code = bytestream2_get_be16(&gb);
+            int application_identifier = bytestream2_get_byte(&gb);
+
+            if (p->itut_t35->country_code != 0xB5 ||
+                provider_oriented_code != 1 || application_identifier != 4)
+                break;
+
+            hdrplus = av_dynamic_hdr_plus_create_side_data(frame);
+            if (!hdrplus) {
+                res = AVERROR(ENOMEM);
+                goto fail;
+            }
+
+            res = av_dynamic_hdr_plus_from_t35(hdrplus, gb.buffer,
+                                               bytestream2_get_bytes_left(&gb));
+            if (res < 0)
+                goto fail;
+            break;
+        }
+        default: // ignore unsupported provider codes
             break;
         }
     }
@@ -555,12 +630,16 @@ static av_cold int libdav1d_close(AVCodecContext *c)
 #ifndef DAV1D_MAX_TILE_THREADS
 #define DAV1D_MAX_TILE_THREADS DAV1D_MAX_THREADS
 #endif
+#ifndef DAV1D_MAX_FRAME_DELAY
+#define DAV1D_MAX_FRAME_DELAY DAV1D_MAX_FRAME_THREADS
+#endif
 
 #define OFFSET(x) offsetof(Libdav1dContext, x)
 #define VD AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_DECODING_PARAM
 static const AVOption libdav1d_options[] = {
     { "tilethreads", "Tile threads", OFFSET(tile_threads), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, DAV1D_MAX_TILE_THREADS, VD | AV_OPT_FLAG_DEPRECATED },
     { "framethreads", "Frame threads", OFFSET(frame_threads), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, DAV1D_MAX_FRAME_THREADS, VD | AV_OPT_FLAG_DEPRECATED },
+    { "max_frame_delay", "Max frame delay", OFFSET(max_frame_delay), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, DAV1D_MAX_FRAME_DELAY, VD },
     { "filmgrain", "Apply Film Grain", OFFSET(apply_grain), AV_OPT_TYPE_BOOL, { .i64 = -1 }, -1, 1, VD | AV_OPT_FLAG_DEPRECATED },
     { "oppoint",  "Select an operating point of the scalable bitstream", OFFSET(operating_point), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 31, VD },
     { "alllayers", "Output all spatial layers", OFFSET(all_layers), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VD },
@@ -585,7 +664,7 @@ const FFCodec ff_libdav1d_decoder = {
     .flush          = libdav1d_flush,
     FF_CODEC_RECEIVE_FRAME_CB(libdav1d_receive_frame),
     .p.capabilities = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_OTHER_THREADS,
-    .caps_internal  = FF_CODEC_CAP_SETS_PKT_DTS |
+    .caps_internal  = FF_CODEC_CAP_SETS_PKT_DTS | FF_CODEC_CAP_SETS_FRAME_PROPS |
                       FF_CODEC_CAP_AUTO_THREADS,
     .p.priv_class   = &libdav1d_class,
     .p.wrapper_name = "libdav1d",
