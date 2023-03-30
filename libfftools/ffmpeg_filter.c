@@ -279,7 +279,7 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
                    "matches no streams.\n", p, fg->graph_desc);
             EXIT_PG;
         }
-        ist = input_streams[input_files[file_idx]->ist_index + st->index];
+        ist = input_files[file_idx]->streams[st->index];
         if (ist->user_set_discard == AVDISCARD_ALL) {
             av_log(NULL, AV_LOG_FATAL, "Stream specifier '%s' in filtergraph description %s "
                    "matches a disabled input stream.\n", p, fg->graph_desc);
@@ -287,14 +287,13 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
         }
     } else {
         /* find the first unused stream of corresponding type */
-        for (i = 0; i < nb_input_streams; i++) {
-            ist = input_streams[i];
+        for (ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
             if (ist->user_set_discard == AVDISCARD_ALL)
                 continue;
             if (ist->dec_ctx->codec_type == type && ist->discard)
                 break;
         }
-        if (i == nb_input_streams) {
+        if (!ist) {
             av_log(NULL, AV_LOG_FATAL, "Cannot find a matching stream for "
                    "unlabeled input pad %d on filter %s\n", in->pad_idx,
                    in->filter_ctx->name);
@@ -325,6 +324,174 @@ static void init_input_filter(FilterGraph *fg, AVFilterInOut *in)
     ist->filters[ist->nb_filters - 1] = ifilter;
 }
 
+static int read_binary(const char *path, uint8_t **data, int *len)
+{
+    AVIOContext *io = NULL;
+    int64_t fsize;
+    int ret;
+
+    *data = NULL;
+    *len  = 0;
+
+    ret = avio_open2(&io, path, AVIO_FLAG_READ, &int_cb, NULL);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot open file '%s': %s\n",
+               path, av_err2str(ret));
+        return ret;
+    }
+
+    fsize = avio_size(io);
+    if (fsize < 0 || fsize > INT_MAX) {
+        av_log(NULL, AV_LOG_ERROR, "Cannot obtain size of file %s\n", path);
+        ret = AVERROR(EIO);
+        goto fail;
+    }
+
+    *data = av_malloc(fsize);
+    if (!*data) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
+
+    ret = avio_read(io, *data, fsize);
+    if (ret != fsize) {
+        av_log(NULL, AV_LOG_ERROR, "Error reading file %s\n", path);
+        ret = ret < 0 ? ret : AVERROR(EIO);
+        goto fail;
+    }
+
+    *len = fsize;
+
+    return 0;
+fail:
+    avio_close(io);
+    av_freep(data);
+    *len = 0;
+    return ret;
+}
+
+static int filter_opt_apply(AVFilterContext *f, const char *key, const char *val)
+{
+    const AVOption *o = NULL;
+    int ret;
+
+    ret = av_opt_set(f, key, val, AV_OPT_SEARCH_CHILDREN);
+    if (ret >= 0)
+        return 0;
+
+    if (ret == AVERROR_OPTION_NOT_FOUND && key[0] == '/')
+        o = av_opt_find(f, key + 1, NULL, 0, AV_OPT_SEARCH_CHILDREN);
+    if (!o)
+        goto err_apply;
+
+    // key is a valid option name prefixed with '/'
+    // interpret value as a path from which to load the actual option value
+    key++;
+
+    if (o->type == AV_OPT_TYPE_BINARY) {
+        uint8_t *data;
+        int      len;
+
+        ret = read_binary(val, &data, &len);
+        if (ret < 0)
+            goto err_load;
+
+        ret = av_opt_set_bin(f, key, data, len, AV_OPT_SEARCH_CHILDREN);
+        av_freep(&data);
+    } else {
+        char *data = file_read(val);
+        if (!data) {
+            ret = AVERROR(EIO);
+            goto err_load;
+        }
+
+        ret = av_opt_set(f, key, data, AV_OPT_SEARCH_CHILDREN);
+        av_freep(&data);
+    }
+    if (ret < 0)
+        goto err_apply;
+
+    return 0;
+
+err_apply:
+    av_log(NULL, AV_LOG_ERROR,
+           "Error applying option '%s' to filter '%s': %s\n",
+           key, f->filter->name, av_err2str(ret));
+    return ret;
+err_load:
+    av_log(NULL, AV_LOG_ERROR,
+           "Error loading value for option '%s' from file '%s'\n",
+           key, val);
+    return ret;
+}
+
+static int graph_opts_apply(AVFilterGraphSegment *seg)
+{
+    for (size_t i = 0; i < seg->nb_chains; i++) {
+        AVFilterChain *ch = seg->chains[i];
+
+        for (size_t j = 0; j < ch->nb_filters; j++) {
+            AVFilterParams *p = ch->filters[j];
+            const AVDictionaryEntry *e = NULL;
+
+            av_assert0(p->filter);
+
+            while ((e = av_dict_iterate(p->opts, e))) {
+                int ret = filter_opt_apply(p->filter, e->key, e->value);
+                if (ret < 0)
+                    return ret;
+            }
+
+            av_dict_free(&p->opts);
+        }
+    }
+
+    return 0;
+}
+
+static int graph_parse(AVFilterGraph *graph, const char *desc,
+                       AVFilterInOut **inputs, AVFilterInOut **outputs,
+                       AVBufferRef *hw_device)
+{
+    AVFilterGraphSegment *seg;
+    int ret;
+
+    *inputs  = NULL;
+    *outputs = NULL;
+
+    ret = avfilter_graph_segment_parse(graph, desc, 0, &seg);
+    if (ret < 0)
+        return ret;
+
+    ret = avfilter_graph_segment_create_filters(seg, 0);
+    if (ret < 0)
+        goto fail;
+
+    if (hw_device) {
+        for (int i = 0; i < graph->nb_filters; i++) {
+            AVFilterContext *f = graph->filters[i];
+
+            if (!(f->filter->flags & AVFILTER_FLAG_HWDEVICE))
+                continue;
+            f->hw_device_ctx = av_buffer_ref(hw_device);
+            if (!f->hw_device_ctx) {
+                ret = AVERROR(ENOMEM);
+                goto fail;
+            }
+        }
+    }
+
+    ret = graph_opts_apply(seg);
+    if (ret < 0)
+        goto fail;
+
+    ret = avfilter_graph_segment_apply(seg, 0, inputs, outputs);
+
+fail:
+    avfilter_graph_segment_free(&seg);
+    return ret;
+}
+
 int init_complex_filtergraph(FilterGraph *fg)
 {
     AVFilterInOut *inputs, *outputs, *cur;
@@ -338,7 +505,7 @@ int init_complex_filtergraph(FilterGraph *fg)
         return AVERROR(ENOMEM);
     graph->nb_threads = 1;
 
-    ret = avfilter_graph_parse2(graph, fg->graph_desc, &inputs, &outputs);
+    ret = graph_parse(graph, fg->graph_desc, &inputs, &outputs, NULL);
     if (ret < 0)
         goto fail;
 
@@ -463,8 +630,7 @@ static int configure_output_video_filter(FilterGraph *fg, OutputFilter *ofilter,
         snprintf(args, sizeof(args), "%d:%d",
                  ofilter->width, ofilter->height);
 
-        while ((e = av_dict_get(ost->sws_dict, "", e,
-                                AV_DICT_IGNORE_SUFFIX))) {
+        while ((e = av_dict_iterate(ost->sws_dict, e))) {
             av_strlcatf(args, sizeof(args), ":%s=%s", e->key, e->value);
         }
 
@@ -619,7 +785,7 @@ static int configure_output_audio_filter(FilterGraph *fg, OutputFilter *ofilter,
         int i;
 
         for (i = 0; i < of->nb_streams; i++)
-            if (output_streams[of->ost_index + i]->st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+            if (of->streams[i]->st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
                 break;
 
         if (i < of->nb_streams) {
@@ -973,6 +1139,7 @@ static int graph_is_meta(AVFilterGraph *graph)
 
 int configure_filtergraph(FilterGraph *fg)
 {
+    AVBufferRef *hw_device;
     AVFilterInOut *inputs, *outputs, *cur;
     int ret, i, simple = filtergraph_is_simple(fg);
     const char *graph_desc = simple ? fg->outputs[0]->ost->avfilter :
@@ -984,48 +1151,41 @@ int configure_filtergraph(FilterGraph *fg)
 
     if (simple) {
         OutputStream *ost = fg->outputs[0]->ost;
-        char args[512];
-        const AVDictionaryEntry *e = NULL;
 
         if (filter_nbthreads) {
             ret = av_opt_set(fg->graph, "threads", filter_nbthreads, 0);
             if (ret < 0)
                 goto fail;
         } else {
+            const AVDictionaryEntry *e = NULL;
             e = av_dict_get(ost->encoder_opts, "threads", NULL, 0);
             if (e)
                 av_opt_set(fg->graph, "threads", e->value, 0);
         }
 
-        args[0] = 0;
-        e       = NULL;
-        while ((e = av_dict_get(ost->sws_dict, "", e,
-                                AV_DICT_IGNORE_SUFFIX))) {
-            av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
-        }
-        if (strlen(args)) {
-            args[strlen(args)-1] = 0;
-            fg->graph->scale_sws_opts = av_strdup(args);
+        if (av_dict_count(ost->sws_dict)) {
+            ret = av_dict_get_string(ost->sws_dict,
+                                     &fg->graph->scale_sws_opts,
+                                     '=', ':');
+            if (ret < 0)
+                goto fail;
         }
 
-        args[0] = 0;
-        e       = NULL;
-        while ((e = av_dict_get(ost->swr_opts, "", e,
-                                AV_DICT_IGNORE_SUFFIX))) {
-            av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
+        if (av_dict_count(ost->swr_opts)) {
+            char *args;
+            ret = av_dict_get_string(ost->swr_opts, &args, '=', ':');
+            if (ret < 0)
+                goto fail;
+            av_opt_set(fg->graph, "aresample_swr_opts", args, 0);
+            av_free(args);
         }
-        if (strlen(args))
-            args[strlen(args)-1] = 0;
-        av_opt_set(fg->graph, "aresample_swr_opts", args, 0);
     } else {
         fg->graph->nb_threads = filter_complex_nbthreads;
     }
 
-    if ((ret = avfilter_graph_parse2(fg->graph, graph_desc, &inputs, &outputs)) < 0)
-        goto fail;
+    hw_device = hw_device_for_filter();
 
-    ret = hw_device_setup_for_filter(fg);
-    if (ret < 0)
+    if ((ret = graph_parse(fg->graph, graph_desc, &inputs, &outputs, hw_device)) < 0)
         goto fail;
 
     if (simple && (!inputs || inputs->next || !outputs || outputs->next)) {
