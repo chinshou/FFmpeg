@@ -317,6 +317,7 @@
 
 #include "libavutil/dict.h"
 #include "libavutil/log.h"
+//#include "mux.h"
 
 #include "avio.h"
 #include "libavformat/version_major.h"
@@ -1753,7 +1754,6 @@ const char *avformat_configuration(void);
 const char *avformat_license(void);
 
 void av_register_input_format(AVInputFormat *format);
-void av_register_output_format(AVOutputFormat *format);
 
 /**
  * Do global initialization of network libraries. This is optional,

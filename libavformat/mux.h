@@ -138,6 +138,8 @@ static inline const FFOutputFormat *ffofmt(const AVOutputFormat *fmt)
     return (const FFOutputFormat*)fmt;
 }
 
+void av_register_output_format(FFOutputFormat *format);
+
 /**
  * Add packet to an AVFormatContext's packet_buffer list, determining its
  * interleaved position using compare() function argument.
