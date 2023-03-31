@@ -149,7 +149,7 @@ int64_t parse_time_or_die(const char *context, const char *timestr,
     if (av_parse_time(&us, timestr, is_duration) < 0) {
         av_log(NULL, AV_LOG_FATAL, "Invalid %s specification for %s: %s\n",
                is_duration ? "duration" : "date", context, timestr);
-        EXIT_PG_NULL;
+        EXIT_PG_INT;
     }
     return us;
 }
@@ -718,7 +718,7 @@ int split_commandline(OptionParseContext *octx, int argc, char *argv[],
     //prepare_app_arguments(&argc, &argv);
 
     init_parse_context(octx, groups, nb_groups);
-    av_log(NULL, AV_LOG_DEBUG, "Splitting the commandline. argc:%d\n", argc);
+    av_log(NULL, AV_LOG_DEBUG, "Splitting the commandline.\n");
 
     while (optindex < argc) {
         const char *opt = argv[optindex++], *arg;
@@ -815,12 +815,7 @@ do {                                                                           \
 
 void print_error(const char *filename, int err)
 {
-    char errbuf[128];
-    const char *errbuf_ptr = errbuf;
-
-    if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
-        errbuf_ptr = strerror(AVUNERROR(err));
-    av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, errbuf_ptr);
+    av_log(NULL, AV_LOG_ERROR, "%s: %s\n", filename, av_err2str(err));
 }
 
 int read_yesno(void)
@@ -943,7 +938,7 @@ AVDictionary *filter_codec_opts(AVDictionary *opts, enum AVCodecID codec_id,
         break;
     }
 
-    while (t = av_dict_get(opts, "", t, AV_DICT_IGNORE_SUFFIX)) {
+    while (t = av_dict_iterate(opts, t)) {
         const AVClass *priv_class;
         char *p = strchr(t->key, ':');
 
@@ -992,7 +987,7 @@ AVDictionary **setup_find_stream_info_opts(AVFormatContext *s,
 void *grow_array(void *array, int elem_size, int *size, int new_size)
 {
     if (new_size >= INT_MAX / elem_size) {
-        av_log(NULL, AV_LOG_ERROR, "Array too big %d %d.\n", new_size, elem_size);
+        av_log(NULL, AV_LOG_ERROR, "Array too big.\n");
         EXIT_PG_NULL;
     }
     if (*size < new_size) {

@@ -11,6 +11,7 @@ OBJS = ffmpeg.o                        \
     ffmpeg_filter.o     \
     ffmpeg_hw.o         \
     ffmpeg_mux.o        \
+    ffmpeg_mux_init.o   \
     ffmpeg_opt.o        \
     objpool.o           \
     sync_queue.o        \
