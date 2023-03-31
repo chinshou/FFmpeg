@@ -80,6 +80,14 @@
  * Codec supports embedded ICC profiles (AV_FRAME_DATA_ICC_PROFILE).
  */
 #define FF_CODEC_CAP_ICC_PROFILES           (1 << 9)
+/**
+ * The encoder has AV_CODEC_CAP_DELAY set, but does not actually have delay - it
+ * only wants to be flushed at the end to update some context variables (e.g.
+ * 2pass stats) or produce a trailing packet. Besides that it immediately
+ * produces exactly one output packet per each input frame, just as no-delay
+ * encoders do.
+ */
+#define FF_CODEC_CAP_EOF_FLUSH              (1 << 10)
 
 /**
  * FFCodec.codec_tags termination value
@@ -125,14 +133,14 @@ typedef struct FFCodec {
     /**
      * Internal codec capabilities FF_CODEC_CAP_*.
      */
-    unsigned caps_internal:29;
+    unsigned caps_internal;//:29;
 
     /**
      * This field determines the type of the codec (decoder/encoder)
      * and also the exact callback cb implemented by the codec.
      * cb_type uses enum FFCodecType values.
      */
-    unsigned cb_type:3;
+    unsigned cb_type;//:3;
 
     int priv_data_size;
     /**
