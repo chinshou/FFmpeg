@@ -3571,7 +3571,7 @@ vfwcap_indev_deps="vfw32 vfwcap_defines"
 xcbgrab_indev_deps="libxcb"
 xcbgrab_indev_suggest="libxcb_shm libxcb_shape libxcb_xfixes"
 xv_outdev_deps="xlib_xv xlib_x11 xlib_xext"
-#waveform_indev_deps="waveInOpen"
+waveform_indev_deps="waveInOpen"
 waveform_indev_extralibs="-lwinmm"
 # protocols
 async_protocol_deps="threads"
