@@ -52,8 +52,8 @@ function build_armeabi {
     --arch=arm \
     --cpu=armv7-a \
     --cross-prefix="${NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/${NDK_HOST_PLATFORM}/bin/arm-linux-androideabi-" \
-    --sysroot="${NDK_HOME}/platforms/android-19/arch-arm/" \
-    --extra-cflags="-I${ASM}/arm-linux-androideabi -isysroot $ISYSROOT -I/home/hubdog/Projects/android-ndk-r9/sources/android/arm/include -march=armv7-a -mfloat-abi=softfp -mfpu=neon" \
+    --sysroot="${NDK_HOME}/platforms/android-23/arch-arm/" \
+    --extra-cflags="-I${ASM}/arm-linux-androideabi -isysroot $ISYSROOT -D__ANDROID_API__=23 -I/home/hubdog/Projects/android-ndk-r9/sources/android/arm/include -march=armv7-a -mfloat-abi=softfp -mfpu=neon" \
     --extra-ldflags="-L/home/hubdog/Projects/android-ndk-r9/sources/android/arm/lib -lz -lm -lmp3lame" \
     ${COMMON_OPTIONS}
     
