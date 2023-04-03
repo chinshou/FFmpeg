@@ -219,6 +219,8 @@ SKIPHEADERS-$(CONFIG_VULKAN)           += hwcontext_vulkan.h vulkan.h   \
                                           vulkan_functions.h            \
                                           vulkan_loader.h
 
+EXTRALIBS += -landroid
+
 TESTPROGS = adler32                                                     \
             aes                                                         \
             aes_ctr                                                     \
