@@ -910,7 +910,7 @@ InputStream *ist_iter(InputStream *prev);
             so = &o->name[_i];\
             _matches++;\
         } else if (_ret < 0)\
-            exit_program(1);\
+            exit_program(-1);\
     }\
     if (_matches > 1)\
        WARN_MULTIPLE_OPT_USAGE(name, type, so, st);\
