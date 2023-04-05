@@ -535,6 +535,9 @@ void ffmpeg_cleanup(int ret)
 //    if (ffmpeg_exited)
 //      return;
     //return;
+    
+    //if (g_state==-1)
+      //return;
       
     for (i = 0; i < nb_filtergraphs; i++) {
         FilterGraph *fg = filtergraphs[i];
@@ -4182,6 +4185,9 @@ static int transcode(void)
     flush_encoders();
 
     term_exit();
+    
+    //if (-1==g_state)
+      //return -1;
 
     /* write the trailer if needed */
     for (i = 0; i < nb_output_files; i++) {
