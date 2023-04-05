@@ -96,7 +96,7 @@ void report_and_exit(int ret)
     av_log(NULL, AV_LOG_FATAL, "report_and_exit %d\n", ret);
     //exit_program(AVUNERROR(ret));
     extern int g_state;
-    g_state = 1;
+    g_state = -1;
 }
 
 void exit_program(int ret)
@@ -118,7 +118,7 @@ void exit_program(int ret)
       	enc_callback->do_error(enc_callback->owner, ret); 
     }
 #endif     
-    g_state = 1;   
+    g_state = ret;   
 }
 
 double parse_number_or_die(const char *context, const char *numstr, int type,
@@ -138,7 +138,7 @@ double parse_number_or_die(const char *context, const char *numstr, int type,
     else
         return d;
     av_log(NULL, AV_LOG_FATAL, error, context, numstr, min, max);
-    exit_program(1);
+    EXIT_PG_INT;
     return 0;
 }
 
@@ -321,7 +321,7 @@ static int write_option(void *optctx, const OptionDef *po, const char *opt,
         }
     }
     if (po->flags & OPT_EXIT)
-        exit_program(0);
+        EXIT_PG_INT;
 
     return 0;
 }
