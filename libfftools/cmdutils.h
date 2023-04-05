@@ -35,9 +35,9 @@
 #endif
 
 
-#define EXIT_PG_NULL {exit_program(1);return NULL;}
-#define EXIT_PG {exit_program(1);return;}
-#define EXIT_PG_INT {exit_program(1);return -1;}
+#define EXIT_PG_NULL {exit_program(-1);return NULL;}
+#define EXIT_PG {exit_program(-1);return;}
+#define EXIT_PG_INT {exit_program(-1);return -1;}
 
 /**
  * program name, defined by the program for show_version().

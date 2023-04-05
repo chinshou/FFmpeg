@@ -375,7 +375,7 @@ mux_fail:
 fail:
     av_log(ost, AV_LOG_ERROR, "Error %s\n", err_msg);
     if (exit_on_error)
-        exit_program(1);
+        EXIT_PG;
 
 }
 
