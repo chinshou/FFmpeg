@@ -2514,7 +2514,8 @@ int ff_Build_SDK_INT(AVCodecContext *avctx)
 {
     int ret = -1;
 
-#if __ANDROID_API__ >= 24
+//#if __ANDROID_API__ >= 24
+#if 0
     // android_get_device_api_level() is a static inline before API level 29.
     // dlsym() might doesn't work.
     //
