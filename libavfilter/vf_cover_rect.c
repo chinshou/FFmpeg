@@ -22,9 +22,9 @@
  * @todo switch to dualinput
  */
 
-#include "libavutil/avassert.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/opt.h"
+#include "filters.h"
 #include "internal.h"
 
 #include "lavfutils.h"
@@ -54,17 +54,6 @@ static const AVOption cover_rect_options[] = {
 };
 
 AVFILTER_DEFINE_CLASS(cover_rect);
-
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_YUV420P,
-        AV_PIX_FMT_YUVJ420P,
-        AV_PIX_FMT_NONE
-    };
-
-    return ff_set_common_formats(ctx, ff_make_format_list(pix_fmts));
-}
 
 static int config_input(AVFilterLink *inlink)
 {
@@ -137,7 +126,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVFilterContext *ctx = inlink->dst;
     CoverContext *cover = ctx->priv;
     AVDictionaryEntry *ex, *ey, *ew, *eh;
-    int x = -1, y = -1, w = -1, h = -1;
+    int ret, x = -1, y = -1, w = -1, h = -1;
     char *xendptr = NULL, *yendptr = NULL, *wendptr = NULL, *hendptr = NULL;
 
     ex = av_dict_get(in->metadata, "lavfi.rect.x", NULL, AV_DICT_MATCH_CASE);
@@ -182,7 +171,11 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     x = av_clip(x, 0, in->width  - w);
     y = av_clip(y, 0, in->height - h);
 
-    av_frame_make_writable(in);
+    ret = ff_inlink_make_frame_writable(inlink, &in);
+    if (ret < 0) {
+        av_frame_free(&in);
+        return ret;
+    }
 
     if (cover->mode == MODE_BLUR) {
         blur (cover, in, x, y);
@@ -237,7 +230,6 @@ static const AVFilterPad cover_rect_inputs[] = {
         .config_props = config_input,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad cover_rect_outputs[] = {
@@ -245,17 +237,16 @@ static const AVFilterPad cover_rect_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_cover_rect = {
+const AVFilter ff_vf_cover_rect = {
     .name            = "cover_rect",
     .description     = NULL_IF_CONFIG_SMALL("Find and cover a user specified object."),
     .priv_size       = sizeof(CoverContext),
     .init            = init,
     .uninit          = uninit,
-    .query_formats   = query_formats,
-    .inputs          = cover_rect_inputs,
-    .outputs         = cover_rect_outputs,
+    FILTER_INPUTS(cover_rect_inputs),
+    FILTER_OUTPUTS(cover_rect_outputs),
+    FILTER_PIXFMTS(AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUVJ420P),
     .priv_class      = &cover_rect_class,
 };

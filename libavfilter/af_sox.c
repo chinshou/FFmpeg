@@ -155,8 +155,8 @@ static int query_formats(AVFilterContext *ctx)
         layouts = NULL;
         ff_add_channel_layout(&layouts, av_get_default_channel_layout(sox->effect->out_signal.channels));
 
-        ff_channel_layouts_ref(layouts, &ctx->outputs[0]->in_channel_layouts);
-        ff_channel_layouts_ref(ff_all_channel_layouts(), &ctx->inputs[0]->out_channel_layouts);
+        ff_channel_layouts_ref(layouts, &ctx->outputs[0]->incfg.channel_layouts);
+        ff_channel_layouts_ref(ff_all_channel_layouts(), &ctx->inputs[0]->outcfg.channel_layouts);
     } else {
         ff_set_common_channel_layouts(ctx, ff_all_channel_layouts());
     }
@@ -254,7 +254,7 @@ AVFilter ff_af_sox = {
     .priv_class    = &sox_class,
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
+    FILTER_QUERY_FUNC(query_formats),
     .inputs = (const AVFilterPad[]) {
         {
             .name             = "default",

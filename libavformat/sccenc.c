@@ -21,6 +21,7 @@
 
 #include "avformat.h"
 #include "internal.h"
+#include "mux.h"
 #include "libavutil/log.h"
 #include "libavutil/intreadwrite.h"
 
@@ -72,11 +73,11 @@ static int scc_write_packet(AVFormatContext *avf, AVPacket *pkt)
     s = (int)(pts /  1000) % 60;
     f = (int)(pts %  1000) / 33;
 
-    for (i = 0; i < pkt->size; i+=3) {
+    for (i = 0; i < pkt->size - 2; i+=3) {
         if (pkt->data[i] == 0xfc && ((pkt->data[i + 1] != 0x80 || pkt->data[i + 2] != 0x80)))
             break;
     }
-    if (i >= pkt->size)
+    if (i >= pkt->size - 2)
         return 0;
 
     if (!scc->inside && (scc->prev_h != h || scc->prev_m != m || scc->prev_s != s || scc->prev_f != f)) {
@@ -94,12 +95,12 @@ static int scc_write_packet(AVFormatContext *avf, AVPacket *pkt)
             scc->inside = 1;
         }
         if (scc->n > 0)
-            avio_printf(avf->pb, " ");
+            avio_w8(avf->pb, ' ');
         avio_printf(avf->pb, "%02x%02x", pkt->data[i + 1], pkt->data[i + 2]);
         scc->n++;
     }
     if (scc->inside && (scc->prev_h != h || scc->prev_m != m || scc->prev_s != s || scc->prev_f != f)) {
-        avio_printf(avf->pb, "\n");
+        avio_w8(avf->pb, '\n');
         scc->n = 0;
         scc->inside = 0;
     }
@@ -111,13 +112,13 @@ static int scc_write_packet(AVFormatContext *avf, AVPacket *pkt)
     return 0;
 }
 
-AVOutputFormat ff_scc_muxer = {
-    .name           = "scc",
-    .long_name      = NULL_IF_CONFIG_SMALL("Scenarist Closed Captions"),
-    .extensions     = "scc",
+const FFOutputFormat ff_scc_muxer = {
+    .p.name           = "scc",
+    .p.long_name      = NULL_IF_CONFIG_SMALL("Scenarist Closed Captions"),
+    .p.extensions     = "scc",
+    .p.flags          = AVFMT_GLOBALHEADER | AVFMT_VARIABLE_FPS | AVFMT_TS_NONSTRICT,
+    .p.subtitle_codec = AV_CODEC_ID_EIA_608,
     .priv_data_size = sizeof(SCCContext),
     .write_header   = scc_write_header,
     .write_packet   = scc_write_packet,
-    .flags          = AVFMT_GLOBALHEADER | AVFMT_VARIABLE_FPS | AVFMT_TS_NONSTRICT,
-    .subtitle_codec = AV_CODEC_ID_EIA_608,
 };

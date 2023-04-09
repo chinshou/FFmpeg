@@ -23,13 +23,13 @@
  * audio to video multimedia aphasemeter filter
  */
 
-#include "libavutil/avassert.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/opt.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/timestamp.h"
 #include "avfilter.h"
+#include "filters.h"
 #include "formats.h"
 #include "audio.h"
 #include "video.h"
@@ -102,7 +102,7 @@ static int query_formats(AVFilterContext *ctx)
     formats = ff_make_format_list(sample_fmts);
     if ((ret = ff_formats_ref         (formats, &inlink->outcfg.formats        )) < 0 ||
         (ret = ff_formats_ref         (formats, &outlink->incfg.formats        )) < 0 ||
-        (ret = ff_add_channel_layout  (&layout, AV_CH_LAYOUT_STEREO         )) < 0 ||
+        (ret = ff_add_channel_layout  (&layout, &(AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO )) < 0 ||
         (ret = ff_channel_layouts_ref (layout , &inlink->outcfg.channel_layouts)) < 0 ||
         (ret = ff_channel_layouts_ref (layout , &outlink->incfg.channel_layouts)) < 0)
         return ret;
@@ -132,7 +132,6 @@ static int config_input(AVFilterLink *inlink)
 
     if (s->do_video) {
         nb_samples = FFMAX(1, av_rescale(inlink->sample_rate, s->frame_rate.den, s->frame_rate.num));
-        inlink->partial_buf_size =
         inlink->min_samples =
         inlink->max_samples = nb_samples;
     }
@@ -248,7 +247,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     float fphase = 0;
     AVFrame *out;
     uint8_t *dst;
-    int i;
+    int i, ret;
     int mono_measurement;
     int out_phase_measurement;
     float tolerance = 1.0f - s->tolerance;
@@ -267,6 +266,11 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         for (i = 0; i < outlink->h; i++)
             memset(out->data[0] + i * out->linesize[0], 0, outlink->w * 4);
     } else if (s->do_video) {
+        ret = ff_inlink_make_frame_writable(outlink, &s->out);
+        if (ret < 0) {
+            av_frame_free(&in);
+            return ret;
+        }
         out = s->out;
         for (i = outlink->h - 1; i >= 10; i--)
             memmove(out->data[0] + (i  ) * out->linesize[0],
@@ -328,6 +332,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         AVFrame *clone;
 
         s->out->pts = in->pts;
+        s->out->duration = av_rescale_q(1, av_inv_q(outlink->frame_rate), outlink->time_base);
+
         clone = av_frame_clone(s->out);
         if (!clone)
             return AVERROR(ENOMEM);
@@ -357,7 +363,7 @@ static av_cold int init(AVFilterContext *ctx)
         .name         = "out0",
         .type         = AVMEDIA_TYPE_AUDIO,
     };
-    ret = ff_insert_outpad(ctx, 0, &pad);
+    ret = ff_append_outpad(ctx, &pad);
     if (ret < 0)
         return ret;
 
@@ -367,7 +373,7 @@ static av_cold int init(AVFilterContext *ctx)
             .type         = AVMEDIA_TYPE_VIDEO,
             .config_props = config_video_output,
         };
-        ret = ff_insert_outpad(ctx, 1, &pad);
+        ret = ff_append_outpad(ctx, &pad);
         if (ret < 0)
             return ret;
     }
@@ -382,18 +388,17 @@ static const AVFilterPad inputs[] = {
         .config_props = config_input,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
-AVFilter ff_avf_aphasemeter = {
+const AVFilter ff_avf_aphasemeter = {
     .name          = "aphasemeter",
     .description   = NULL_IF_CONFIG_SMALL("Convert input audio to phase meter video output."),
     .init          = init,
     .uninit        = uninit,
-    .query_formats = query_formats,
     .priv_size     = sizeof(AudioPhaseMeterContext),
-    .inputs        = inputs,
+    FILTER_INPUTS(inputs),
     .outputs       = NULL,
+    FILTER_QUERY_FUNC(query_formats),
     .priv_class    = &aphasemeter_class,
     .flags         = AVFILTER_FLAG_DYNAMIC_OUTPUTS,
 };

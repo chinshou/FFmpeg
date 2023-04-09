@@ -1,6 +1,4 @@
 /*
- * Video Acceleration API (video encoding) encode sample
- *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -21,13 +19,12 @@
  */
 
 /**
- * @file
- * Intel VAAPI-accelerated encoding example.
- *
+ * @file Intel VAAPI-accelerated encoding API usage example
  * @example vaapi_encode.c
- * This example shows how to do VAAPI-accelerated encoding. now only support NV12
- * raw file, usage like: vaapi_encode 1920 1080 input.yuv output.h264
  *
+ * Perform VAAPI-accelerated encoding. Read input from an NV12 raw
+ * file, and write the H.264 encoded data to an output raw file.
+ * Usage: vaapi_encode 1920 1080 input.yuv output.h264
  */
 
 #include <stdio.h>
@@ -74,27 +71,27 @@ static int set_hwframe_ctx(AVCodecContext *ctx, AVBufferRef *hw_device_ctx)
 static int encode_write(AVCodecContext *avctx, AVFrame *frame, FILE *fout)
 {
     int ret = 0;
-    AVPacket enc_pkt;
+    AVPacket *enc_pkt;
 
-    av_init_packet(&enc_pkt);
-    enc_pkt.data = NULL;
-    enc_pkt.size = 0;
+    if (!(enc_pkt = av_packet_alloc()))
+        return AVERROR(ENOMEM);
 
     if ((ret = avcodec_send_frame(avctx, frame)) < 0) {
         fprintf(stderr, "Error code: %s\n", av_err2str(ret));
         goto end;
     }
     while (1) {
-        ret = avcodec_receive_packet(avctx, &enc_pkt);
+        ret = avcodec_receive_packet(avctx, enc_pkt);
         if (ret)
             break;
 
-        enc_pkt.stream_index = 0;
-        ret = fwrite(enc_pkt.data, enc_pkt.size, 1, fout);
-        av_packet_unref(&enc_pkt);
+        enc_pkt->stream_index = 0;
+        ret = fwrite(enc_pkt->data, enc_pkt->size, 1, fout);
+        av_packet_unref(enc_pkt);
     }
 
 end:
+    av_packet_free(&enc_pkt);
     ret = ((ret == AVERROR(EAGAIN)) ? 0 : -1);
     return ret;
 }
@@ -105,7 +102,7 @@ int main(int argc, char *argv[])
     FILE *fin = NULL, *fout = NULL;
     AVFrame *sw_frame = NULL, *hw_frame = NULL;
     AVCodecContext *avctx = NULL;
-    AVCodec *codec = NULL;
+    const AVCodec *codec = NULL;
     const char *enc_name = "h264_vaapi";
 
     if (argc < 5) {

@@ -26,7 +26,12 @@
 
 #include "libavutil/intreadwrite.h"
 #include "libavutil/pixdesc.h"
+
+#include "libavcodec/codec_id.h"
+
 #include "avformat.h"
+#include "avio_internal.h"
+#include "mux.h"
 
 typedef struct {
     int offset;
@@ -61,8 +66,7 @@ static int ico_check_attributes(AVFormatContext *s, const AVCodecParameters *p)
             return AVERROR(EINVAL);
         }
     } else {
-        const AVCodecDescriptor *codesc = avcodec_descriptor_get(p->codec_id);
-        av_log(s, AV_LOG_ERROR, "Unsupported codec %s\n", codesc ? codesc->name : "");
+        av_log(s, AV_LOG_ERROR, "Unsupported codec %s\n", avcodec_get_name(p->codec_id));
         return AVERROR(EINVAL);
     }
 
@@ -102,7 +106,7 @@ static int ico_write_header(AVFormatContext *s)
         avio_skip(pb, 16);
     }
 
-    ico->images = av_mallocz_array(ico->nb_images, sizeof(IcoMuxContext));
+    ico->images = av_calloc(ico->nb_images, sizeof(*ico->images));
     if (!ico->images)
         return AVERROR(ENOMEM);
 
@@ -115,7 +119,6 @@ static int ico_write_packet(AVFormatContext *s, AVPacket *pkt)
     IcoImage *image;
     AVIOContext *pb = s->pb;
     AVCodecParameters *par = s->streams[pkt->stream_index]->codecpar;
-    int i;
 
     if (ico->current_image >= ico->nb_images) {
         av_log(s, AV_LOG_ERROR, "ICO already contains %d images\n", ico->current_image);
@@ -146,8 +149,8 @@ static int ico_write_packet(AVFormatContext *s, AVPacket *pkt)
         avio_wl32(pb, AV_RL32(pkt->data + 22) * 2); // rewrite height as 2 * height
         avio_write(pb, pkt->data + 26, pkt->size - 26);
 
-        for (i = 0; i < par->height * (par->width + 7) / 8; ++i)
-            avio_w8(pb, 0x00); // Write bitmask (opaque)
+        // Write bitmask (opaque)
+        ffio_fill(pb, 0x00, par->height * (par->width + 7) / 8);
     }
 
     return 0;
@@ -191,17 +194,17 @@ static void ico_deinit(AVFormatContext *s)
     av_freep(&ico->images);
 }
 
-AVOutputFormat ff_ico_muxer = {
-    .name           = "ico",
-    .long_name      = NULL_IF_CONFIG_SMALL("Microsoft Windows ICO"),
+const FFOutputFormat ff_ico_muxer = {
+    .p.name         = "ico",
+    .p.long_name    = NULL_IF_CONFIG_SMALL("Microsoft Windows ICO"),
     .priv_data_size = sizeof(IcoMuxContext),
-    .mime_type      = "image/vnd.microsoft.icon",
-    .extensions     = "ico",
-    .audio_codec    = AV_CODEC_ID_NONE,
-    .video_codec    = AV_CODEC_ID_BMP,
+    .p.mime_type    = "image/vnd.microsoft.icon",
+    .p.extensions   = "ico",
+    .p.audio_codec  = AV_CODEC_ID_NONE,
+    .p.video_codec  = AV_CODEC_ID_BMP,
     .write_header   = ico_write_header,
     .write_packet   = ico_write_packet,
     .write_trailer  = ico_write_trailer,
     .deinit         = ico_deinit,
-    .flags          = AVFMT_NOTIMESTAMPS,
+    .p.flags        = AVFMT_NOTIMESTAMPS,
 };

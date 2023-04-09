@@ -73,36 +73,28 @@ static const enum AVPixelFormat yuvj_formats[] = {
     YUVJ_FORMATS, AV_PIX_FMT_NONE
 };
 
-static int query_formats(AVFilterContext *ctx)
-{
-    static const enum AVPixelFormat pix_fmts[] = {
-        AV_PIX_FMT_GRAY8,
-        AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
-        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
-        AV_PIX_FMT_YUV440P, AV_PIX_FMT_YUV444P,
-        AV_PIX_FMT_NV12, AV_PIX_FMT_NV21,
-        YUVJ_FORMATS,
-        AV_PIX_FMT_GRAY10, AV_PIX_FMT_GRAY12, AV_PIX_FMT_GRAY14,
-        AV_PIX_FMT_GRAY16,
-        AV_PIX_FMT_YUV420P9, AV_PIX_FMT_YUV422P9, AV_PIX_FMT_YUV444P9,
-        AV_PIX_FMT_YUV420P10, AV_PIX_FMT_YUV422P10, AV_PIX_FMT_YUV444P10,
-        AV_PIX_FMT_YUV440P10,
-        AV_PIX_FMT_YUV444P12, AV_PIX_FMT_YUV422P12, AV_PIX_FMT_YUV420P12,
-        AV_PIX_FMT_YUV440P12,
-        AV_PIX_FMT_YUV444P14, AV_PIX_FMT_YUV422P14, AV_PIX_FMT_YUV420P14,
-        AV_PIX_FMT_YUV420P16, AV_PIX_FMT_YUV422P16, AV_PIX_FMT_YUV444P16,
-        AV_PIX_FMT_YUVA420P,  AV_PIX_FMT_YUVA422P,   AV_PIX_FMT_YUVA444P,
-        AV_PIX_FMT_YUVA444P9, AV_PIX_FMT_YUVA444P10, AV_PIX_FMT_YUVA444P12, AV_PIX_FMT_YUVA444P16,
-        AV_PIX_FMT_YUVA422P9, AV_PIX_FMT_YUVA422P10, AV_PIX_FMT_YUVA422P12, AV_PIX_FMT_YUVA422P16,
-        AV_PIX_FMT_YUVA420P9, AV_PIX_FMT_YUVA420P10, AV_PIX_FMT_YUVA420P16,
-        AV_PIX_FMT_NONE
-    };
-
-    AVFilterFormats *fmts_list = ff_make_format_list(pix_fmts);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
-}
+static const enum AVPixelFormat pix_fmts[] = {
+    AV_PIX_FMT_GRAY8,
+    AV_PIX_FMT_YUV410P, AV_PIX_FMT_YUV411P,
+    AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P,
+    AV_PIX_FMT_YUV440P, AV_PIX_FMT_YUV444P,
+    AV_PIX_FMT_NV12, AV_PIX_FMT_NV21,
+    YUVJ_FORMATS,
+    AV_PIX_FMT_GRAY10, AV_PIX_FMT_GRAY12, AV_PIX_FMT_GRAY14,
+    AV_PIX_FMT_GRAY16,
+    AV_PIX_FMT_YUV420P9, AV_PIX_FMT_YUV422P9, AV_PIX_FMT_YUV444P9,
+    AV_PIX_FMT_YUV420P10, AV_PIX_FMT_YUV422P10, AV_PIX_FMT_YUV444P10,
+    AV_PIX_FMT_YUV440P10,
+    AV_PIX_FMT_YUV444P12, AV_PIX_FMT_YUV422P12, AV_PIX_FMT_YUV420P12,
+    AV_PIX_FMT_YUV440P12,
+    AV_PIX_FMT_YUV444P14, AV_PIX_FMT_YUV422P14, AV_PIX_FMT_YUV420P14,
+    AV_PIX_FMT_YUV420P16, AV_PIX_FMT_YUV422P16, AV_PIX_FMT_YUV444P16,
+    AV_PIX_FMT_YUVA420P,  AV_PIX_FMT_YUVA422P,   AV_PIX_FMT_YUVA444P,
+    AV_PIX_FMT_YUVA444P9, AV_PIX_FMT_YUVA444P10, AV_PIX_FMT_YUVA444P12, AV_PIX_FMT_YUVA444P16,
+    AV_PIX_FMT_YUVA422P9, AV_PIX_FMT_YUVA422P10, AV_PIX_FMT_YUVA422P12, AV_PIX_FMT_YUVA422P16,
+    AV_PIX_FMT_YUVA420P9, AV_PIX_FMT_YUVA420P10, AV_PIX_FMT_YUVA420P16,
+    AV_PIX_FMT_NONE
+};
 
 static int config_input(AVFilterLink *inlink)
 {
@@ -110,8 +102,6 @@ static int config_input(AVFilterLink *inlink)
     BlackDetectContext *s = ctx->priv;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(inlink->format);
     const int depth = desc->comp[0].depth;
-    const int max = (1 << depth) - 1;
-    const int factor = (1 << (depth - 8));
 
     s->depth = depth;
     s->nb_threads = ff_filter_get_nb_threads(ctx);
@@ -121,16 +111,10 @@ static int config_input(AVFilterLink *inlink)
     if (!s->counter)
         return AVERROR(ENOMEM);
 
-    s->pixel_black_th_i = ff_fmt_is_in(inlink->format, yuvj_formats) ?
-        // luminance_minimum_value + pixel_black_th * luminance_range_size
-             s->pixel_black_th *  max :
-        16 * factor + s->pixel_black_th * (235 - 16) * factor;
-
     av_log(s, AV_LOG_VERBOSE,
-           "black_min_duration:%s pixel_black_th:%f pixel_black_th_i:%d picture_black_ratio_th:%f\n",
+           "black_min_duration:%s pixel_black_th:%f picture_black_ratio_th:%f\n",
            av_ts2timestr(s->black_min_duration, &s->time_base),
-           s->pixel_black_th, s->pixel_black_th_i,
-           s->picture_black_ratio_th);
+           s->pixel_black_th, s->picture_black_ratio_th);
     return 0;
 }
 
@@ -190,9 +174,17 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
     AVFilterContext *ctx = inlink->dst;
     BlackDetectContext *s = ctx->priv;
     double picture_black_ratio = 0;
+    const int max = (1 << s->depth) - 1;
+    const int factor = (1 << (s->depth - 8));
+    const int full = picref->color_range == AVCOL_RANGE_JPEG ||
+                     ff_fmt_is_in(picref->format, yuvj_formats);
 
-    ctx->internal->execute(ctx, black_counter, picref, NULL,
-                           FFMIN(inlink->h, s->nb_threads));
+    s->pixel_black_th_i = full ? s->pixel_black_th * max :
+        // luminance_minimum_value + pixel_black_th * luminance_range_size
+        16 * factor + s->pixel_black_th * (235 - 16) * factor;
+
+    ff_filter_execute(ctx, black_counter, picref, NULL,
+                      FFMIN(inlink->h, s->nb_threads));
 
     for (int i = 0; i < s->nb_threads; i++)
         s->nb_black_pixels += s->counter[i];
@@ -247,7 +239,6 @@ static const AVFilterPad blackdetect_inputs[] = {
         .config_props  = config_input,
         .filter_frame  = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad blackdetect_outputs[] = {
@@ -255,17 +246,16 @@ static const AVFilterPad blackdetect_outputs[] = {
         .name          = "default",
         .type          = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_blackdetect = {
+const AVFilter ff_vf_blackdetect = {
     .name          = "blackdetect",
     .description   = NULL_IF_CONFIG_SMALL("Detect video intervals that are (almost) black."),
     .priv_size     = sizeof(BlackDetectContext),
-    .query_formats = query_formats,
-    .inputs        = blackdetect_inputs,
-    .outputs       = blackdetect_outputs,
+    FILTER_INPUTS(blackdetect_inputs),
+    FILTER_OUTPUTS(blackdetect_outputs),
+    FILTER_PIXFMTS_ARRAY(pix_fmts),
     .uninit        = uninit,
     .priv_class    = &blackdetect_class,
-    .flags         = AVFILTER_FLAG_SLICE_THREADS,
+    .flags         = AVFILTER_FLAG_SLICE_THREADS | AVFILTER_FLAG_METADATA_ONLY,
 };

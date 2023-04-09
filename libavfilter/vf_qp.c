@@ -143,7 +143,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
             for (x = 0; x < s->qstride; x++) {
                 unsigned int block_idx = y * s->qstride + x;
                 AVVideoBlockParams *b = av_video_enc_params_block(par_out, block_idx);
-                int qp = sd_in ? in_qp_global + BLOCK_QP_DELTA(block_idx) : NAN;
+                double qp = sd_in ? in_qp_global + BLOCK_QP_DELTA(block_idx) : NAN;
                 double var_values[] = { !!sd_in, qp, x, y, s->qstride, s->h, 0};
                 double temp_val;
 
@@ -182,7 +182,6 @@ static const AVFilterPad qp_inputs[] = {
         .filter_frame = filter_frame,
         .config_props = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad qp_outputs[] = {
@@ -190,15 +189,15 @@ static const AVFilterPad qp_outputs[] = {
         .name = "default",
         .type = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_qp = {
+const AVFilter ff_vf_qp = {
     .name          = "qp",
     .description   = NULL_IF_CONFIG_SMALL("Change video quantization parameters."),
     .priv_size     = sizeof(QPContext),
-    .inputs        = qp_inputs,
-    .outputs       = qp_outputs,
+    FILTER_INPUTS(qp_inputs),
+    FILTER_OUTPUTS(qp_outputs),
     .priv_class    = &qp_class,
-    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL,
+    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
+                     AVFILTER_FLAG_METADATA_ONLY,
 };

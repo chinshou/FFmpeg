@@ -35,7 +35,6 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "libavutil/intreadwrite.h"
@@ -43,9 +42,10 @@
 #define BITSTREAM_READER_LE
 #include "avcodec.h"
 #include "bytestream.h"
+#include "codec_internal.h"
+#include "decode.h"
 #include "get_bits.h"
 #include "hpeldsp.h"
-#include "internal.h"
 
 #define PALETTE_COUNT 256
 
@@ -926,7 +926,7 @@ static void ipvideo_format_06_firstpass(IpvideoContext *s, AVFrame *frame, int16
         }
     } else {
         /* Don't try to copy second_last_frame data on the first frames */
-        if (s->avctx->frame_number > 2)
+        if (s->avctx->frame_num > 2)
             copy_from(s, s->second_last_frame, frame, 0, 0);
     }
 }
@@ -1085,7 +1085,7 @@ static void ipvideo_decode_format_10_opcodes(IpvideoContext *s, AVFrame *frame)
                 copy_from(s, s->cur_decode_frame, frame, 0, 0);
             } else {
                 /* Don't try to copy last_frame data on the first frame */
-                if (s->avctx->frame_number)
+                if (s->avctx->frame_num)
                     copy_from(s, s->last_frame, frame, 0, 0);
             }
             skip *= 2;
@@ -1144,8 +1144,8 @@ static void ipvideo_decode_format_11_opcodes(IpvideoContext *s, AVFrame *frame)
                 ret = ipvideo_decode_block16[opcode](s, frame);
             }
             if (ret != 0) {
-                av_log(s->avctx, AV_LOG_ERROR, "decode problem on frame %d, @ block (%d, %d)\n",
-                       s->avctx->frame_number, x, y);
+                av_log(s->avctx, AV_LOG_ERROR, "decode problem on frame %"PRId64", @ block (%d, %d)\n",
+                       s->avctx->frame_num, x, y);
                 return;
             }
         }
@@ -1187,14 +1187,12 @@ static av_cold int ipvideo_decode_init(AVCodecContext *avctx)
     return 0;
 }
 
-static int ipvideo_decode_frame(AVCodecContext *avctx,
-                                void *data, int *got_frame,
-                                AVPacket *avpkt)
+static int ipvideo_decode_frame(AVCodecContext *avctx, AVFrame *frame,
+                                int *got_frame, AVPacket *avpkt)
 {
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     IpvideoContext *s = avctx->priv_data;
-    AVFrame *frame = data;
     int ret;
     int send_buffer;
     int frame_format;
@@ -1317,14 +1315,7 @@ static int ipvideo_decode_frame(AVCodecContext *avctx,
         return ret;
 
     if (!s->is_16bpp) {
-        int size;
-        const uint8_t *pal = av_packet_get_side_data(avpkt, AV_PKT_DATA_PALETTE, &size);
-        if (pal && size == AVPALETTE_SIZE) {
-            frame->palette_has_changed = 1;
-            memcpy(s->pal, pal, AVPALETTE_SIZE);
-        } else if (pal) {
-            av_log(avctx, AV_LOG_ERROR, "Palette size %d is wrong\n", size);
-        }
+        frame->palette_has_changed = ff_copy_palette(s->pal, avpkt, avctx);
     }
 
     switch (frame_format) {
@@ -1363,15 +1354,15 @@ static av_cold int ipvideo_decode_end(AVCodecContext *avctx)
     return 0;
 }
 
-AVCodec ff_interplay_video_decoder = {
-    .name           = "interplayvideo",
-    .long_name      = NULL_IF_CONFIG_SMALL("Interplay MVE video"),
-    .type           = AVMEDIA_TYPE_VIDEO,
-    .id             = AV_CODEC_ID_INTERPLAY_VIDEO,
+const FFCodec ff_interplay_video_decoder = {
+    .p.name         = "interplayvideo",
+    CODEC_LONG_NAME("Interplay MVE video"),
+    .p.type         = AVMEDIA_TYPE_VIDEO,
+    .p.id           = AV_CODEC_ID_INTERPLAY_VIDEO,
     .priv_data_size = sizeof(IpvideoContext),
     .init           = ipvideo_decode_init,
     .close          = ipvideo_decode_end,
-    .decode         = ipvideo_decode_frame,
-    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_PARAM_CHANGE,
+    FF_CODEC_DECODE_CB(ipvideo_decode_frame),
+    .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_PARAM_CHANGE,
     .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP,
 };

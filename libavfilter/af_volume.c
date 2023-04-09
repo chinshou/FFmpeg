@@ -48,7 +48,9 @@ static const char *const var_names[] = {
     "nb_channels",         ///< number of channels
     "nb_consumed_samples", ///< number of samples consumed by the filter
     "nb_samples",          ///< number of samples in the current frame
+#if FF_API_FRAME_PKT
     "pos",                 ///< position in the file of the frame
+#endif
     "pts",                 ///< frame presentation timestamp
     "sample_rate",         ///< sample rate
     "startpts",            ///< PTS at start of stream
@@ -132,8 +134,6 @@ static av_cold void uninit(AVFilterContext *ctx)
 static int query_formats(AVFilterContext *ctx)
 {
     VolumeContext *vol = ctx->priv;
-    AVFilterFormats *formats = NULL;
-    AVFilterChannelLayouts *layouts;
     static const enum AVSampleFormat sample_fmts[][7] = {
         [PRECISION_FIXED] = {
             AV_SAMPLE_FMT_U8,
@@ -155,26 +155,15 @@ static int query_formats(AVFilterContext *ctx)
             AV_SAMPLE_FMT_NONE
         }
     };
-    int ret;
-
-    layouts = ff_all_channel_counts();
-    if (!layouts)
-        return AVERROR(ENOMEM);
-    ret = ff_set_common_channel_layouts(ctx, layouts);
+    int ret = ff_set_common_all_channel_counts(ctx);
     if (ret < 0)
         return ret;
 
-    formats = ff_make_format_list(sample_fmts[vol->precision]);
-    if (!formats)
-        return AVERROR(ENOMEM);
-    ret = ff_set_common_formats(ctx, formats);
+    ret = ff_set_common_formats_from_list(ctx, sample_fmts[vol->precision]);
     if (ret < 0)
         return ret;
 
-    formats = ff_all_samplerates();
-    if (!formats)
-        return AVERROR(ENOMEM);
-    return ff_set_common_samplerates(ctx, formats);
+    return ff_set_common_all_samplerates(ctx);
 }
 
 static inline void scale_samples_u8(uint8_t *dst, const uint8_t *src,
@@ -251,8 +240,9 @@ static av_cold void volume_init(VolumeContext *vol)
         break;
     }
 
-    if (ARCH_X86)
-        ff_volume_init_x86(vol);
+#if ARCH_X86
+    ff_volume_init_x86(vol);
+#endif
 }
 
 static int set_volume(AVFilterContext *ctx)
@@ -294,20 +284,22 @@ static int config_output(AVFilterLink *outlink)
     AVFilterLink *inlink = ctx->inputs[0];
 
     vol->sample_fmt = inlink->format;
-    vol->channels   = inlink->channels;
+    vol->channels   = inlink->ch_layout.nb_channels;
     vol->planes     = av_sample_fmt_is_planar(inlink->format) ? vol->channels : 1;
 
     vol->var_values[VAR_N] =
     vol->var_values[VAR_NB_CONSUMED_SAMPLES] =
     vol->var_values[VAR_NB_SAMPLES] =
+#if FF_API_FRAME_PKT
     vol->var_values[VAR_POS] =
+#endif
     vol->var_values[VAR_PTS] =
     vol->var_values[VAR_STARTPTS] =
     vol->var_values[VAR_STARTT] =
     vol->var_values[VAR_T] =
     vol->var_values[VAR_VOLUME] = NAN;
 
-    vol->var_values[VAR_NB_CHANNELS] = inlink->channels;
+    vol->var_values[VAR_NB_CHANNELS] = inlink->ch_layout.nb_channels;
     vol->var_values[VAR_TB]          = av_q2d(inlink->time_base);
     vol->var_values[VAR_SAMPLE_RATE] = inlink->sample_rate;
 
@@ -342,7 +334,6 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
     AVFilterLink *outlink = inlink->dst->outputs[0];
     int nb_samples        = buf->nb_samples;
     AVFrame *out_buf;
-    int64_t pos;
     AVFrameSideData *sd = av_frame_get_side_data(buf, AV_FRAME_DATA_REPLAYGAIN);
     int ret;
 
@@ -392,8 +383,15 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *buf)
     vol->var_values[VAR_T  ] = TS2T(buf->pts, inlink->time_base);
     vol->var_values[VAR_N  ] = inlink->frame_count_out;
 
-    pos = buf->pkt_pos;
-    vol->var_values[VAR_POS] = pos == -1 ? NAN : pos;
+#if FF_API_FRAME_PKT
+FF_DISABLE_DEPRECATION_WARNINGS
+    {
+        int64_t pos;
+        pos = buf->pkt_pos;
+        vol->var_values[VAR_POS] = pos == -1 ? NAN : pos;
+    }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
     if (vol->eval_mode == EVAL_MODE_FRAME)
         set_volume(ctx);
 
@@ -465,7 +463,6 @@ static const AVFilterPad avfilter_af_volume_inputs[] = {
         .type           = AVMEDIA_TYPE_AUDIO,
         .filter_frame   = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad avfilter_af_volume_outputs[] = {
@@ -474,19 +471,18 @@ static const AVFilterPad avfilter_af_volume_outputs[] = {
         .type         = AVMEDIA_TYPE_AUDIO,
         .config_props = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_af_volume = {
+const AVFilter ff_af_volume = {
     .name           = "volume",
     .description    = NULL_IF_CONFIG_SMALL("Change input volume."),
-    .query_formats  = query_formats,
     .priv_size      = sizeof(VolumeContext),
     .priv_class     = &volume_class,
     .init           = init,
     .uninit         = uninit,
-    .inputs         = avfilter_af_volume_inputs,
-    .outputs        = avfilter_af_volume_outputs,
+    FILTER_INPUTS(avfilter_af_volume_inputs),
+    FILTER_OUTPUTS(avfilter_af_volume_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .flags          = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
     .process_command = process_command,
 };

@@ -55,7 +55,9 @@ static const char *const var_names[] = {
     "x",
     "y",
     "n",            ///< number of frame
+#if FF_API_FRAME_PKT
     "pos",          ///< position in the file
+#endif
     "t",            ///< timestamp expressed in seconds
     NULL
 };
@@ -255,7 +257,7 @@ static int query_formats(AVFilterContext *ctx)
         overlay_formats = overlay_pix_fmts_gbrp;
         break;
     case OVERLAY_FORMAT_AUTO:
-        return ff_set_common_formats(ctx, ff_make_format_list(alpha_pix_fmts));
+        return ff_set_common_formats_from_list(ctx, alpha_pix_fmts);
     default:
         av_assert0(0);
     }
@@ -290,7 +292,9 @@ static int config_input_overlay(AVFilterLink *inlink)
     s->var_values[VAR_Y]     = NAN;
     s->var_values[VAR_N]     = 0;
     s->var_values[VAR_T]     = NAN;
+#if FF_API_FRAME_PKT
     s->var_values[VAR_POS]   = NAN;
+#endif
 
     if ((ret = set_expr(&s->x_pexpr,      s->x_expr,      "x",      ctx)) < 0 ||
         (ret = set_expr(&s->y_pexpr,      s->y_expr,      "y",      ctx)) < 0)
@@ -538,12 +542,13 @@ static av_always_inline void blend_plane_##depth##_##nbits##bits(AVFilterContext
                     if (i && yuv)                                                                          \
                         *d = av_clip((*d * (max - alpha) + *s * alpha) / max + *s - mid, -mid, mid) + mid; \
                     else                                                                                   \
-                        *d = FFMIN((*d * (max - alpha) + *s * alpha) / max + *s, max);                     \
+                        *d = av_clip_uintp2((*d * (max - alpha) + *s * alpha) / max + *s - (16<<(nbits-8)),\
+                                                                                                    nbits);\
                 } else {                                                                                   \
                     if (i && yuv)                                                                          \
                         *d = av_clip(FAST_DIV255((*d - mid) * (max - alpha)) + *s - mid, -mid, mid) + mid; \
                     else                                                                                   \
-                        *d = FFMIN(FAST_DIV255(*d * (max - alpha)) + *s, max);                             \
+                        *d = av_clip_uint8(FAST_DIV255(*d * (255 - alpha)) + *s - 16);                     \
                 }                                                                                          \
             }                                                                                              \
             s++;                                                                                           \
@@ -574,15 +579,16 @@ static inline void alpha_composite_##depth##_##nbits##bits(const AVFrame *src, c
     const uint##depth##_t max = (1 << nbits) - 1;                                                          \
     int bytes = depth / 8;                                                                                 \
                                                                                                            \
-    imax = FFMIN(-y + dst_h, src_h);                                                                       \
-    slice_start = (imax * jobnr) / nb_jobs;                                                                \
-    slice_end = ((imax * (jobnr+1)) / nb_jobs);                                                            \
-                                                                                                           \
+    imax = FFMIN3(-y + dst_h, FFMIN(src_h, dst_h), y + src_h);                                             \
     i = FFMAX(-y, 0);                                                                                      \
-    sa = (uint##depth##_t *)(src->data[3] + (i + slice_start) * src->linesize[3]);                         \
-    da = (uint##depth##_t *)(dst->data[3] + (y + i + slice_start) * dst->linesize[3]);                     \
                                                                                                            \
-    for (i = i + slice_start; i < slice_end; i++) {                                                        \
+    slice_start = i + (imax * jobnr) / nb_jobs;                                                            \
+    slice_end = i + ((imax * (jobnr+1)) / nb_jobs);                                                        \
+                                                                                                           \
+    sa = (uint##depth##_t *)(src->data[3] + (slice_start) * src->linesize[3]);                             \
+    da = (uint##depth##_t *)(dst->data[3] + (y + slice_start) * dst->linesize[3]);                         \
+                                                                                                           \
+    for (i = slice_start; i < slice_end; i++) {                                                            \
         j = FFMAX(-x, 0);                                                                                  \
         s = sa + j;                                                                                        \
         d = da + x+j;                                                                                      \
@@ -982,9 +988,10 @@ static int config_input_main(AVFilterLink *inlink)
     }
 
 end:
-    if (ARCH_X86)
-        ff_overlay_init_x86(s, s->format, inlink->format,
-                            s->alpha_format, s->main_has_alpha);
+#if ARCH_X86
+    ff_overlay_init_x86(s, s->format, inlink->format,
+                        s->alpha_format, s->main_has_alpha);
+#endif
 
     return 0;
 }
@@ -1004,12 +1011,18 @@ static int do_blend(FFFrameSync *fs)
         return ff_filter_frame(ctx->outputs[0], mainpic);
 
     if (s->eval_mode == EVAL_MODE_FRAME) {
-        int64_t pos = mainpic->pkt_pos;
 
         s->var_values[VAR_N] = inlink->frame_count_out;
         s->var_values[VAR_T] = mainpic->pts == AV_NOPTS_VALUE ?
             NAN : mainpic->pts * av_q2d(inlink->time_base);
-        s->var_values[VAR_POS] = pos == -1 ? NAN : pos;
+#if FF_API_FRAME_PKT
+FF_DISABLE_DEPRECATION_WARNINGS
+        {
+            int64_t pos = mainpic->pkt_pos;
+            s->var_values[VAR_POS] = pos == -1 ? NAN : pos;
+        }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
         s->var_values[VAR_OVERLAY_W] = s->var_values[VAR_OW] = second->width;
         s->var_values[VAR_OVERLAY_H] = s->var_values[VAR_OH] = second->height;
@@ -1017,8 +1030,8 @@ static int do_blend(FFFrameSync *fs)
         s->var_values[VAR_MAIN_H   ] = s->var_values[VAR_MH] = mainpic->height;
 
         eval_expr(ctx);
-        av_log(ctx, AV_LOG_DEBUG, "n:%f t:%f pos:%f x:%f xi:%d y:%f yi:%d\n",
-               s->var_values[VAR_N], s->var_values[VAR_T], s->var_values[VAR_POS],
+        av_log(ctx, AV_LOG_DEBUG, "n:%f t:%f x:%f xi:%d y:%f yi:%d\n",
+               s->var_values[VAR_N], s->var_values[VAR_T],
                s->var_values[VAR_X], s->x,
                s->var_values[VAR_Y], s->y);
     }
@@ -1029,8 +1042,8 @@ static int do_blend(FFFrameSync *fs)
 
         td.dst = mainpic;
         td.src = second;
-        ctx->internal->execute(ctx, s->blend_slice, &td, NULL, FFMIN(FFMAX(1, FFMIN3(s->y + second->height, FFMIN(second->height, mainpic->height), mainpic->height - s->y)),
-                                                                     ff_filter_get_nb_threads(ctx)));
+        ff_filter_execute(ctx, s->blend_slice, &td, NULL, FFMIN(FFMAX(1, FFMIN3(s->y + second->height, FFMIN(second->height, mainpic->height), mainpic->height - s->y)),
+                                                                ff_filter_get_nb_threads(ctx)));
     }
     return ff_filter_frame(ctx->outputs[0], mainpic);
 }
@@ -1094,7 +1107,6 @@ static const AVFilterPad avfilter_vf_overlay_inputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .config_props = config_input_overlay,
     },
-    { NULL }
 };
 
 static const AVFilterPad avfilter_vf_overlay_outputs[] = {
@@ -1103,10 +1115,9 @@ static const AVFilterPad avfilter_vf_overlay_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_overlay = {
+const AVFilter ff_vf_overlay = {
     .name          = "overlay",
     .description   = NULL_IF_CONFIG_SMALL("Overlay a video source on top of the input."),
     .preinit       = overlay_framesync_preinit,
@@ -1114,11 +1125,11 @@ AVFilter ff_vf_overlay = {
     .uninit        = uninit,
     .priv_size     = sizeof(OverlayContext),
     .priv_class    = &overlay_class,
-    .query_formats = query_formats,
     .activate      = activate,
     .process_command = process_command,
-    .inputs        = avfilter_vf_overlay_inputs,
-    .outputs       = avfilter_vf_overlay_outputs,
+    FILTER_INPUTS(avfilter_vf_overlay_inputs),
+    FILTER_OUTPUTS(avfilter_vf_overlay_outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
                      AVFILTER_FLAG_SLICE_THREADS,
 };

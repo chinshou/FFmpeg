@@ -9,8 +9,8 @@ export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
  --enable-librtmp  --enable-libass --enable-libx264 --enable-libbluray \
  --enable-openssl --enable-libopus --enable-libsox --enable-libx265 --enable-libcdio \
  --enable-libvo-amrwbenc  --enable-libwebp  --enable-nvenc --enable-cuda --enable-cuvid \
- --disable-muxer=encx \
- --disable-muxer=encx_audio \
+ --disable-muxer=encx --disable-muxers \
+ --disable-muxer=encx_audio --disable-encoders \
  --enable-libxml2 --enable-libmfx \
  --disable-outdevs \
  --disable-decoder=libvpx --disable-decoder=libopus \

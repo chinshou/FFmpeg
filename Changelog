@@ -2,6 +2,128 @@ Entries are sorted chronologically from oldest to youngest within each release,
 releases are sorted from youngest to oldest.
 
 version <next>:
+- libaribcaption decoder
+
+version 6.0:
+- Radiance HDR image support
+- ddagrab (Desktop Duplication) video capture filter
+- ffmpeg -shortest_buf_duration option
+- ffmpeg now requires threading to be built
+- ffmpeg now runs every muxer in a separate thread
+- Add new mode to cropdetect filter to detect crop-area based on motion vectors and edges
+- VAAPI decoding and encoding for 10/12bit 422, 10/12bit 444 HEVC and VP9
+- WBMP (Wireless Application Protocol Bitmap) image format
+- a3dscope filter
+- bonk decoder and demuxer
+- Micronas SC-4 audio decoder
+- LAF demuxer
+- APAC decoder and demuxer
+- Media 100i decoders
+- DTS to PTS reorder bsf
+- ViewQuest VQC decoder
+- backgroundkey filter
+- nvenc AV1 encoding support
+- MediaCodec decoder via NDKMediaCodec
+- MediaCodec encoder
+- oneVPL support for QSV
+- QSV AV1 encoder
+- QSV decoding and encoding for 10/12bit 422, 10/12bit 444 HEVC and VP9
+- showcwt multimedia filter
+- corr video filter
+- adrc audio filter
+- afdelaysrc audio filter
+- WADY DPCM decoder and demuxer
+- CBD2 DPCM decoder
+- ssim360 video filter
+- ffmpeg CLI new options: -stats_enc_pre[_fmt], -stats_enc_post[_fmt],
+  -stats_mux_pre[_fmt]
+- hstack_vaapi, vstack_vaapi and xstack_vaapi filters
+- XMD ADPCM decoder and demuxer
+- media100 to mjpegb bsf
+- ffmpeg CLI new option: -fix_sub_duration_heartbeat
+- WavArc decoder and demuxer
+- CrystalHD decoders deprecated
+- SDNS demuxer
+- RKA decoder and demuxer
+- filtergraph syntax in ffmpeg CLI now supports passing file contents
+  as option values, by prefixing option name with '/'
+- hstack_qsv, vstack_qsv and xstack_qsv filters
+
+
+version 5.1:
+- add ipfs/ipns gateway support
+- dialogue enhance audio filter
+- dropped obsolete XvMC hwaccel
+- pcm-bluray encoder
+- DFPWM audio encoder/decoder and raw muxer/demuxer
+- SITI filter
+- Vizrt Binary Image encoder/decoder
+- avsynctest source filter
+- feedback video filter
+- pixelize video filter
+- colormap video filter
+- colorchart video source filter
+- multiply video filter
+- PGS subtitle frame merge bitstream filter
+- blurdetect filter
+- tiltshelf audio filter
+- QOI image format support
+- ffprobe -o option
+- virtualbass audio filter
+- VDPAU AV1 hwaccel
+- PHM image format support
+- remap_opencl filter
+- added chromakey_cuda filter
+- added bilateral_cuda filter
+
+
+version 5.0:
+- ADPCM IMA Westwood encoder
+- Westwood AUD muxer
+- ADPCM IMA Acorn Replay decoder
+- Argonaut Games CVG demuxer
+- Argonaut Games CVG muxer
+- Concatf protocol
+- afwtdn audio filter
+- audio and video segment filters
+- Apple Graphics (SMC) encoder
+- hsvkey and hsvhold video filters
+- adecorrelate audio filter
+- atilt audio filter
+- grayworld video filter
+- AV1 Low overhead bitstream format muxer
+- swscale slice threading
+- MSN Siren decoder
+- scharr video filter
+- apsyclip audio filter
+- morpho video filter
+- amr parser
+- (a)latency filters
+- GEM Raster image decoder
+- asdr audio filter
+- speex decoder
+- limitdiff video filter
+- xcorrelate video filter
+- varblur video filter
+- huesaturation video filter
+- colorspectrum source video filter
+- RTP packetizer for uncompressed video (RFC 4175)
+- bitpacked encoder
+- VideoToolbox VP9 hwaccel
+- VideoToolbox ProRes hwaccel
+- support loongarch.
+- aspectralstats audio filter
+- adynamicsmooth audio filter
+- libplacebo filter
+- vflip_vulkan, hflip_vulkan and flip_vulkan filters
+- adynamicequalizer audio filter
+- yadif_videotoolbox filter
+- VideoToolbox ProRes encoder
+- anlmf audio filter
+- IMF demuxer (experimental)
+
+
+version 4.4:
 - AudioToolbox output device
 - MacCaption demuxer
 - PGX decoder
@@ -81,6 +203,8 @@ version <next>:
 - TTML subtitle encoder and muxer
 - identity video filter
 - msad video filter
+- gophers protocol
+- RIST protocol via librist
 
 
 version 4.3:

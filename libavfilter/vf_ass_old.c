@@ -434,12 +434,12 @@ AVFilter ff_vf_ass_old = {
     .priv_size = sizeof(AssContext),
     .init      = init_ass,
     .uninit    = uninit,	
-    .query_formats   = query_formats,
+    FILTER_QUERY_FUNC(query_formats),
 
     .inputs = (const AVFilterPad[]) {
         { .name             = "default",
           .type             = AVMEDIA_TYPE_VIDEO,
-          .get_video_buffer = ff_null_get_video_buffer,
+          .get_buffer = ff_null_get_video_buffer,
           .filter_frame     = filter_frame,
           .config_props     = config_input },
         { .name = NULL}

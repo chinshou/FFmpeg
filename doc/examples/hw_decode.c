@@ -24,12 +24,11 @@
  */
 
 /**
- * @file
- * HW-Accelerated decoding example.
- *
+ * @file HW-accelerated decoding API usage.example
  * @example hw_decode.c
- * This example shows how to do HW-accelerated decoding with output
- * frames from the HW video surfaces.
+ *
+ * Perform HW-accelerated decoding with output frames from HW video
+ * surfaces.
  */
 
 #include <stdio.h>
@@ -152,8 +151,8 @@ int main(int argc, char *argv[])
     int video_stream, ret;
     AVStream *video = NULL;
     AVCodecContext *decoder_ctx = NULL;
-    AVCodec *decoder = NULL;
-    AVPacket packet;
+    const AVCodec *decoder = NULL;
+    AVPacket *packet = NULL;
     enum AVHWDeviceType type;
     int i;
 
@@ -169,6 +168,12 @@ int main(int argc, char *argv[])
         while((type = av_hwdevice_iterate_types(type)) != AV_HWDEVICE_TYPE_NONE)
             fprintf(stderr, " %s", av_hwdevice_get_type_name(type));
         fprintf(stderr, "\n");
+        return -1;
+    }
+
+    packet = av_packet_alloc();
+    if (!packet) {
+        fprintf(stderr, "Failed to allocate AVPacket\n");
         return -1;
     }
 
@@ -227,23 +232,21 @@ int main(int argc, char *argv[])
 
     /* actual decoding and dump the raw data */
     while (ret >= 0) {
-        if ((ret = av_read_frame(input_ctx, &packet)) < 0)
+        if ((ret = av_read_frame(input_ctx, packet)) < 0)
             break;
 
-        if (video_stream == packet.stream_index)
-            ret = decode_write(decoder_ctx, &packet);
+        if (video_stream == packet->stream_index)
+            ret = decode_write(decoder_ctx, packet);
 
-        av_packet_unref(&packet);
+        av_packet_unref(packet);
     }
 
     /* flush the decoder */
-    packet.data = NULL;
-    packet.size = 0;
-    ret = decode_write(decoder_ctx, &packet);
-    av_packet_unref(&packet);
+    ret = decode_write(decoder_ctx, NULL);
 
     if (output_file)
         fclose(output_file);
+    av_packet_free(&packet);
     avcodec_free_context(&decoder_ctx);
     avformat_close_input(&input_ctx);
     av_buffer_unref(&hw_device_ctx);

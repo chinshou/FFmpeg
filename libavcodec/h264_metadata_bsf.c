@@ -22,12 +22,14 @@
 #include "libavutil/opt.h"
 
 #include "bsf.h"
+#include "bsf_internal.h"
 #include "cbs.h"
 #include "cbs_bsf.h"
 #include "cbs_h264.h"
 #include "h264.h"
 #include "h264_levels.h"
 #include "h264_sei.h"
+#include "h2645data.h"
 
 enum {
     FLIP_HORIZONTAL = 1,
@@ -61,6 +63,7 @@ typedef struct H264MetadataContext {
 
     AVRational tick_rate;
     int fixed_frame_rate_flag;
+    int zero_new_constraint_set_flags;
 
     int crop_left;
     int crop_right;
@@ -142,25 +145,17 @@ static int h264_metadata_update_sps(AVBSFContext *bsf,
     int crop_unit_x, crop_unit_y;
 
     if (ctx->sample_aspect_ratio.num && ctx->sample_aspect_ratio.den) {
-        // Table E-1.
-        static const AVRational sar_idc[] = {
-            {   0,  0 }, // Unspecified (never written here).
-            {   1,  1 }, {  12, 11 }, {  10, 11 }, {  16, 11 },
-            {  40, 33 }, {  24, 11 }, {  20, 11 }, {  32, 11 },
-            {  80, 33 }, {  18, 11 }, {  15, 11 }, {  64, 33 },
-            { 160, 99 }, {   4,  3 }, {   3,  2 }, {   2,  1 },
-        };
         int num, den, i;
 
         av_reduce(&num, &den, ctx->sample_aspect_ratio.num,
                   ctx->sample_aspect_ratio.den, 65535);
 
-        for (i = 1; i < FF_ARRAY_ELEMS(sar_idc); i++) {
-            if (num == sar_idc[i].num &&
-                den == sar_idc[i].den)
+        for (i = 1; i < FF_ARRAY_ELEMS(ff_h2645_pixel_aspect); i++) {
+            if (num == ff_h2645_pixel_aspect[i].num &&
+                den == ff_h2645_pixel_aspect[i].den)
                 break;
         }
-        if (i == FF_ARRAY_ELEMS(sar_idc)) {
+        if (i == FF_ARRAY_ELEMS(ff_h2645_pixel_aspect)) {
             sps->vui.aspect_ratio_idc = 255;
             sps->vui.sar_width  = num;
             sps->vui.sar_height = den;
@@ -228,6 +223,10 @@ static int h264_metadata_update_sps(AVBSFContext *bsf,
         need_vui = 1;
     }
     SET_VUI_FIELD(fixed_frame_rate_flag);
+    if (ctx->zero_new_constraint_set_flags) {
+        sps->constraint_set4_flag = 0;
+        sps->constraint_set5_flag = 0;
+    }
 
     if (sps->separate_colour_plane_flag || sps->chroma_format_idc == 0) {
         crop_unit_x = 1;
@@ -336,15 +335,24 @@ static int h264_metadata_handle_display_orientation(AVBSFContext *bsf,
                                    SEI_TYPE_DISPLAY_ORIENTATION,
                                    &message) == 0) {
         H264RawSEIDisplayOrientation *disp = message->payload;
+        double angle = disp->anticlockwise_rotation * 180.0 / 65536.0;
         int32_t *matrix;
 
         matrix = av_malloc(9 * sizeof(int32_t));
         if (!matrix)
             return AVERROR(ENOMEM);
 
-        av_display_rotation_set(matrix,
-                                disp->anticlockwise_rotation *
-                                180.0 / 65536.0);
+        /* av_display_rotation_set() expects the angle in the clockwise
+         * direction, hence the first minus.
+         * The below code applies the flips after the rotation, yet
+         * the H.2645 specs require flipping to be applied first.
+         * Because of R O(phi) = O(-phi) R (where R is flipping around
+         * an arbitatry axis and O(phi) is the proper rotation by phi)
+         * we can create display matrices as desired by negating
+         * the degree once for every flip applied. */
+        angle = -angle * (1 - 2 * !!disp->hor_flip) * (1 - 2 * !!disp->ver_flip);
+
+        av_display_rotation_set(matrix, angle);
         av_display_matrix_flip(matrix, disp->hor_flip, disp->ver_flip);
 
         // If there are multiple display orientation messages in an
@@ -371,7 +379,7 @@ static int h264_metadata_handle_display_orientation(AVBSFContext *bsf,
         H264RawSEIDisplayOrientation *disp =
             &ctx->display_orientation_payload;
         uint8_t *data;
-        int size;
+        size_t size;
         int write = 0;
 
         data = av_packet_get_side_data(pkt, AV_PKT_DATA_DISPLAYMATRIX, &size);
@@ -461,12 +469,13 @@ static int h264_metadata_update_fragment(AVBSFContext *bsf, AVPacket *pkt,
     H264MetadataContext *ctx = bsf->priv_data;
     int err, i, has_sps, seek_point;
 
-    // If an AUD is present, it must be the first NAL unit.
-    if (au->units[0].type == H264_NAL_AUD) {
-        if (ctx->aud == BSF_ELEMENT_REMOVE)
-            ff_cbs_delete_unit(au, 0);
-    } else {
-        if (ctx->aud == BSF_ELEMENT_INSERT) {
+    if (ctx->aud == BSF_ELEMENT_REMOVE) {
+        for (i = au->nb_units - 1; i >= 0; i--) {
+            if (au->units[i].type == H264_NAL_AUD)
+                ff_cbs_delete_unit(au, i);
+        }
+    } else if (ctx->aud == BSF_ELEMENT_INSERT) {
+        if (pkt) {
             err = h264_metadata_insert_aud(bsf, au);
             if (err < 0)
                 return err;
@@ -610,14 +619,17 @@ static const AVOption h264_metadata_options[] = {
 
     { "chroma_sample_loc_type", "Set chroma sample location type (figure E-1)",
         OFFSET(chroma_sample_loc_type), AV_OPT_TYPE_INT,
-        { .i64 = -1 }, -1, 6, FLAGS },
+        { .i64 = -1 }, -1, 5, FLAGS },
 
-    { "tick_rate", "Set VUI tick rate (num_units_in_tick / time_scale)",
+    { "tick_rate", "Set VUI tick rate (time_scale / num_units_in_tick)",
         OFFSET(tick_rate), AV_OPT_TYPE_RATIONAL,
         { .dbl = 0.0 }, 0, UINT_MAX, FLAGS },
     { "fixed_frame_rate_flag", "Set VUI fixed frame rate flag",
         OFFSET(fixed_frame_rate_flag), AV_OPT_TYPE_INT,
         { .i64 = -1 }, -1, 1, FLAGS },
+    { "zero_new_constraint_set_flags", "Set constraint_set4_flag / constraint_set5_flag to zero",
+        OFFSET(zero_new_constraint_set_flags), AV_OPT_TYPE_BOOL,
+        { .i64 = 0 }, 0, 1, FLAGS },
 
     { "crop_left", "Set left border crop offset",
         OFFSET(crop_left), AV_OPT_TYPE_INT,
@@ -699,12 +711,12 @@ static const enum AVCodecID h264_metadata_codec_ids[] = {
     AV_CODEC_ID_H264, AV_CODEC_ID_NONE,
 };
 
-const AVBitStreamFilter ff_h264_metadata_bsf = {
-    .name           = "h264_metadata",
+const FFBitStreamFilter ff_h264_metadata_bsf = {
+    .p.name         = "h264_metadata",
+    .p.codec_ids    = h264_metadata_codec_ids,
+    .p.priv_class   = &h264_metadata_class,
     .priv_data_size = sizeof(H264MetadataContext),
-    .priv_class     = &h264_metadata_class,
     .init           = &h264_metadata_init,
     .close          = &ff_cbs_bsf_generic_close,
     .filter         = &ff_cbs_bsf_generic_filter,
-    .codec_ids      = h264_metadata_codec_ids,
 };

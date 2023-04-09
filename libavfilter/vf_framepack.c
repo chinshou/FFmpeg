@@ -79,15 +79,6 @@ static const enum AVPixelFormat formats_supported[] = {
     AV_PIX_FMT_NONE
 };
 
-static int query_formats(AVFilterContext *ctx)
-{
-    // this will ensure that formats are the same on all pads
-    AVFilterFormats *fmts_list = ff_make_format_list(formats_supported);
-    if (!fmts_list)
-        return AVERROR(ENOMEM);
-    return ff_set_common_formats(ctx, fmts_list);
-}
-
 static av_cold void framepack_uninit(AVFilterContext *ctx)
 {
     FramepackContext *s = ctx->priv;
@@ -338,8 +329,10 @@ static int try_push_frame(AVFilterContext *ctx)
 
         for (i = 0; i < 2; i++) {
             // set correct timestamps
-            if (pts != AV_NOPTS_VALUE)
+            if (pts != AV_NOPTS_VALUE) {
                 s->input_views[i]->pts = i == 0 ? pts * 2 : pts * 2 + av_rescale_q(1, av_inv_q(outlink->frame_rate), outlink->time_base);
+                s->input_views[i]->duration = av_rescale_q(1, av_inv_q(outlink->frame_rate), outlink->time_base);
+            }
 
             // set stereo3d side data
             stereo = av_stereo3d_create_side_data(s->input_views[i]);
@@ -457,7 +450,6 @@ static const AVFilterPad framepack_inputs[] = {
         .name         = "right",
         .type         = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
 static const AVFilterPad framepack_outputs[] = {
@@ -466,17 +458,16 @@ static const AVFilterPad framepack_outputs[] = {
         .type          = AVMEDIA_TYPE_VIDEO,
         .config_props  = config_output,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_framepack = {
+const AVFilter ff_vf_framepack = {
     .name          = "framepack",
     .description   = NULL_IF_CONFIG_SMALL("Generate a frame packed stereoscopic video."),
     .priv_size     = sizeof(FramepackContext),
     .priv_class    = &framepack_class,
-    .query_formats = query_formats,
-    .inputs        = framepack_inputs,
-    .outputs       = framepack_outputs,
+    FILTER_INPUTS(framepack_inputs),
+    FILTER_OUTPUTS(framepack_outputs),
+    FILTER_PIXFMTS_ARRAY(formats_supported),
     .activate      = activate,
     .uninit        = framepack_uninit,
 };

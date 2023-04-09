@@ -24,12 +24,12 @@
 #include "avio_internal.h"
 #include "id3v2.h"
 #include "internal.h"
+#include "mux.h"
 #include "oma.h"
 #include "rawenc.h"
 
 static av_cold int oma_write_header(AVFormatContext *s)
 {
-    int i;
     AVCodecParameters *par;
     int srate_index;
     int isjointstereo;
@@ -55,12 +55,11 @@ static av_cold int oma_write_header(AVFormatContext *s)
     avio_w8(s->pb, EA3_HEADER_SIZE >> 7);
     avio_w8(s->pb, EA3_HEADER_SIZE & 0x7F);
     avio_wl16(s->pb, 0xFFFF);       /* not encrypted */
-    for (i = 0; i < 6; i++)
-        avio_wl32(s->pb, 0);        /* Padding + DRM id */
+    ffio_fill(s->pb, 0, 6 * 4);     /* Padding + DRM id */
 
     switch (par->codec_tag) {
     case OMA_CODECID_ATRAC3:
-        if (par->channels != 2) {
+        if (par->ch_layout.nb_channels != 2) {
             av_log(s, AV_LOG_ERROR, "ATRAC3 in OMA is only supported with 2 channels\n");
             return AVERROR(EINVAL);
         }
@@ -80,7 +79,7 @@ static av_cold int oma_write_header(AVFormatContext *s)
     case OMA_CODECID_ATRAC3P:
         avio_wb32(s->pb, (OMA_CODECID_ATRAC3P << 24) |
                          (srate_index << 13) |
-                         (par->channels << 10) |
+                         (par->ch_layout.nb_channels << 10) |
                          (par->block_align/8 - 1));
         break;
     default:
@@ -88,20 +87,19 @@ static av_cold int oma_write_header(AVFormatContext *s)
                av_fourcc2str(par->codec_tag));
         return AVERROR(EINVAL);
     }
-    for (i = 0; i < (EA3_HEADER_SIZE - 36)/4; i++)
-        avio_wl32(s->pb, 0);        /* Padding */
+    ffio_fill(s->pb, 0, EA3_HEADER_SIZE - 36);  /* Padding */
 
     return 0;
 }
 
-AVOutputFormat ff_oma_muxer = {
-    .name              = "oma",
-    .long_name         = NULL_IF_CONFIG_SMALL("Sony OpenMG audio"),
-    .mime_type         = "audio/x-oma",
-    .extensions        = "oma",
-    .audio_codec       = AV_CODEC_ID_ATRAC3,
+const FFOutputFormat ff_oma_muxer = {
+    .p.name            = "oma",
+    .p.long_name       = NULL_IF_CONFIG_SMALL("Sony OpenMG audio"),
+    .p.mime_type       = "audio/x-oma",
+    .p.extensions      = "oma",
+    .p.audio_codec     = AV_CODEC_ID_ATRAC3,
     .write_header      = oma_write_header,
     .write_packet      = ff_raw_write_packet,
-    .codec_tag         = ff_oma_codec_tags_list,
-    .flags             = AVFMT_NOTIMESTAMPS,
+    .p.codec_tag       = ff_oma_codec_tags_list,
+    .p.flags           = AVFMT_NOTIMESTAMPS,
 };

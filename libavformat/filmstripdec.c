@@ -86,7 +86,7 @@ static int read_packet(AVFormatContext *s,
     AVStream *st = s->streams[0];
 
     if (avio_feof(s->pb))
-        return AVERROR(EIO);
+        return AVERROR_EOF;
     pkt->dts = avio_tell(s->pb) / (st->codecpar->width * (int64_t)(st->codecpar->height + film->leading) * 4);
     pkt->size = av_get_packet(s->pb, pkt, st->codecpar->width * st->codecpar->height * 4);
     avio_skip(s->pb, st->codecpar->width * (int64_t) film->leading * 4);
@@ -104,7 +104,7 @@ static int read_seek(AVFormatContext *s, int stream_index, int64_t timestamp, in
     return 0;
 }
 
-AVInputFormat ff_filmstrip_demuxer = {
+const AVInputFormat ff_filmstrip_demuxer = {
     .name           = "filmstrip",
     .long_name      = NULL_IF_CONFIG_SMALL("Adobe Filmstrip"),
     .priv_data_size = sizeof(FilmstripDemuxContext),

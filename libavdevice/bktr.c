@@ -25,6 +25,7 @@
  */
 
 #include "libavformat/internal.h"
+#include "libavutil/file_open.h"
 #include "libavutil/internal.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
@@ -348,7 +349,7 @@ static const AVClass bktr_class = {
     .category   = AV_CLASS_CATEGORY_DEVICE_VIDEO_INPUT,
 };
 
-AVInputFormat ff_bktr_demuxer = {
+const AVInputFormat ff_bktr_demuxer = {
     .name           = "bktr",
     .long_name      = NULL_IF_CONFIG_SMALL("video grab"),
     .priv_data_size = sizeof(VideoData),

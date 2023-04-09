@@ -32,11 +32,14 @@
 
 #include "avformat.h"
 #include "matroska.h"
+#include "mux.h"
 
 #include "libavutil/avstring.h"
 #include "libavutil/dict.h"
 #include "libavutil/opt.h"
 #include "libavutil/time_internal.h"
+
+#include "libavcodec/codec_desc.h"
 
 typedef struct AdaptationSet {
     char id[10];
@@ -93,7 +96,7 @@ static int write_header(AVFormatContext *s)
     }
     avio_printf(pb, "  minBufferTime=\"PT%gS\"\n", min_buffer_time);
     avio_printf(pb, "  profiles=\"%s\"%s",
-                w->is_live ? "urn:mpeg:dash:profile:isoff-live:2011" : "urn:webm:dash:profile:webm-on-demand:2012",
+                w->is_live ? "urn:mpeg:dash:profile:isoff-live:2011" : "urn:mpeg:dash:profile:webm-on-demand:2012",
                 w->is_live ? "\n" : ">\n");
     if (w->is_live) {
         time_t local_time = time(NULL);
@@ -155,7 +158,8 @@ static int bitstream_switching(AVFormatContext *s, const AdaptationSet *as)
             !av_strstart(track_num->value, gold_track_num->value, NULL) ||
             gold_par->codec_id != par->codec_id ||
             gold_par->extradata_size != par->extradata_size ||
-            memcmp(gold_par->extradata, par->extradata, par->extradata_size)) {
+            (par->extradata_size > 0 &&
+             memcmp(gold_par->extradata, par->extradata, par->extradata_size))) {
             return 0;
         }
     }
@@ -479,7 +483,8 @@ static int webm_dash_manifest_write_header(AVFormatContext *s)
     for (unsigned i = 0; i < s->nb_streams; i++) {
         enum AVCodecID codec_id = s->streams[i]->codecpar->codec_id;
         if (codec_id != AV_CODEC_ID_VP8    && codec_id != AV_CODEC_ID_VP9 &&
-            codec_id != AV_CODEC_ID_VORBIS && codec_id != AV_CODEC_ID_OPUS)
+            codec_id != AV_CODEC_ID_AV1    && codec_id != AV_CODEC_ID_VORBIS &&
+            codec_id != AV_CODEC_ID_OPUS)
             return AVERROR(EINVAL);
     }
 
@@ -536,13 +541,13 @@ static const AVClass webm_dash_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVOutputFormat ff_webm_dash_manifest_muxer = {
-    .name              = "webm_dash_manifest",
-    .long_name         = NULL_IF_CONFIG_SMALL("WebM DASH Manifest"),
-    .mime_type         = "application/xml",
-    .extensions        = "xml",
+const FFOutputFormat ff_webm_dash_manifest_muxer = {
+    .p.name            = "webm_dash_manifest",
+    .p.long_name       = NULL_IF_CONFIG_SMALL("WebM DASH Manifest"),
+    .p.mime_type       = "application/xml",
+    .p.extensions      = "xml",
     .priv_data_size    = sizeof(WebMDashMuxContext),
     .write_header      = webm_dash_manifest_write_header,
     .write_packet      = webm_dash_manifest_write_packet,
-    .priv_class        = &webm_dash_class,
+    .p.priv_class      = &webm_dash_class,
 };

@@ -26,6 +26,8 @@
 
 #include "libavutil/intreadwrite.h"
 #include "avformat.h"
+#include "avio_internal.h"
+#include "mux.h"
 #include "rawenc.h"
 
 #define RAND_TAG MKBETAG('R','a','n','d')
@@ -43,7 +45,6 @@ static int write_trailer(AVFormatContext *s)
 {
     AVIOContext *pb = s->pb;
     AVStream *st = s->streams[0];
-    int i;
 
     avio_wb32(pb, RAND_TAG);
     avio_wb32(pb, st->nb_frames);
@@ -54,18 +55,17 @@ static int write_trailer(AVFormatContext *s)
     avio_wb16(pb, 0);  // leading
     // TODO: should be avg_frame_rate
     avio_wb16(pb, st->time_base.den / st->time_base.num);
-    for (i = 0; i < 16; i++)
-        avio_w8(pb, 0x00);  // reserved
+    ffio_fill(pb, 0x00, 16);  // reserved
 
     return 0;
 }
 
-AVOutputFormat ff_filmstrip_muxer = {
-    .name              = "filmstrip",
-    .long_name         = NULL_IF_CONFIG_SMALL("Adobe Filmstrip"),
-    .extensions        = "flm",
-    .audio_codec       = AV_CODEC_ID_NONE,
-    .video_codec       = AV_CODEC_ID_RAWVIDEO,
+const FFOutputFormat ff_filmstrip_muxer = {
+    .p.name            = "filmstrip",
+    .p.long_name       = NULL_IF_CONFIG_SMALL("Adobe Filmstrip"),
+    .p.extensions      = "flm",
+    .p.audio_codec     = AV_CODEC_ID_NONE,
+    .p.video_codec     = AV_CODEC_ID_RAWVIDEO,
     .write_header      = write_header,
     .write_packet      = ff_raw_write_packet,
     .write_trailer     = write_trailer,

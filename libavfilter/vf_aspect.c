@@ -23,6 +23,8 @@
  * aspect ratio modification video filters
  */
 
+#include "config_components.h"
+
 #include <float.h>
 
 #include "libavutil/common.h"
@@ -39,7 +41,8 @@
 static const char *const var_names[] = {
     "w",
     "h",
-    "a", "dar",
+    "a",
+    "dar",
     "sar",
     "hsub",
     "vsub",
@@ -49,7 +52,8 @@ static const char *const var_names[] = {
 enum var_name {
     VAR_W,
     VAR_H,
-    VAR_A, VAR_DAR,
+    VAR_A,
+    VAR_DAR,
     VAR_SAR,
     VAR_HSUB,
     VAR_VSUB,
@@ -103,8 +107,8 @@ static int get_aspect_ratio(AVFilterLink *inlink, AVRational *aspect_ratio)
 
     /* evaluate new aspect ratio*/
     ret = av_expr_parse_and_eval(&res, s->ratio_expr,
-                                      var_names, var_values,
-                                      NULL, NULL, NULL, NULL, NULL, 0, ctx);
+                                 var_names, var_values,
+                                 NULL, NULL, NULL, NULL, NULL, 0, ctx);
     if (ret < 0) {
         ret = av_parse_ratio(aspect_ratio, s->ratio_expr, s->max, 0, ctx);
     } else
@@ -173,7 +177,6 @@ static const AVFilterPad avfilter_vf_setdar_inputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad avfilter_vf_setdar_outputs[] = {
@@ -182,16 +185,16 @@ static const AVFilterPad avfilter_vf_setdar_outputs[] = {
         .type = AVMEDIA_TYPE_VIDEO,
         .config_props = setdar_config_props,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_setdar = {
+const AVFilter ff_vf_setdar = {
     .name        = "setdar",
     .description = NULL_IF_CONFIG_SMALL("Set the frame display aspect ratio."),
     .priv_size   = sizeof(AspectContext),
     .priv_class  = &setdar_class,
-    .inputs      = avfilter_vf_setdar_inputs,
-    .outputs     = avfilter_vf_setdar_outputs,
+    .flags       = AVFILTER_FLAG_METADATA_ONLY,
+    FILTER_INPUTS(avfilter_vf_setdar_inputs),
+    FILTER_OUTPUTS(avfilter_vf_setdar_outputs),
 };
 
 #endif /* CONFIG_SETDAR_FILTER */
@@ -237,7 +240,6 @@ static const AVFilterPad avfilter_vf_setsar_inputs[] = {
         .type         = AVMEDIA_TYPE_VIDEO,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad avfilter_vf_setsar_outputs[] = {
@@ -246,16 +248,16 @@ static const AVFilterPad avfilter_vf_setsar_outputs[] = {
         .type = AVMEDIA_TYPE_VIDEO,
         .config_props = setsar_config_props,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_setsar = {
+const AVFilter ff_vf_setsar = {
     .name        = "setsar",
     .description = NULL_IF_CONFIG_SMALL("Set the pixel sample aspect ratio."),
     .priv_size   = sizeof(AspectContext),
     .priv_class  = &setsar_class,
-    .inputs      = avfilter_vf_setsar_inputs,
-    .outputs     = avfilter_vf_setsar_outputs,
+    .flags       = AVFILTER_FLAG_METADATA_ONLY,
+    FILTER_INPUTS(avfilter_vf_setsar_inputs),
+    FILTER_OUTPUTS(avfilter_vf_setsar_outputs),
 };
 
 #endif /* CONFIG_SETSAR_FILTER */

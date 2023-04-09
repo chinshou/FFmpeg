@@ -44,13 +44,18 @@
 
 #define MAX_COMPONENTS 4
 
+typedef struct ICCEntry {
+    uint8_t *data;
+    int    length;
+} ICCEntry;
+
+struct JLSState;
+
 typedef struct MJpegDecodeContext {
     AVClass *class;
     AVCodecContext *avctx;
     GetBitContext gb;
     int buf_size;
-
-    AVPacket *pkt;
 
     int start_code; /* current start code */
     int buffer_size;
@@ -110,7 +115,8 @@ typedef struct MJpegDecodeContext {
     uint8_t *last_nnz[MAX_COMPONENTS];
     uint64_t coefs_finished[MAX_COMPONENTS]; ///< bitmask of which coefs have been completely decoded (progressive mode)
     int palette_index;
-    ScanTable scantable;
+    int force_pal8;
+    uint8_t permutated_scantable[64];
     BlockDSPContext bdsp;
     HpelDSPContext hdsp;
     IDCTDSPContext idsp;
@@ -138,8 +144,7 @@ typedef struct MJpegDecodeContext {
 
     const AVPixFmtDescriptor *pix_desc;
 
-    uint8_t **iccdata;
-    int *iccdatalens;
+    ICCEntry *iccentries;
     int iccnum;
     int iccread;
 
@@ -159,13 +164,19 @@ typedef struct MJpegDecodeContext {
     enum AVPixelFormat hwaccel_sw_pix_fmt;
     enum AVPixelFormat hwaccel_pix_fmt;
     void *hwaccel_picture_private;
+    struct JLSState *jls_state;
 } MJpegDecodeContext;
 
 int ff_mjpeg_build_vlc(VLC *vlc, const uint8_t *bits_table,
                        const uint8_t *val_table, int is_ac, void *logctx);
 int ff_mjpeg_decode_init(AVCodecContext *avctx);
 int ff_mjpeg_decode_end(AVCodecContext *avctx);
-int ff_mjpeg_receive_frame(AVCodecContext *avctx, AVFrame *frame);
+int ff_mjpeg_decode_frame(AVCodecContext *avctx,
+                          AVFrame *frame, int *got_frame,
+                          AVPacket *avpkt);
+int ff_mjpeg_decode_frame_from_buf(AVCodecContext *avctx,
+                                   AVFrame *frame, int *got_frame,
+                                   const AVPacket *avpkt, const uint8_t *buf, int buf_size);
 int ff_mjpeg_decode_dqt(MJpegDecodeContext *s);
 int ff_mjpeg_decode_dht(MJpegDecodeContext *s);
 int ff_mjpeg_decode_sof(MJpegDecodeContext *s);
@@ -175,7 +186,5 @@ int ff_mjpeg_decode_sos(MJpegDecodeContext *s,
 int ff_mjpeg_find_marker(MJpegDecodeContext *s,
                          const uint8_t **buf_ptr, const uint8_t *buf_end,
                          const uint8_t **unescaped_buf_ptr, int *unescaped_buf_size);
-
-int ff_sp5x_process_packet(AVCodecContext *avctx, AVPacket *avpkt);
 
 #endif /* AVCODEC_MJPEGDEC_H */

@@ -31,10 +31,8 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <float.h>
-
 #include "libavutil/avassert.h"
-#include "libavutil/avstring.h"
+#include "libavutil/file_open.h"
 #include "libavutil/float_dsp.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/opt.h"
@@ -330,42 +328,30 @@ static int rnnoise_model_from_file(FILE *f, RNNModel **rnn)
 
 static int query_formats(AVFilterContext *ctx)
 {
-    AVFilterFormats *formats = NULL;
-    AVFilterChannelLayouts *layouts = NULL;
     static const enum AVSampleFormat sample_fmts[] = {
         AV_SAMPLE_FMT_FLTP,
         AV_SAMPLE_FMT_NONE
     };
     int ret, sample_rates[] = { 48000, -1 };
 
-    formats = ff_make_format_list(sample_fmts);
-    if (!formats)
-        return AVERROR(ENOMEM);
-    ret = ff_set_common_formats(ctx, formats);
+    ret = ff_set_common_formats_from_list(ctx, sample_fmts);
     if (ret < 0)
         return ret;
 
-    layouts = ff_all_channel_counts();
-    if (!layouts)
-        return AVERROR(ENOMEM);
-
-    ret = ff_set_common_channel_layouts(ctx, layouts);
+    ret = ff_set_common_all_channel_counts(ctx);
     if (ret < 0)
         return ret;
 
-    formats = ff_make_format_list(sample_rates);
-    if (!formats)
-        return AVERROR(ENOMEM);
-    return ff_set_common_samplerates(ctx, formats);
+    return ff_set_common_samplerates_from_list(ctx, sample_rates);
 }
 
 static int config_input(AVFilterLink *inlink)
 {
     AVFilterContext *ctx = inlink->dst;
     AudioRNNContext *s = ctx->priv;
-    int ret;
+    int ret = 0;
 
-    s->channels = inlink->channels;
+    s->channels = inlink->ch_layout.nb_channels;
 
     if (!s->st)
         s->st = av_calloc(s->channels, sizeof(DenoiseState));
@@ -387,19 +373,20 @@ static int config_input(AVFilterLink *inlink)
 
     for (int i = 0; i < s->channels; i++) {
         DenoiseState *st = &s->st[i];
+        float scale = 1.f;
 
         if (!st->tx)
-            ret = av_tx_init(&st->tx, &st->tx_fn, AV_TX_FLOAT_FFT, 0, WINDOW_SIZE, NULL, 0);
+            ret = av_tx_init(&st->tx, &st->tx_fn, AV_TX_FLOAT_FFT, 0, WINDOW_SIZE, &scale, 0);
         if (ret < 0)
             return ret;
 
         if (!st->txi)
-            ret = av_tx_init(&st->txi, &st->txi_fn, AV_TX_FLOAT_FFT, 1, WINDOW_SIZE, NULL, 0);
+            ret = av_tx_init(&st->txi, &st->txi_fn, AV_TX_FLOAT_FFT, 1, WINDOW_SIZE, &scale, 0);
         if (ret < 0)
             return ret;
     }
 
-    return 0;
+    return ret;
 }
 
 static void biquad(float *y, float mem[2], const float *x,
@@ -430,7 +417,7 @@ static void forward_transform(DenoiseState *st, AVComplexFloat *out, const float
         x[i].im = 0;
     }
 
-    st->tx_fn(st->tx, y, x, sizeof(float));
+    st->tx_fn(st->tx, y, x, sizeof(AVComplexFloat));
 
     RNN_COPY(out, y, FREQ_SIZE);
 }
@@ -447,7 +434,7 @@ static void inverse_transform(DenoiseState *st, float *out, const AVComplexFloat
         x[i].im = -x[WINDOW_SIZE - i].im;
     }
 
-    st->txi_fn(st->txi, y, x, sizeof(float));
+    st->txi_fn(st->txi, y, x, sizeof(AVComplexFloat));
 
     for (int i = 0; i < WINDOW_SIZE; i++)
         out[i] = y[i].re / WINDOW_SIZE;
@@ -1425,8 +1412,8 @@ static int rnnoise_channels(AVFilterContext *ctx, void *arg, int jobnr, int nb_j
     ThreadData *td = arg;
     AVFrame *in = td->in;
     AVFrame *out = td->out;
-    const int start = (out->channels * jobnr) / nb_jobs;
-    const int end = (out->channels * (jobnr+1)) / nb_jobs;
+    const int start = (out->ch_layout.nb_channels * jobnr) / nb_jobs;
+    const int end = (out->ch_layout.nb_channels * (jobnr+1)) / nb_jobs;
 
     for (int ch = start; ch < end; ch++) {
         rnnoise_channel(s, &s->st[ch],
@@ -1450,11 +1437,11 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         av_frame_free(&in);
         return AVERROR(ENOMEM);
     }
-    out->pts = in->pts;
+    av_frame_copy_props(out, in);
 
     td.in = in; td.out = out;
-    ctx->internal->execute(ctx, rnnoise_channels, &td, NULL, FFMIN(outlink->channels,
-                                                                   ff_filter_get_nb_threads(ctx)));
+    ff_filter_execute(ctx, rnnoise_channels, &td, NULL,
+                      FFMIN(outlink->ch_layout.nb_channels, ff_filter_get_nb_threads(ctx)));
 
     av_frame_free(&in);
     return ff_filter_frame(outlink, out);
@@ -1490,7 +1477,7 @@ static int open_model(AVFilterContext *ctx, RNNModel **model)
 
     if (!s->model_name)
         return AVERROR(EINVAL);
-    f = av_fopen_utf8(s->model_name, "r");
+    f = avpriv_fopen_utf8(s->model_name, "r");
     if (!f) {
         av_log(ctx, AV_LOG_ERROR, "Failed to open model file: %s\n", s->model_name);
         return AVERROR(EINVAL);
@@ -1596,7 +1583,6 @@ static const AVFilterPad inputs[] = {
         .type         = AVMEDIA_TYPE_AUDIO,
         .config_props = config_input,
     },
-    { NULL }
 };
 
 static const AVFilterPad outputs[] = {
@@ -1604,7 +1590,6 @@ static const AVFilterPad outputs[] = {
         .name          = "default",
         .type          = AVMEDIA_TYPE_AUDIO,
     },
-    { NULL }
 };
 
 #define OFFSET(x) offsetof(AudioRNNContext, x)
@@ -1619,17 +1604,17 @@ static const AVOption arnndn_options[] = {
 
 AVFILTER_DEFINE_CLASS(arnndn);
 
-AVFilter ff_af_arnndn = {
+const AVFilter ff_af_arnndn = {
     .name          = "arnndn",
     .description   = NULL_IF_CONFIG_SMALL("Reduce noise from speech using Recurrent Neural Networks."),
-    .query_formats = query_formats,
     .priv_size     = sizeof(AudioRNNContext),
     .priv_class    = &arnndn_class,
     .activate      = activate,
     .init          = init,
     .uninit        = uninit,
-    .inputs        = inputs,
-    .outputs       = outputs,
+    FILTER_INPUTS(inputs),
+    FILTER_OUTPUTS(outputs),
+    FILTER_QUERY_FUNC(query_formats),
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
                      AVFILTER_FLAG_SLICE_THREADS,
     .process_command = process_command,

@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "config_components.h"
+
 #include "float.h"
 
 #include "libavutil/avstring.h"
@@ -83,6 +85,8 @@ static const AVOption drawgraph_options[] = {
     { "r",    "set video rate", OFFSET(frame_rate), AV_OPT_TYPE_VIDEO_RATE, {.str="25"}, 0, INT_MAX, FLAGS },
     { NULL }
 };
+
+AVFILTER_DEFINE_CLASS_EXT(drawgraph, "(a)drawgraph", drawgraph_options);
 
 static const char *const var_names[] = {   "MAX",   "MIN",   "VAL", NULL };
 enum                                   { VAR_MAX, VAR_MIN, VAR_VAL, VAR_VARS_NB };
@@ -164,7 +168,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     AVDictionaryEntry *e;
     AVFrame *out = s->out;
     AVFrame *clone = NULL;
-    int64_t in_pts, out_pts;
+    int64_t in_pts, out_pts, in_duration;
     int i;
 
     if (s->slide == 4 && s->nb_values >= s->values_size[0] / sizeof(float)) {
@@ -316,6 +320,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
     s->x++;
 
     in_pts = in->pts;
+    in_duration = in->duration;
 
     av_frame_free(&in);
 
@@ -332,6 +337,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         return AVERROR(ENOMEM);
 
     clone->pts = s->prev_pts = out_pts;
+    clone->duration = av_rescale_q(in_duration, inlink->time_base, outlink->time_base);
     return ff_filter_frame(outlink, clone);
 }
 
@@ -450,15 +456,12 @@ static av_cold void uninit(AVFilterContext *ctx)
 
 #if CONFIG_DRAWGRAPH_FILTER
 
-AVFILTER_DEFINE_CLASS(drawgraph);
-
 static const AVFilterPad drawgraph_inputs[] = {
     {
         .name         = "default",
         .type         = AVMEDIA_TYPE_VIDEO,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad drawgraph_outputs[] = {
@@ -468,27 +471,23 @@ static const AVFilterPad drawgraph_outputs[] = {
         .config_props = config_output,
         .request_frame = request_frame,
     },
-    { NULL }
 };
 
-AVFilter ff_vf_drawgraph = {
+const AVFilter ff_vf_drawgraph = {
     .name          = "drawgraph",
     .description   = NULL_IF_CONFIG_SMALL("Draw a graph using input video metadata."),
     .priv_size     = sizeof(DrawGraphContext),
     .priv_class    = &drawgraph_class,
-    .query_formats = query_formats,
     .init          = init,
     .uninit        = uninit,
-    .inputs        = drawgraph_inputs,
-    .outputs       = drawgraph_outputs,
+    FILTER_INPUTS(drawgraph_inputs),
+    FILTER_OUTPUTS(drawgraph_outputs),
+    FILTER_QUERY_FUNC(query_formats),
 };
 
 #endif // CONFIG_DRAWGRAPH_FILTER
 
 #if CONFIG_ADRAWGRAPH_FILTER
-
-#define adrawgraph_options drawgraph_options
-AVFILTER_DEFINE_CLASS(adrawgraph);
 
 static const AVFilterPad adrawgraph_inputs[] = {
     {
@@ -496,7 +495,6 @@ static const AVFilterPad adrawgraph_inputs[] = {
         .type         = AVMEDIA_TYPE_AUDIO,
         .filter_frame = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad adrawgraph_outputs[] = {
@@ -506,18 +504,17 @@ static const AVFilterPad adrawgraph_outputs[] = {
         .config_props = config_output,
         .request_frame = request_frame,
     },
-    { NULL }
 };
 
-AVFilter ff_avf_adrawgraph = {
+const AVFilter ff_avf_adrawgraph = {
     .name          = "adrawgraph",
     .description   = NULL_IF_CONFIG_SMALL("Draw a graph using input audio metadata."),
+    .priv_class    = &drawgraph_class,
     .priv_size     = sizeof(DrawGraphContext),
-    .priv_class    = &adrawgraph_class,
-    .query_formats = query_formats,
     .init          = init,
     .uninit        = uninit,
-    .inputs        = adrawgraph_inputs,
-    .outputs       = adrawgraph_outputs,
+    FILTER_INPUTS(adrawgraph_inputs),
+    FILTER_OUTPUTS(adrawgraph_outputs),
+    FILTER_QUERY_FUNC(query_formats),
 };
 #endif // CONFIG_ADRAWGRAPH_FILTER
