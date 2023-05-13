@@ -8,7 +8,7 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin64/lib " CPPFLAGS=" -I/usr/local/darwin6
 --enable-libmp3lame --enable-nonfree --enable-libvo-amrwbenc --disable-lzma \
 --enable-libfreetype --enable-version3  --enable-libtheora  \
 --enable-libvorbis --enable-runtime-cpudetect --enable-libsox  --enable-libopencore-amrnb  \
---enable-libopencore-amrwb --enable-openal --enable-openssl --enable-libsrt --enable-decklink  \
+--enable-libopencore-amrwb --enable-openssl --enable-libsrt --enable-decklink  \
 --enable-libwebp   \
 --disable-muxer=encx   \
 --disable-demuxer=encx   \
@@ -26,7 +26,7 @@ read
 #--cc="clang -m32" --extra-cflags="-fomit-frame-pointer" --extra-ldflags="-fomit-frame-pointer" --extra-cxxflags="-fomit-frame-pointer"
 #--extra-cflags=-I/System/Library/Frameworks/OpenAL.framework/Headers --extra-ldflags=-L/System/Library/Frameworks/OpenAL.framework
 #--enable-libutvideo
-#--enable-libmodplug
+#--enable-libmodplug --enable-openal
 #--enable-libcdio
 #--enable-libschroedinger
 #--enable-libvo-aacenc

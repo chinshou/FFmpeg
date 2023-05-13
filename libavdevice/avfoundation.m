@@ -749,7 +749,7 @@ static int get_audio_config(AVFormatContext *s)
                 break;
             }
         }
-        av_log(s, AV_LOG_ERROR, "audio format is 0x%x\n", stream->codec->codec_id );
+        //av_log(s, AV_LOG_ERROR, "audio format is 0x%x\n", stream->codec->codec_id );
     } else {
         unlock_frames(ctx);
         av_log(s, AV_LOG_ERROR, "audio format is not supported\n");
