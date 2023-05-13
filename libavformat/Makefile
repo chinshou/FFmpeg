@@ -340,7 +340,9 @@ OBJS-$(CONFIG_MATROSKA_MUXER)            += matroskaenc.o matroska.o \
                                             flacenc_header.o avlanguage.o \
                                             vorbiscomment.o wv.o dovi_isom.o
 OBJS-$(CONFIG_ENCX_DEMUXER)              += xencdec.o matroska.o  \
-                                            isom.o rmsipr.o 
+                                            flac_picture.o rmsipr.o \
+                                            oggparsevorbis.o vorbiscomment.o \
+                                            qtpalette.o replaygain.o dovi_isom.o
 OBJS-$(CONFIG_ENCX_MUXER)                += xencenc.o matroska.o \
                                             isom.o avc.o \
                                             flacenc_header.o avlanguage.o wv.o
