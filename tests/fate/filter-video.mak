@@ -213,7 +213,7 @@ fate-filter-vstack: CMD = framecrc -c:v pgmyuv -i $(SRC) -c:v pgmyuv -i $(SRC) -
 FATE_FILTER_OVERLAY-$(call FILTERDEMDEC, SCALE OVERLAY, IMAGE2, PGMYUV) += fate-filter-overlay
 fate-filter-overlay: CMD = framecrc -c:v pgmyuv -i $(SRC) -c:v pgmyuv -i $(SRC) -filter_complex_script $(FILTERGRAPH)
 
-FATE_FILTER_OVERLAY-$(call FILTERDEMDEC, SPLIT SCALE PAD OVERLAY, IMAGE2, PGMYUV) += $(addprefix fate-filter-overlay_, rgb yuv420 yuv420p10 nv12 nv21 yuv422 yuv422p10 yuv444)
+FATE_FILTER_OVERLAY-$(call FILTERDEMDEC, SPLIT SCALE PAD OVERLAY, IMAGE2, PGMYUV) += $(addprefix fate-filter-overlay_, rgb yuv420 yuv420p10 nv12 nv21 yuv422 yuv422p10 yuv444 yuv444p10)
 fate-filter-overlay_%: CMD = framecrc -auto_conversion_filters -c:v pgmyuv -i $(SRC) -filter_complex_script $(FILTERGRAPH)
 fate-filter-overlay_yuv420: CMD = framecrc -c:v pgmyuv -i $(SRC) -filter_complex_script $(FILTERGRAPH)
 fate-filter-overlay_%p10: CMD = framecrc -auto_conversion_filters -c:v pgmyuv -i $(SRC) -filter_complex_script $(FILTERGRAPH) -pix_fmt $(@:fate-filter-overlay_%=%)le -frames:v 3
@@ -299,9 +299,10 @@ fate-filter-tblend: CMD = framecrc -c:v pgmyuv -i $(SRC) -vf tblend=all_mode=dif
 FATE_FILTER_VSYNTH_PGMYUV-$(CONFIG_TELECINE_FILTER) += fate-filter-telecine
 fate-filter-telecine: CMD = framecrc -c:v pgmyuv -i $(SRC) -vf telecine
 
-FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC2 TPAD) += fate-filter-tpad-add fate-filter-tpad-clone
+FATE_FILTER-$(call FILTERFRAMECRC, TESTSRC2 TPAD) += fate-filter-tpad-add fate-filter-tpad-clone fate-filter-tpad-add-duration
 fate-filter-tpad-add:   CMD = framecrc -lavfi testsrc2=d=1:r=2,tpad=start=1:stop=3:color=gray
 fate-filter-tpad-clone: CMD = framecrc -lavfi testsrc2=d=1:r=2,tpad=start=1:stop=2:stop_mode=clone:color=black
+fate-filter-tpad-add-duration: CMD = framecrc -lavfi testsrc2=d=1:r=2,tpad=start_duration=0.5s:stop_duration=1.5s:color=gray
 
 FATE_FILTER_VSYNTH_PGMYUV-$(CONFIG_TRANSPOSE_FILTER) += fate-filter-transpose
 fate-filter-transpose: CMD = framecrc -c:v pgmyuv -i $(SRC) -vf transpose
@@ -391,7 +392,7 @@ fate-filter-fps-start-drop: CMD = framecrc -lavfi testsrc2=r=7:d=3.5,fps=3:start
 fate-filter-fps-start-fill: CMD = framecrc -lavfi testsrc2=r=7:d=1.5,setpts=PTS+14,fps=3:start_time=1.5
 
 FATE_FILTER_SAMPLES-$(call FILTERDEMDEC, FPS SCALE, MOV, QTRLE) += fate-filter-fps-cfr fate-filter-fps
-fate-filter-fps-cfr: CMD = framecrc -auto_conversion_filters -i $(TARGET_SAMPLES)/qtrle/apple-animation-variable-fps-bug.mov -r 30 -vsync cfr -pix_fmt yuv420p
+fate-filter-fps-cfr: CMD = framecrc -auto_conversion_filters -i $(TARGET_SAMPLES)/qtrle/apple-animation-variable-fps-bug.mov -r 30 -fps_mode cfr -pix_fmt yuv420p
 fate-filter-fps:     CMD = framecrc -auto_conversion_filters -i $(TARGET_SAMPLES)/qtrle/apple-animation-variable-fps-bug.mov -vf fps=30 -pix_fmt yuv420p
 
 FATE_FILTER_ALPHAEXTRACT_ALPHAMERGE := $(addprefix fate-filter-alphaextract_alphamerge_, rgb yuv)
