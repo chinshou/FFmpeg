@@ -7,7 +7,9 @@ HEADERS = ffmpeg.h                       \
           version_major.h                \
 
 OBJS = ffmpeg.o                        \
+    ffmpeg_dec.o        \
     ffmpeg_demux.o      \
+    ffmpeg_enc.o        \
     ffmpeg_filter.o     \
     ffmpeg_hw.o         \
     ffmpeg_mux.o        \
@@ -18,6 +20,7 @@ OBJS = ffmpeg.o                        \
     cmdutils.o          \
     thread_queue.o      \
     opt_common.o        \
+    ffplay_renderer.o   \
     
 #OBJS-$(CONFIG_LIBSOXR) += soxr_resample.o
 
