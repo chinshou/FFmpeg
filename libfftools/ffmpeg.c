@@ -144,12 +144,13 @@ static int restore_tty;
    Convert subtitles to video with alpha to insert them in filter graphs.
    This is a temporary solution until libavfilter gets real subtitles support.
  */
-static double get_current_pts(OutputStream* ost){
+double get_current_pts(OutputStream* ost){
   
-  if (ost->sync_ist) 
-    return ((ost->sync_ist->pts - ost->sync_ist->seek_time) / AV_TIME_BASE);
-  else
-    return av_stream_get_end_pts(ost->st) * av_q2d(ost->st->time_base);
+  //return 0;
+  //if (ost->sync_ist) 
+    //return ((ost->sync_ist->pts - ost->sync_ist->seek_time) / AV_TIME_BASE);
+  //else
+  return av_stream_get_end_pts(ost->st) * av_q2d(ost->st->time_base);
    
 }
 

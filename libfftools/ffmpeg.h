@@ -48,6 +48,9 @@
 #include "libavutil/threadmessage.h"
 
 #include "libswresample/swresample.h"
+#include "libavcodec/codec_desc.h"
+#include "libswscale/swscale.h"
+#include "libswscale/swscale_internal.h"
 
 // deprecated features
 #define FFMPEG_OPT_PSNR 1
@@ -306,6 +309,64 @@ typedef struct OutputFilter {
     uint64_t nb_frames_dup;
     uint64_t nb_frames_drop;
 } OutputFilter;
+
+typedef struct FPSConvContext {
+    AVFrame *last_frame;
+    /* number of frames emitted by the video-encoding sync code */
+    int64_t frame_number;
+    /* history of nb_frames_prev, i.e. the number of times the
+     * previous frame was duplicated by vsync code in recent
+     * do_video_out() calls */
+    int64_t frames_prev_hist[3];
+
+    uint64_t dup_warning;
+
+    int               last_dropped;
+    int               dropped_keyframe;
+
+    AVRational        framerate;
+    AVRational        framerate_max;
+    const AVRational *framerate_supported;
+    int               framerate_clip;
+} FPSConvContext;
+
+typedef struct OutputFilterPriv {
+    OutputFilter        ofilter;
+
+    int                 index;
+
+    AVFilterContext    *filter;
+
+    /* desired output stream properties */
+    int format;
+    int width, height;
+    int sample_rate;
+    AVChannelLayout ch_layout;
+
+    // time base in which the output is sent to our downstream
+    // does not need to match the filtersink's timebase
+    AVRational tb_out;
+    // at least one frame with the above timebase was sent
+    // to our downstream, so it cannot change anymore
+    int        tb_out_locked;
+
+    AVRational sample_aspect_ratio;
+
+    // those are only set if no format is specified and the encoder gives us multiple options
+    // They point directly to the relevant lists of the encoder.
+    const int *formats;
+    const AVChannelLayout *ch_layouts;
+    const int *sample_rates;
+
+    AVRational enc_timebase;
+    // offset for output timestamps, in AV_TIME_BASE_Q
+    int64_t ts_offset;
+    int64_t next_pts;
+    FPSConvContext fps;
+
+    // set to 1 after at least one frame passed through this output
+    int got_frame;
+} OutputFilterPriv;
 
 typedef struct FilterGraph {
     const AVClass *class;
@@ -719,6 +780,7 @@ extern int do_psnr;
 
 int ffmpeg_main(int argc, char **argv, EncodeCallback* callback);
 void ffmpeg_cleanup(int ret);
+double get_current_pts(OutputStream* ost);
 void term_init(void);
 void term_exit(void);
 
@@ -897,6 +959,8 @@ void close_output_stream(OutputStream *ost);
 int trigger_fix_sub_duration_heartbeat(OutputStream *ost, const AVPacket *pkt);
 int fix_sub_duration_heartbeat(InputStream *ist, int64_t signal_pts);
 void update_benchmark(const char *fmt, ...);
+
+OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter);
 
 #define SPECIFIER_OPT_FMT_str  "%s"
 #define SPECIFIER_OPT_FMT_i    "%i"

@@ -33,10 +33,14 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/rational.h"
 #include "libavutil/timestamp.h"
+#include "libavutil/imgutils.h"
 
 #include "libavcodec/avcodec.h"
+#include "libavcodec/version.h"
 
 #include "libavformat/avformat.h"
+
+extern EncodeCallback* enc_callback;
 
 struct Encoder {
     AVFrame *sq_frame;
@@ -258,6 +262,24 @@ int enc_open(OutputStream *ost, const AVFrame *frame)
                 enc_ctx->field_order = top_field_first ? AV_FIELD_TB : AV_FIELD_BT;
         } else
             enc_ctx->field_order = AV_FIELD_PROGRESSIVE;
+            
+        int fmt=AV_PIX_FMT_RGB32;
+        if (enc_callback && !enc_callback->rgb)
+        	fmt=AV_PIX_FMT_BGR32;
+        ost->sws_ctx = sws_getContext(enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, enc_ctx->width, enc_ctx->height, fmt, SWS_BICUBIC, NULL, NULL, NULL);
+        ost->sws_ctx_chg = sws_getContext(enc_ctx->width, enc_ctx->height, fmt, enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, SWS_BICUBIC, NULL, NULL, NULL);  
+        
+        av_pix_fmt_get_chroma_sub_sample(enc_ctx->pix_fmt, &ost->u_sub, &ost->v_sub);
+              
+        ost->frame_rgb = av_frame_alloc();       
+        int picture_size = av_image_get_buffer_size(fmt, enc_ctx->width, enc_ctx->height,1);
+        ost->frame_rgb->width= enc_ctx->width;
+        ost->frame_rgb->height= enc_ctx->height;
+        
+                
+        ost->rgb_buf = av_malloc(picture_size);
+        av_image_fill_arrays(ost->frame_rgb->data,ost->frame_rgb->linesize, ost->rgb_buf, fmt, enc_ctx->width,enc_ctx->height, 1);
+
 
         break;
         }
@@ -765,7 +787,7 @@ static int do_audio_out(OutputFile *of, OutputStream *ost,
     int ret;
 
 	if (enc_callback && enc_callback->audio_buffer){
-		enc_callback->audio_buffer(enc_callback->owner, filtered_frame, get_current_pts(ost));
+		enc_callback->audio_buffer(enc_callback->owner, frame, get_current_pts(ost));
 	}
 
     if (!(enc->codec->capabilities & AV_CODEC_CAP_PARAM_CHANGE) &&
@@ -853,32 +875,35 @@ static int do_video_out(OutputFile *of, OutputStream *ost, AVFrame *in_picture)
                     //if (enc_callback->flip==1)
                       //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
                                        
-                    if (ost->sws_ctx && next_picture){
+                    if (ost->sws_ctx && in_picture){
                        int modified = 0;
                     
-                       AVFrame save_frame= *next_picture;
+                       AVFrame save_frame= *in_picture;
+                       OutputFilterPriv* flt= ofp_from_ofilter(ost->filter);
 
 #if 1
+
                         if (enc_callback->flip)
                         {
                            //flip the bitmap
                              //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
-                             save_frame.data[0] += save_frame.linesize[0] * (ost->filter->filter->inputs[0]->h - 1);
+                             
+                             save_frame.data[0] += save_frame.linesize[0] * (flt->filter->inputs[0]->h - 1);
 			      save_frame.linesize[0] *= -1;
 
-			      save_frame.data[1] += save_frame.linesize[1] * ((ost->filter->filter->inputs[0]->h >> ost->u_sub)  - 1);
+			      save_frame.data[1] += save_frame.linesize[1] * ((flt->filter->inputs[0]->h >> ost->u_sub)  - 1);
 			      save_frame.linesize[1] *= -1;
 
-			      save_frame.data[2]+=save_frame.linesize[2] * ((ost->filter->filter->inputs[0]->h >> ost->v_sub) - 1);
+			      save_frame.data[2]+=save_frame.linesize[2] * ((flt->filter->inputs[0]->h >> ost->v_sub) - 1);
 			      save_frame.linesize[2] *= -1;
                         }
 #endif                        
            	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
-	                  	ost->filter->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
+	                  	flt->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
 	                 enc_callback->video_buffer(enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
 	                 if (modified){
 	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
-	                       ost->filter->filter->inputs[0]->h, save_frame.data, save_frame.linesize);
+	                       flt->filter->inputs[0]->h, save_frame.data, save_frame.linesize);
 	                 }
                     }
                 }

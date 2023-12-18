@@ -141,65 +141,7 @@ static InputFilterPriv *ifp_from_ifilter(InputFilter *ifilter)
     return (InputFilterPriv*)ifilter;
 }
 
-typedef struct FPSConvContext {
-    AVFrame *last_frame;
-    /* number of frames emitted by the video-encoding sync code */
-    int64_t frame_number;
-    /* history of nb_frames_prev, i.e. the number of times the
-     * previous frame was duplicated by vsync code in recent
-     * do_video_out() calls */
-    int64_t frames_prev_hist[3];
-
-    uint64_t dup_warning;
-
-    int               last_dropped;
-    int               dropped_keyframe;
-
-    AVRational        framerate;
-    AVRational        framerate_max;
-    const AVRational *framerate_supported;
-    int               framerate_clip;
-} FPSConvContext;
-
-typedef struct OutputFilterPriv {
-    OutputFilter        ofilter;
-
-    int                 index;
-
-    AVFilterContext    *filter;
-
-    /* desired output stream properties */
-    int format;
-    int width, height;
-    int sample_rate;
-    AVChannelLayout ch_layout;
-
-    // time base in which the output is sent to our downstream
-    // does not need to match the filtersink's timebase
-    AVRational tb_out;
-    // at least one frame with the above timebase was sent
-    // to our downstream, so it cannot change anymore
-    int        tb_out_locked;
-
-    AVRational sample_aspect_ratio;
-
-    // those are only set if no format is specified and the encoder gives us multiple options
-    // They point directly to the relevant lists of the encoder.
-    const int *formats;
-    const AVChannelLayout *ch_layouts;
-    const int *sample_rates;
-
-    AVRational enc_timebase;
-    // offset for output timestamps, in AV_TIME_BASE_Q
-    int64_t ts_offset;
-    int64_t next_pts;
-    FPSConvContext fps;
-
-    // set to 1 after at least one frame passed through this output
-    int got_frame;
-} OutputFilterPriv;
-
-static OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter)
+OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter)
 {
     return (OutputFilterPriv*)ofilter;
 }
