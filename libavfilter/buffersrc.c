@@ -36,6 +36,7 @@
 #include "audio.h"
 #include "avfilter.h"
 #include "buffersrc.h"
+#include "filters.h"
 #include "formats.h"
 #include "internal.h"
 #include "video.h"
@@ -61,6 +62,7 @@ typedef struct BufferSourceContext {
     AVChannelLayout ch_layout;
 
     int eof;
+    int64_t last_pts;
 } BufferSourceContext;
 
 #define CHECK_VIDEO_PARAM_CHANGE(s, c, width, height, format, pts)\
@@ -191,9 +193,11 @@ FF_ENABLE_DEPRECATION_WARNINGS
     s->nb_failed_requests = 0;
 
     if (!frame)
-        return av_buffersrc_close(ctx, AV_NOPTS_VALUE, flags);
+        return av_buffersrc_close(ctx, s->last_pts, flags);
     if (s->eof)
-        return AVERROR(EINVAL);
+        return AVERROR_EOF;
+
+    s->last_pts = frame->pts + frame->duration;
 
     refcounted = !!frame->buf[0];
 
@@ -227,23 +231,36 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
     }
 
-    if (!(copy = av_frame_alloc()))
-        return AVERROR(ENOMEM);
-
     if (refcounted && !(flags & AV_BUFFERSRC_FLAG_KEEP_REF)) {
+        if (!(copy = av_frame_alloc()))
+            return AVERROR(ENOMEM);
         av_frame_move_ref(copy, frame);
     } else {
-        ret = av_frame_ref(copy, frame);
-        if (ret < 0) {
-            av_frame_free(&copy);
-            return ret;
-        }
+        copy = av_frame_clone(frame);
+        if (!copy)
+            return AVERROR(ENOMEM);
     }
 
 #if FF_API_PKT_DURATION
 FF_DISABLE_DEPRECATION_WARNINGS
     if (copy->pkt_duration && copy->pkt_duration != copy->duration)
         copy->duration = copy->pkt_duration;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+
+#if FF_API_INTERLACED_FRAME
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (copy->interlaced_frame)
+        copy->flags |= AV_FRAME_FLAG_INTERLACED;
+    if (copy->top_field_first)
+        copy->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+
+#if FF_API_FRAME_KEY
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (copy->key_frame)
+        copy->flags |= AV_FRAME_FLAG_KEY;
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
@@ -468,21 +485,28 @@ static int config_props(AVFilterLink *link)
     return 0;
 }
 
-static int request_frame(AVFilterLink *link)
+static int activate(AVFilterContext *ctx)
 {
-    BufferSourceContext *c = link->src->priv;
+    AVFilterLink *outlink = ctx->outputs[0];
+    BufferSourceContext *c = ctx->priv;
 
-    if (c->eof)
-        return AVERROR_EOF;
+    if (!c->eof && ff_outlink_get_status(outlink)) {
+        c->eof = 1;
+        return 0;
+    }
+
+    if (c->eof) {
+        ff_outlink_set_status(outlink, AVERROR_EOF, c->last_pts);
+        return 0;
+    }
     c->nb_failed_requests++;
-    return AVERROR(EAGAIN);
+    return FFERROR_NOT_READY;
 }
 
 static const AVFilterPad avfilter_vsrc_buffer_outputs[] = {
     {
         .name          = "default",
         .type          = AVMEDIA_TYPE_VIDEO,
-        .request_frame = request_frame,
         .config_props  = config_props,
     },
 };
@@ -491,7 +515,7 @@ const AVFilter ff_vsrc_buffer = {
     .name      = "buffer",
     .description = NULL_IF_CONFIG_SMALL("Buffer video frames, and make them accessible to the filterchain."),
     .priv_size = sizeof(BufferSourceContext),
-
+    .activate  = activate,
     .init      = init_video,
     .uninit    = uninit,
 
@@ -505,7 +529,6 @@ static const AVFilterPad avfilter_asrc_abuffer_outputs[] = {
     {
         .name          = "default",
         .type          = AVMEDIA_TYPE_AUDIO,
-        .request_frame = request_frame,
         .config_props  = config_props,
     },
 };
@@ -514,7 +537,7 @@ const AVFilter ff_asrc_abuffer = {
     .name          = "abuffer",
     .description   = NULL_IF_CONFIG_SMALL("Buffer audio frames, and make them accessible to the filterchain."),
     .priv_size     = sizeof(BufferSourceContext),
-
+    .activate  = activate,
     .init      = init_audio,
     .uninit    = uninit,
 
