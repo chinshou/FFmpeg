@@ -20,7 +20,7 @@ OBJS = ffmpeg.o                        \
     cmdutils.o          \
     thread_queue.o      \
     opt_common.o        \
-    ffplay_renderer.o   \
+#    ffplay_renderer.o   \
     
 #OBJS-$(CONFIG_LIBSOXR) += soxr_resample.o
 
