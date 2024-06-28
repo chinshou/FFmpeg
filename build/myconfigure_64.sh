@@ -1,8 +1,7 @@
 export PKG_CONFIG_PATH=/usr/x86_64-mingw32/lib/pkgconfig/
 ../configure --arch=x86 --target-os=mingw32 --cross-prefix=x86_64-w64-mingw32-  \
  --cc='x86_64-w64-mingw32-gcc' --disable-postproc --enable-shared --disable-static  \
- --disable-decoder=libvpx \
- --enable-gpl --enable-version3  --enable-avfilter \
+ --enable-gpl --enable-version3  --enable-avfilter --enable-libvpx \
  --enable-runtime-cpudetect --enable-nonfree --pkg-config=pkg-config \
  --enable-libgsm --enable-libfreetype --enable-libvorbis --enable-libspeex \
  --enable-libmp3lame  --enable-libtheora --enable-sdl \

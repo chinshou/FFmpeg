@@ -1,7 +1,7 @@
 export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
 ../configure --arch=x86 --target-os=mingw32 --cross-prefix=i686-w64-mingw32-  \
  --cc='i686-w64-mingw32-gcc' --disable-postproc --enable-shared --disable-static  \
- --enable-avisynth  --enable-gpl --enable-version3  --enable-avfilter \
+ --enable-gpl --enable-version3  --enable-avfilter \
  --enable-runtime-cpudetect --enable-nonfree --pkg-config=pkg-config \
  --enable-libgsm --enable-libfreetype --enable-libvorbis --enable-libspeex  \
  --enable-libmp3lame --enable-zlib --enable-libtheora --enable-bzlib --enable-libvpx  \
