@@ -349,8 +349,9 @@ OBJS-$(CONFIG_ENCX_DEMUXER)              += xencdec.o matroska.o  \
                                             oggparsevorbis.o vorbiscomment.o \
                                             qtpalette.o replaygain.o dovi_isom.o
 OBJS-$(CONFIG_ENCX_MUXER)                += xencenc.o matroska.o \
-                                            isom.o avc.o \
-                                            flacenc_header.o avlanguage.o wv.o
+                                            av1.o avc.o hevc.o \
+                                            flacenc_header.o avlanguage.o \
+                                            vorbiscomment.o wv.o dovi_isom.o
 OBJS-$(CONFIG_MCA_DEMUXER)               += mca.o
 OBJS-$(CONFIG_MCC_DEMUXER)               += mccdec.o subtitles.o
 OBJS-$(CONFIG_MD5_MUXER)                 += hashenc.o
