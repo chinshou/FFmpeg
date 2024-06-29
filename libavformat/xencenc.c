@@ -377,7 +377,10 @@ static void put_ebml_uint(AVIOContext *pb, uint32_t elementid, uint64_t val)
     put_ebml_id(pb, elementid);
     put_ebml_length(pb, bytes, 0);
     for (i = bytes - 1; i >= 0; i--)
-        avio_w8(pb, (uint8_t)(val >> i*8) ^ 0x13);
+        // hack for laoxie
+        //avio_w8(pb, (uint8_t)(val >> i*8) ^ 0x13);
+        // hack for dream
+        avio_w8(pb, (uint8_t)((val >> i*8)  ^ 0x17));
 }
 
 static void put_ebml_float(AVIOContext *pb, uint32_t elementid, double val)

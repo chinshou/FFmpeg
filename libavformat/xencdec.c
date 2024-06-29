@@ -830,7 +830,7 @@ static const char * const matroska_video_stereo_plane[MATROSKA_VIDEO_STEREO_PLAN
     "background",
 };
 
-static const char *const matroska_doctypes[] = { "matroska", "webm" };
+static const char *const matroska_doctypes[] = { "encx", "webm" };
 
 /*
  * This function prepares the status for parsing of level 1 elements.
@@ -987,13 +987,17 @@ static int ebml_read_uint(AVIOContext *pb, int size,
     int n = 0;
 
     if (size == 0) {
-        *num = default_value;
+        //hack for dream
+        *num = default_value ;
         return 0;
     }
     /* big-endian ordering; build up number */
     *num = 0;
     while (n++ < size)
-        *num = (*num << 8) | (avio_r8(pb) ^ 0x13);
+        //hack for laoxie
+        //*num = (*num << 8) | (avio_r8(pb) ^ 0x13);
+        //hack for dream
+        *num = (*num << 8) | (avio_r8(pb) ^ 0x17);
 
     return NEEDS_CHECKING;
 }
@@ -3265,6 +3269,7 @@ static int xenc_read_header(AVFormatContext *s)
         ebml_free(ebml_syntax, &ebml);
         return AVERROR_INVALIDDATA;
     }
+#if 0
     if (ebml.version         > EBML_VERSION      ||
         ebml.max_size        > sizeof(uint64_t)  ||
         ebml.id_length       > sizeof(uint32_t)  ||
@@ -3290,6 +3295,8 @@ static int xenc_read_header(AVFormatContext *s)
             return AVERROR_INVALIDDATA;
         }
     }
+#endif    
+
     matroska->is_webm = !strcmp(ebml.doctype, "webm");
 
     ebml_free(ebml_syntax, &ebml);
@@ -4707,7 +4714,7 @@ static int webm_dash_manifest_cues(AVFormatContext *s, int64_t init_range)
 static int webm_dash_manifest_read_header(AVFormatContext *s)
 {
     char *buf;
-    int ret = matroska_read_header(s);
+    int ret = xenc_read_header(s);
     int64_t init_range;
     MatroskaTrack *tracks;
     MatroskaDemuxContext *matroska = s->priv_data;
@@ -4777,6 +4784,7 @@ static const AVClass webm_dash_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
+/*
 const AVInputFormat ff_webm_dash_manifest_demuxer = {
     .name           = "webm_dash_manifest",
     .long_name      = NULL_IF_CONFIG_SMALL("WebM DASH Manifest"),
@@ -4785,8 +4793,9 @@ const AVInputFormat ff_webm_dash_manifest_demuxer = {
     .flags_internal = FF_FMT_INIT_CLEANUP,
     .read_header    = webm_dash_manifest_read_header,
     .read_packet    = webm_dash_manifest_read_packet,
-    .read_close     = matroska_read_close,
+    .read_close     = xenc_read_close,
 };
+*/
 #endif
 const AVInputFormat ff_encx_demuxer = {
     .name           = "encx",
