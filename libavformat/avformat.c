@@ -99,6 +99,23 @@ void ff_flush_packet_queue(AVFormatContext *s)
     si->raw_packet_buffer_size = 0;
 }
 
+
+static unsigned char tle_key[33]={0};
+
+void avformat_set_tle_context(unsigned char* key){
+   memcpy(tle_key, key, 32);  
+}
+
+void avformat_clr_tle_context(void){
+   memset(tle_key, 0, 33);  
+}
+
+unsigned char* avformat_get_tle_context(void){
+   return &tle_key[0];  
+}
+
+
+
 void avformat_free_context(AVFormatContext *s)
 {
     FFFormatContext *si;

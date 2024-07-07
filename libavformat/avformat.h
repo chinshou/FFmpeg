@@ -1757,6 +1757,13 @@ enum AVDurationEstimationMethod av_fmt_ctx_get_duration_estimation_method(const 
  * @{
  */
 
+void avformat_set_tle_context(unsigned char* key);
+
+void avformat_clr_tle_context(void);
+
+unsigned char* avformat_get_tle_context(void);
+
+
 /**
  * Return the LIBAVFORMAT_VERSION_INT constant.
  */
