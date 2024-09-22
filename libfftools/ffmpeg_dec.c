@@ -145,13 +145,13 @@ fail:
     return AVERROR(ENOMEM);
 }
 
-static int send_frame_to_filters(InputStream *ist, AVFrame *decoded_frame)
+static int send_frame_to_filters(FfmpegContext* ctx, InputStream *ist, AVFrame *decoded_frame)
 {
     int i, ret;
 
     av_assert1(ist->nb_filters > 0); /* ensure ret is initialized */
     for (i = 0; i < ist->nb_filters; i++) {
-        ret = ifilter_send_frame(ist->filters[i], decoded_frame, i < ist->nb_filters - 1);
+        ret = ifilter_send_frame(ctx, ist->filters[i], decoded_frame, i < ist->nb_filters - 1);
         if (ret == AVERROR_EOF)
             ret = 0; /* ignore */
         if (ret < 0) {
@@ -243,10 +243,10 @@ static void audio_ts_process(void *logctx, Decoder *d, AVFrame *frame)
     frame->time_base = tb_filter;
 }
 
-static int64_t video_duration_estimate(const InputStream *ist, const AVFrame *frame)
+static int64_t video_duration_estimate(FfmpegContext* ctx, const InputStream *ist, const AVFrame *frame)
 {
     const Decoder         *d = ist->decoder;
-    const InputFile   *ifile = input_files[ist->file_index];
+    const InputFile   *ifile = ctx->input_files[ist->file_index];
     int64_t codec_duration = 0;
 
     // XXX lavf currently makes up frame durations when they are not provided by
@@ -295,7 +295,7 @@ static int64_t video_duration_estimate(const InputStream *ist, const AVFrame *fr
     return FFMAX(d->last_frame_duration_est, 1);
 }
 
-static int video_frame_process(InputStream *ist, AVFrame *frame)
+static int video_frame_process(FfmpegContext* ctx, InputStream *ist, AVFrame *frame)
 {
     Decoder *d = ist->decoder;
 
@@ -354,7 +354,7 @@ static int video_frame_process(InputStream *ist, AVFrame *frame)
                      d->last_frame_pts + d->last_frame_duration_est;
 
     // update timestamp history
-    d->last_frame_duration_est = video_duration_estimate(ist, frame);
+    d->last_frame_duration_est = video_duration_estimate(ctx, ist, frame);
     d->last_frame_pts          = frame->pts;
     d->last_frame_tb           = frame->time_base;
 
@@ -389,7 +389,7 @@ static void sub2video_flush(InputStream *ist)
     }
 }
 
-static int process_subtitle(InputStream *ist, AVFrame *frame)
+static int process_subtitle(FfmpegContext* ctx, InputStream *ist, AVFrame *frame)
 {
     Decoder *d = ist->decoder;
     const AVSubtitle *subtitle = (AVSubtitle*)frame->buf[0]->data;
@@ -444,7 +444,7 @@ static int process_subtitle(InputStream *ist, AVFrame *frame)
         if (!ost->enc || ost->type != AVMEDIA_TYPE_SUBTITLE)
             continue;
 
-        ret = enc_subtitle(output_files[ost->file_index], ost, subtitle);
+        ret = enc_subtitle(ctx, ctx->output_files[ost->file_index], ost, subtitle);
         if (ret < 0)
             return ret;
     }
@@ -452,7 +452,7 @@ static int process_subtitle(InputStream *ist, AVFrame *frame)
     return 0;
 }
 
-int fix_sub_duration_heartbeat(InputStream *ist, int64_t signal_pts)
+int fix_sub_duration_heartbeat(FfmpegContext* ctx, InputStream *ist, int64_t signal_pts)
 {
     Decoder *d = ist->decoder;
     int ret = AVERROR_BUG;
@@ -472,7 +472,7 @@ int fix_sub_duration_heartbeat(InputStream *ist, int64_t signal_pts)
     subtitle = (AVSubtitle*)d->sub_heartbeat->buf[0]->data;
     subtitle->pts = signal_pts;
 
-    return process_subtitle(ist, d->sub_heartbeat);
+    return process_subtitle(ctx, ist, d->sub_heartbeat);
 }
 
 static int transcode_subtitles(InputStream *ist, const AVPacket *pkt,
@@ -526,7 +526,7 @@ static int transcode_subtitles(InputStream *ist, const AVPacket *pkt,
     return ret;
 }
 
-static int send_filter_eof(InputStream *ist)
+static int send_filter_eof(FfmpegContext* ctx, InputStream *ist)
 {
     Decoder *d = ist->decoder;
     int i, ret;
@@ -534,16 +534,16 @@ static int send_filter_eof(InputStream *ist)
     for (i = 0; i < ist->nb_filters; i++) {
         int64_t end_pts = d->last_frame_pts == AV_NOPTS_VALUE ? AV_NOPTS_VALUE :
                           d->last_frame_pts + d->last_frame_duration_est;
-        ret = ifilter_send_eof(ist->filters[i], end_pts, d->last_frame_tb);
+        ret = ifilter_send_eof(ctx, ist->filters[i], end_pts, d->last_frame_tb);
         if (ret < 0)
             return ret;
     }
     return 0;
 }
 
-static int packet_decode(InputStream *ist, AVPacket *pkt, AVFrame *frame)
+static int packet_decode(FfmpegContext* ctx, InputStream *ist, AVPacket *pkt, AVFrame *frame)
 {
-    const InputFile *ifile = input_files[ist->file_index];
+    const InputFile *ifile = ctx->input_files[ist->file_index];
     Decoder *d = ist->decoder;
     AVCodecContext *dec = ist->dec_ctx;
     const char *type_desc = av_get_media_type_string(dec->codec_type);
@@ -635,7 +635,7 @@ static int packet_decode(InputStream *ist, AVPacket *pkt, AVFrame *frame)
 
             audio_ts_process(ist, ist->decoder, frame);
         } else {
-            ret = video_frame_process(ist, frame);
+            ret = video_frame_process(ctx, ist, frame);
             if (ret < 0) {
                 av_log(NULL, AV_LOG_FATAL, "Error while processing the decoded "
                        "data for stream #%d:%d\n", ist->file_index, ist->index);
@@ -688,8 +688,9 @@ fail:
 
 static void *decoder_thread(void *arg)
 {
-    InputStream *ist = arg;
-    InputFile *ifile = input_files[ist->file_index];
+    FfmpegContext* ctx = arg;
+    InputStream *ist = ctx->arg;
+    InputFile *ifile = ctx->input_files[ist->file_index];
     Decoder       *d = ist->decoder;
     DecThreadContext dt;
     int ret = 0, input_status = 0;
@@ -709,7 +710,7 @@ static void *decoder_thread(void *arg)
             av_log(ist, AV_LOG_VERBOSE, "Decoder thread received %s packet\n",
                    flush_buffers ? "flush" : "EOF");
 
-        ret = packet_decode(ist, dt.pkt->buf ? dt.pkt : NULL, dt.frame);
+        ret = packet_decode(ctx, ist, dt.pkt->buf ? dt.pkt : NULL, dt.frame);
 
         av_packet_unref(dt.pkt);
         av_frame_unref(dt.frame);
@@ -764,7 +765,7 @@ finish:
     return (void*)(intptr_t)ret;
 }
 
-int dec_packet(InputStream *ist, const AVPacket *pkt, int no_eof)
+int dec_packet(FfmpegContext* ctx, InputStream *ist, const AVPacket *pkt, int no_eof)
 {
     Decoder *d = ist->decoder;
     int ret = 0, thread_ret;
@@ -803,9 +804,9 @@ int dec_packet(InputStream *ist, const AVPacket *pkt, int no_eof)
 
         // process the decoded frame
         if (ist->dec->type == AVMEDIA_TYPE_SUBTITLE) {
-            ret = process_subtitle(ist, d->frame);
+            ret = process_subtitle(ctx, ist, d->frame);
         } else {
-            ret = send_frame_to_filters(ist, d->frame);
+            ret = send_frame_to_filters(ctx, ist, d->frame);
         }
         av_frame_unref(d->frame);
         if (ret < 0)
@@ -827,7 +828,7 @@ finish:
     if (ist->dec->type == AVMEDIA_TYPE_SUBTITLE)
         sub2video_flush(ist);
     else {
-        ret = send_filter_eof(ist);
+        ret = send_filter_eof(ctx, ist);
         if (ret < 0) {
             av_log(NULL, AV_LOG_FATAL, "Error marking filters as finished\n");
             return ret;
@@ -837,7 +838,7 @@ finish:
     return AVERROR_EOF;
 }
 
-static int dec_thread_start(InputStream *ist)
+static int dec_thread_start(FfmpegContext* ctx, InputStream *ist)
 {
     Decoder *d = ist->decoder;
     ObjPool *op;
@@ -862,8 +863,9 @@ static int dec_thread_start(InputStream *ist)
         objpool_free(&op);
         goto fail;
     }
-
-    ret = pthread_create(&d->thread, NULL, decoder_thread, ist);
+    
+    ctx->arg = ist;
+    ret = pthread_create(&d->thread, NULL, decoder_thread, ctx);
     if (ret) {
         ret = AVERROR(ret);
         av_log(ist, AV_LOG_ERROR, "pthread_create() failed: %s\n",
@@ -1062,7 +1064,7 @@ static int hw_device_setup_for_decode(InputStream *ist)
     return 0;
 }
 
-int dec_open(InputStream *ist)
+int dec_open(FfmpegContext* ctx, InputStream *ist)
 {
     Decoder *d;
     const AVCodec *codec = ist->dec;
@@ -1129,7 +1131,7 @@ int dec_open(InputStream *ist)
     if (ret < 0)
         return ret;
 
-    ret = dec_thread_start(ist);
+    ret = dec_thread_start(ctx, ist);
     if (ret < 0) {
         av_log(ist, AV_LOG_ERROR, "Error starting decoder thread: %s\n",
                av_err2str(ret));

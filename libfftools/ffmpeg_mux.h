@@ -25,6 +25,7 @@
 #include <stdint.h>
 
 #include "thread_queue.h"
+#include "ffmpeg.h"
 
 #include "libavformat/avformat.h"
 
@@ -113,7 +114,7 @@ typedef struct Muxer {
 /* whether we want to print an SDP, set in of_open() */
 extern int want_sdp;
 
-int mux_check_init(Muxer *mux);
+int mux_check_init(FfmpegContext* ctx, Muxer *mux);
 
 static MuxStream *ms_from_ost(OutputStream *ost)
 {

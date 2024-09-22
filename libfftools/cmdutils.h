@@ -58,7 +58,7 @@ void init_dynload(void);
  * Uninitialize the cmdutils option system, in particular
  * free the *_opts contexts and their contents.
  */
-void uninit_opts(void);
+void uninit_opts(void* ctx);
 
 /**
  * Trivial log callback.
@@ -70,12 +70,12 @@ void log_callback_help(void* ptr, int level, const char* fmt, va_list vl);
  * Fallback for options that are not explicitly handled, these will be
  * parsed through AVOptions.
  */
-int opt_default(void *optctx, const char *opt, const char *arg);
+int opt_default(void* ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Limit the execution time.
  */
-int opt_timelimit(void *optctx, const char *opt, const char *arg);
+int opt_timelimit(void* ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Parse a string and return its corresponding value as a double.
@@ -130,7 +130,7 @@ typedef struct OptionDef {
 #define OPT_OUTPUT 0x80000
      union {
         void *dst_ptr;
-        int (*func_arg)(void *, const char *, const char *);
+        int (*func_arg)(void * , void *, const char *, const char *);
         size_t off;
     } u;
     const char *help;
@@ -173,7 +173,7 @@ void show_help_default(const char *opt, const char *arg);
  * argument without a leading option name flag. NULL if such arguments do
  * not have to be processed.
  */
-int parse_options(void *optctx, int argc, char **argv, const OptionDef *options,
+int parse_options(void* ctx, void *optctx, int argc, char **argv, const OptionDef *options,
                   int (* parse_arg_function)(void *optctx, const char*));
 
 /**
@@ -181,7 +181,7 @@ int parse_options(void *optctx, int argc, char **argv, const OptionDef *options,
  *
  * @return on success 1 if arg was consumed, 0 otherwise; negative number on error
  */
-int parse_option(void *optctx, const char *opt, const char *arg,
+int parse_option(void* ctx, void *optctx, const char *opt, const char *arg,
                  const OptionDef *options);
 
 /**
@@ -249,7 +249,7 @@ typedef struct OptionParseContext {
  *
  * @param optctx an app-specific options context. NULL for global options group
  */
-int parse_optgroup(void *optctx, OptionGroup *g);
+int parse_optgroup(void* ctx, void *optctx, OptionGroup *g);
 
 /**
  * Split the commandline into an intermediate form convenient for further
@@ -269,14 +269,14 @@ int parse_optgroup(void *optctx, OptionGroup *g);
  * OptionGroupList in OptionParseContext.groups. The order of group lists is the
  * same as the order of group definitions.
  */
-int split_commandline(OptionParseContext *octx, int argc, char *argv[],
+int split_commandline(void* ctx, OptionParseContext *octx, int argc, char *argv[],
                       const OptionDef *options,
                       const OptionGroupDef *groups, int nb_groups);
 
 /**
  * Free all allocated memory in an OptionParseContext.
  */
-void uninit_parse_context(OptionParseContext *octx);
+void uninit_parse_context(void* ctx, OptionParseContext *octx);
 
 /**
  * Find the '-loglevel' option in the command line args and apply it.
@@ -327,7 +327,7 @@ int filter_codec_opts(const AVDictionary *opts, enum AVCodecID codec_id,
  * Each dictionary will contain the options from codec_opts which can
  * be applied to the corresponding stream codec context.
  */
-int setup_find_stream_info_opts(AVFormatContext *s,
+int setup_find_stream_info_opts(void* ctx, AVFormatContext *s,
                                 AVDictionary *codec_opts,
                                 AVDictionary ***dst);
 

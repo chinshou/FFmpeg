@@ -404,9 +404,9 @@ fail:
     return exit_on_error ? ret : 0;
 }
 
-int of_streamcopy(OutputStream *ost, const AVPacket *pkt, int64_t dts)
+int of_streamcopy(FfmpegContext* ctx, OutputStream *ost, const AVPacket *pkt, int64_t dts)
 {
-    OutputFile *of = output_files[ost->file_index];
+    OutputFile *of = ctx->output_files[ost->file_index];
     MuxStream  *ms = ms_from_ost(ost);
     int64_t start_time = (of->start_time == AV_NOPTS_VALUE) ? 0 : of->start_time;
     int64_t ts_offset;
@@ -455,7 +455,7 @@ int of_streamcopy(OutputStream *ost, const AVPacket *pkt, int64_t dts)
     opkt->dts -= ts_offset;
 
     {
-        int ret = trigger_fix_sub_duration_heartbeat(ost, pkt);
+        int ret = trigger_fix_sub_duration_heartbeat(ctx, ost, pkt);
         if (ret < 0) {
             av_log(NULL, AV_LOG_ERROR,
                    "Subtitle heartbeat logic failed in %s! (%s)\n",
@@ -532,7 +532,7 @@ static int thread_start(Muxer *mux)
     return 0;
 }
 
-static int print_sdp(void)
+static int print_sdp(FfmpegContext* ctx)
 {
     char sdp[16384];
     int i;
@@ -540,17 +540,17 @@ static int print_sdp(void)
     AVIOContext *sdp_pb;
     AVFormatContext **avc;
 
-    for (i = 0; i < nb_output_files; i++) {
-        if (!mux_from_of(output_files[i])->header_written)
+    for (i = 0; i < ctx->nb_output_files; i++) {
+        if (!mux_from_of(ctx->output_files[i])->header_written)
             return 0;
     }
 
-    avc = av_malloc_array(nb_output_files, sizeof(*avc));
+    avc = av_malloc_array(ctx->nb_output_files, sizeof(*avc));
     if (!avc)
         return AVERROR(ENOMEM);
-    for (i = 0, j = 0; i < nb_output_files; i++) {
-        if (!strcmp(output_files[i]->format->name, "rtp")) {
-            avc[j] = mux_from_of(output_files[i])->fc;
+    for (i = 0, j = 0; i < ctx->nb_output_files; i++) {
+        if (!strcmp(ctx->output_files[i]->format->name, "rtp")) {
+            avc[j] = mux_from_of(ctx->output_files[i])->fc;
             j++;
         }
     }
@@ -565,19 +565,19 @@ static int print_sdp(void)
     if (ret < 0)
         goto fail;
 
-    if (!sdp_filename) {
+    if (!ctx->sdp_filename) {
         printf("SDP:\n%s\n", sdp);
         fflush(stdout);
     } else {
-        ret = avio_open2(&sdp_pb, sdp_filename, AVIO_FLAG_WRITE, &int_cb, NULL);
+        ret = avio_open2(&sdp_pb, ctx->sdp_filename, AVIO_FLAG_WRITE, &int_cb, NULL);
         if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "Failed to open sdp file '%s'\n", sdp_filename);
+            av_log(NULL, AV_LOG_ERROR, "Failed to open sdp file '%s'\n", ctx->sdp_filename);
             goto fail;
         }
 
         avio_print(sdp_pb, sdp);
         avio_closep(&sdp_pb);
-        av_freep(&sdp_filename);
+        av_freep(&ctx->sdp_filename);
     }
 
     // SDP successfully written, allow muxer threads to start
@@ -588,7 +588,7 @@ fail:
     return ret;
 }
 
-int mux_check_init(Muxer *mux)
+int mux_check_init(FfmpegContext* ctx, Muxer *mux)
 {
     OutputFile *of = &mux->of;
     AVFormatContext *fc = mux->fc;
@@ -610,18 +610,18 @@ int mux_check_init(Muxer *mux)
     mux->header_written = 1;
 
     av_dump_format(fc, of->index, fc->url, 1);
-    nb_output_dumped++;
+    ctx->nb_output_dumped++;
 
-    if (sdp_filename || want_sdp) {
-        ret = print_sdp();
+    if (ctx->sdp_filename || want_sdp) {
+        ret = print_sdp(ctx);
         if (ret < 0) {
             av_log(NULL, AV_LOG_ERROR, "Error writing the SDP.\n");
             return ret;
         } else if (ret == 1) {
             /* SDP is written only after all the muxers are ready, so now we
              * start ALL the threads */
-            for (i = 0; i < nb_output_files; i++) {
-                ret = thread_start(mux_from_of(output_files[i]));
+            for (i = 0; i < ctx->nb_output_files; i++) {
+                ret = thread_start(mux_from_of(ctx->output_files[i]));
                 if (ret < 0)
                     return ret;
             }
@@ -669,7 +669,7 @@ static int bsf_init(MuxStream *ms)
     return 0;
 }
 
-int of_stream_init(OutputFile *of, OutputStream *ost)
+int of_stream_init(FfmpegContext* ctx,OutputFile *of, OutputStream *ost)
 {
     Muxer *mux = mux_from_of(of);
     MuxStream *ms = ms_from_ost(ost);
@@ -689,7 +689,7 @@ int of_stream_init(OutputFile *of, OutputStream *ost)
 
     ost->initialized = 1;
 
-    return mux_check_init(mux);
+    return mux_check_init(ctx, mux);
 }
 
 static int check_written(OutputFile *of)

@@ -130,9 +130,9 @@ static Demuxer *demuxer_from_ifile(InputFile *f)
     return (Demuxer*)f;
 }
 
-InputStream *ist_find_unused(enum AVMediaType type)
+InputStream *ist_find_unused(FfmpegContext* ctx, enum AVMediaType type)
 {
-    for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
+    for (InputStream *ist = ist_iter(ctx, NULL); ist; ist = ist_iter(ctx, ist)) {
         if (ist->par->codec_type == type && ist->discard &&
             ist->user_set_discard != AVDISCARD_ALL)
             return ist;
@@ -442,7 +442,7 @@ static int ts_fixup(Demuxer *d, AVPacket *pkt)
 
 // process an input packet into a message to send to the consumer thread
 // src is always cleared by this function
-static int input_packet_process(Demuxer *d, DemuxMsg *msg, AVPacket *src)
+static int input_packet_process(FfmpegContext* ctx, Demuxer *d, DemuxMsg *msg, AVPacket *src)
 {
     InputFile     *f = &d->f;
     InputStream *ist = f->streams[src->stream_index];
@@ -471,8 +471,8 @@ static int input_packet_process(Demuxer *d, DemuxMsg *msg, AVPacket *src)
                av_ts2str(pkt->pts), av_ts2timestr(pkt->pts, &pkt->time_base),
                av_ts2str(pkt->dts), av_ts2timestr(pkt->dts, &pkt->time_base),
                av_ts2str(pkt->duration), av_ts2timestr(pkt->duration, &pkt->time_base),
-               av_ts2str(input_files[ist->file_index]->ts_offset),
-               av_ts2timestr(input_files[ist->file_index]->ts_offset, &AV_TIME_BASE_Q));
+               av_ts2str(ctx->input_files[ist->file_index]->ts_offset),
+               av_ts2timestr(ctx->input_files[ist->file_index]->ts_offset, &AV_TIME_BASE_Q));
     }
 
     msg->pkt = pkt;
@@ -528,7 +528,8 @@ static void thread_set_name(InputFile *f)
 
 static void *input_thread(void *arg)
 {
-    Demuxer   *d = arg;
+    FfmpegContext* ctx= arg;
+    Demuxer   *d = ctx->arg;
     InputFile *f = &d->f;
     AVPacket *pkt;
     unsigned flags = d->non_blocking ? AV_THREAD_MESSAGE_NONBLOCK : 0;
@@ -602,7 +603,7 @@ static void *input_thread(void *arg)
             }
         }
 
-        ret = input_packet_process(d, &msg, pkt);
+        ret = input_packet_process(ctx, d, &msg, pkt);
         if (ret < 0)
             break;
 
@@ -655,15 +656,15 @@ static void thread_stop(Demuxer *d)
     av_thread_message_queue_free(&f->audio_ts_queue);
 }
 
-static int thread_start(Demuxer *d)
+static int thread_start(FfmpegContext* ctx, Demuxer *d)
 {
     int ret;
     InputFile *f = &d->f;
 
     if (d->thread_queue_size <= 0)
-        d->thread_queue_size = (nb_input_files > 1 ? 8 : 1);
+        d->thread_queue_size = (ctx->nb_input_files > 1 ? 8 : 1);
 
-    if (nb_input_files > 1 &&
+    if (ctx->nb_input_files > 1 &&
         (f->ctx->pb ? !f->ctx->pb->seekable :
          strcmp(f->ctx->iformat->name, "lavfi")))
         d->non_blocking = 1;
@@ -690,7 +691,8 @@ static int thread_start(Demuxer *d)
         }
     }
 
-    if ((ret = pthread_create(&d->thread, NULL, input_thread, d))) {
+    ctx->arg = d;
+    if ((ret = pthread_create(&d->thread, NULL, input_thread, ctx))) {
         av_log(d, AV_LOG_ERROR, "pthread_create failed: %s. Try to increase `ulimit -v` or decrease `ulimit -s`.\n", strerror(ret));
         ret = AVERROR(ret);
         goto fail;
@@ -704,14 +706,14 @@ fail:
     return ret;
 }
 
-int ifile_get_packet(InputFile *f, AVPacket **pkt)
+int ifile_get_packet(FfmpegContext* ctx, InputFile *f, AVPacket **pkt)
 {
     Demuxer *d = demuxer_from_ifile(f);
     DemuxMsg msg;
     int ret;
 
     if (!d->in_thread_queue) {
-        ret = thread_start(d);
+        ret = thread_start(ctx, d);
         if (ret < 0)
             return ret;
     }
@@ -810,7 +812,7 @@ void ifile_close(InputFile **pf)
     av_freep(pf);
 }
 
-static int ist_use(InputStream *ist, int decoding_needed)
+static int ist_use(FfmpegContext* ctx, InputStream *ist, int decoding_needed)
 {
     DemuxStream *ds = ds_from_ist(ist);
 
@@ -826,7 +828,7 @@ static int ist_use(InputStream *ist, int decoding_needed)
     ds->streamcopy_needed |= !decoding_needed;
 
     if (decoding_needed && !avcodec_is_open(ist->dec_ctx)) {
-        int ret = dec_open(ist);
+        int ret = dec_open(ctx, ist);
         if (ret < 0)
             return ret;
     }
@@ -834,11 +836,11 @@ static int ist_use(InputStream *ist, int decoding_needed)
     return 0;
 }
 
-int ist_output_add(InputStream *ist, OutputStream *ost)
+int ist_output_add(FfmpegContext* ctx, InputStream *ist, OutputStream *ost)
 {
     int ret;
 
-    ret = ist_use(ist, ost->enc ? DECODING_FOR_OST : 0);
+    ret = ist_use(ctx, ist, ost->enc ? DECODING_FOR_OST : 0);
     if (ret < 0)
         return ret;
 
@@ -851,11 +853,11 @@ int ist_output_add(InputStream *ist, OutputStream *ost)
     return 0;
 }
 
-int ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple)
+int ist_filter_add(FfmpegContext* ctx, InputStream *ist, InputFilter *ifilter, int is_simple)
 {
     int ret;
 
-    ret = ist_use(ist, is_simple ? DECODING_FOR_OST : DECODING_FOR_FILTER);
+    ret = ist_use(ctx, ist, is_simple ? DECODING_FOR_OST : DECODING_FOR_FILTER);
     if (ret < 0)
         return ret;
 
@@ -1260,7 +1262,7 @@ static int ist_add(const OptionsContext *o, Demuxer *d, AVStream *st)
     return 0;
 }
 
-static int dump_attachment(InputStream *ist, const char *filename)
+static int dump_attachment(FfmpegContext* ctx, InputStream *ist, const char *filename)
 {
     AVStream *st = ist->st;
     int ret;
@@ -1278,7 +1280,7 @@ static int dump_attachment(InputStream *ist, const char *filename)
         return AVERROR(EINVAL);
     }
 
-    ret = assert_file_overwrite(filename);
+    ret = assert_file_overwrite(ctx, filename);
     if (ret < 0)
         return ret;
 
@@ -1312,22 +1314,22 @@ static const AVClass input_file_class = {
     .category   = AV_CLASS_CATEGORY_DEMUXER,
 };
 
-static Demuxer *demux_alloc(void)
+static Demuxer *demux_alloc(FfmpegContext* ctx)
 {
-    Demuxer *d = allocate_array_elem(&input_files, sizeof(*d), &nb_input_files);
+    Demuxer *d = allocate_array_elem(&ctx->input_files, sizeof(*d), &ctx->nb_input_files);
 
     if (!d)
         return NULL;
 
     d->f.class = &input_file_class;
-    d->f.index = nb_input_files - 1;
+    d->f.index = ctx->nb_input_files - 1;
 
     snprintf(d->log_name, sizeof(d->log_name), "in#%d", d->f.index);
 
     return d;
 }
 
-int ifile_open(const OptionsContext *o, const char *filename)
+int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename)
 {
     Demuxer   *d;
     InputFile *f;
@@ -1348,7 +1350,7 @@ int ifile_open(const OptionsContext *o, const char *filename)
     int64_t stop_time      = o->stop_time;
     int64_t recording_time = o->recording_time;
 
-    d = demux_alloc();
+    d = demux_alloc(ctx);
     if (!d)
         return AVERROR(ENOMEM);
 
@@ -1496,7 +1498,7 @@ int ifile_open(const OptionsContext *o, const char *filename)
         AVDictionary **opts;
         int orig_nb_streams = ic->nb_streams;
 
-        ret = setup_find_stream_info_opts(ic, o->g->codec_opts, &opts);
+        ret = setup_find_stream_info_opts(ctx, ic, o->g->codec_opts, &opts);
         if (ret < 0)
             return ret;
 
@@ -1656,7 +1658,7 @@ int ifile_open(const OptionsContext *o, const char *filename)
             InputStream *ist = f->streams[j];
 
             if (check_stream_specifier(ic, ist->st, o->dump_attachment[i].specifier) == 1) {
-                ret = dump_attachment(ist, o->dump_attachment[i].u.str);
+                ret = dump_attachment(ctx, ist, o->dump_attachment[i].u.str);
                 if (ret < 0)
                     return ret;
             }

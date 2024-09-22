@@ -40,8 +40,6 @@
 
 #include "libavformat/avformat.h"
 
-extern EncodeCallback* enc_callback;
-
 struct Encoder {
     AVFrame *sq_frame;
 
@@ -169,14 +167,14 @@ static int set_encoder_id(OutputFile *of, OutputStream *ost)
     return 0;
 }
 
-int enc_open(OutputStream *ost, const AVFrame *frame)
+int enc_open(FfmpegContext* ctx, OutputStream *ost, const AVFrame *frame)
 {
     InputStream *ist = ost->ist;
     Encoder              *e = ost->enc;
     AVCodecContext *enc_ctx = ost->enc_ctx;
     AVCodecContext *dec_ctx = NULL;
     const AVCodec      *enc = enc_ctx->codec;
-    OutputFile      *of = output_files[ost->file_index];
+    OutputFile      *of = ctx->output_files[ost->file_index];
     FrameData *fd;
     int ret;
 
@@ -191,7 +189,7 @@ int enc_open(OutputStream *ost, const AVFrame *frame)
         fd = (FrameData*)frame->opaque_ref->data;
     }
 
-    ret = set_encoder_id(output_files[ost->file_index], ost);
+    ret = set_encoder_id(ctx->output_files[ost->file_index], ost);
     if (ret < 0)
         return ret;
 
@@ -264,7 +262,7 @@ int enc_open(OutputStream *ost, const AVFrame *frame)
             enc_ctx->field_order = AV_FIELD_PROGRESSIVE;
             
         int fmt=AV_PIX_FMT_RGB32;
-        if (enc_callback && !enc_callback->rgb)
+        if (ctx->enc_callback && !ctx->enc_callback->rgb)
         	fmt=AV_PIX_FMT_BGR32;
         ost->sws_ctx = sws_getContext(enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, enc_ctx->width, enc_ctx->height, fmt, SWS_BICUBIC, NULL, NULL, NULL);
         ost->sws_ctx_chg = sws_getContext(enc_ctx->width, enc_ctx->height, fmt, enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, SWS_BICUBIC, NULL, NULL, NULL);  
@@ -347,7 +345,7 @@ int enc_open(OutputStream *ost, const AVFrame *frame)
 
     if (ost->enc_ctx->frame_size) {
         av_assert0(ost->sq_idx_encode >= 0);
-        sq_frame_samples(output_files[ost->file_index]->sq_encode,
+        sq_frame_samples(ctx->output_files[ost->file_index]->sq_encode,
                          ost->sq_idx_encode, ost->enc_ctx->frame_size);
     }
 
@@ -395,26 +393,26 @@ int enc_open(OutputStream *ost, const AVFrame *frame)
     if (ost->st->time_base.num <= 0 || ost->st->time_base.den <= 0)
         ost->st->time_base = av_add_q(ost->enc_ctx->time_base, (AVRational){0, 1});
 
-    ret = of_stream_init(of, ost);
+    ret = of_stream_init(ctx, of, ost);
     if (ret < 0)
         return ret;
 
     return 0;
 }
 
-static int check_recording_time(OutputStream *ost, int64_t ts, AVRational tb)
+static int check_recording_time(FfmpegContext* ctx, OutputStream *ost, int64_t ts, AVRational tb)
 {
-    OutputFile *of = output_files[ost->file_index];
+    OutputFile *of = ctx->output_files[ost->file_index];
 
     if (of->recording_time != INT64_MAX &&
         av_compare_ts(ts, tb, of->recording_time, AV_TIME_BASE_Q) >= 0) {
-        close_output_stream(ost);
+        close_output_stream(ctx, ost);
         return 0;
     }
     return 1;
 }
 
-int enc_subtitle(OutputFile *of, OutputStream *ost, const AVSubtitle *sub)
+int enc_subtitle(FfmpegContext* ctx, OutputFile *of, OutputStream *ost, const AVSubtitle *sub)
 {
     Encoder *e = ost->enc;
     int subtitle_out_max_size = 1024 * 1024;
@@ -445,12 +443,12 @@ int enc_subtitle(OutputFile *of, OutputStream *ost, const AVSubtitle *sub)
 
     /* shift timestamp to honor -ss and make check_recording_time() work with -t */
     pts = sub->pts;
-    if (output_files[ost->file_index]->start_time != AV_NOPTS_VALUE)
-        pts -= output_files[ost->file_index]->start_time;
+    if (ctx->output_files[ost->file_index]->start_time != AV_NOPTS_VALUE)
+        pts -= ctx->output_files[ost->file_index]->start_time;
     for (i = 0; i < nb; i++) {
         AVSubtitle local_sub = *sub;
 
-        if (!check_recording_time(ost, pts, AV_TIME_BASE_Q))
+        if (!check_recording_time(ctx, ost, pts, AV_TIME_BASE_Q))
             return 0;
 
         ret = av_new_packet(pkt, subtitle_out_max_size);
@@ -572,7 +570,7 @@ static inline double psnr(double d)
     return -10.0 * log10(d);
 }
 
-static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_vstats)
+static int update_video_stats(FfmpegContext* ctx, OutputStream *ost, const AVPacket *pkt, int write_vstats)
 {
     Encoder        *e = ost->enc;
     const uint8_t *sd = av_packet_get_side_data(pkt, AV_PKT_DATA_QUALITY_STATS,
@@ -597,9 +595,9 @@ static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_
         return 0;
 
     /* this is executed just the first time update_video_stats is called */
-    if (!vstats_file) {
-        vstats_file = fopen(vstats_filename, "w");
-        if (!vstats_file) {
+    if (!ctx->vstats_file) {
+        ctx->vstats_file = fopen(ctx->vstats_filename, "w");
+        if (!ctx->vstats_file) {
             perror("fopen");
             return AVERROR(errno);
         }
@@ -607,17 +605,17 @@ static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_
 
     frame_number = e->packets_encoded;
     if (vstats_version <= 1) {
-        fprintf(vstats_file, "frame= %5"PRId64" q= %2.1f ", frame_number,
+        fprintf(ctx->vstats_file, "frame= %5"PRId64" q= %2.1f ", frame_number,
                 ost->quality / (float)FF_QP2LAMBDA);
     } else  {
-        fprintf(vstats_file, "out= %2d st= %2d frame= %5"PRId64" q= %2.1f ", ost->file_index, ost->index, frame_number,
+        fprintf(ctx->vstats_file, "out= %2d st= %2d frame= %5"PRId64" q= %2.1f ", ost->file_index, ost->index, frame_number,
                 ost->quality / (float)FF_QP2LAMBDA);
     }
 
     if (psnr_val >= 0)
-        fprintf(vstats_file, "PSNR= %6.2f ", psnr_val);
+        fprintf(ctx->vstats_file, "PSNR= %6.2f ", psnr_val);
 
-    fprintf(vstats_file,"f_size= %6d ", pkt->size);
+    fprintf(ctx->vstats_file,"f_size= %6d ", pkt->size);
     /* compute pts value */
     ti1 = pkt->dts * av_q2d(pkt->time_base);
     if (ti1 < 0.01)
@@ -625,14 +623,14 @@ static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_
 
     bitrate     = (pkt->size * 8) / av_q2d(enc->time_base) / 1000.0;
     avg_bitrate = (double)(e->data_size * 8) / ti1 / 1000.0;
-    fprintf(vstats_file, "s_size= %8.0fkB time= %0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s ",
+    fprintf(ctx->vstats_file, "s_size= %8.0fkB time= %0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s ",
            (double)e->data_size / 1024, ti1, bitrate, avg_bitrate);
-    fprintf(vstats_file, "type= %c\n", av_get_picture_type_char(pict_type));
+    fprintf(ctx->vstats_file, "type= %c\n", av_get_picture_type_char(pict_type));
 
     return 0;
 }
 
-static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
+static int encode_frame(FfmpegContext* ctx, OutputFile *of, OutputStream *ost, AVFrame *frame)
 {
     Encoder            *e = ost->enc;
     AVCodecContext   *enc = ost->enc_ctx;
@@ -695,7 +693,7 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
         }
 
         if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
-            ret = update_video_stats(ost, pkt, !!vstats_filename);
+            ret = update_video_stats(ctx, ost, pkt, !!ctx->vstats_filename);
             if (ret < 0)
                 return ret;
         }
@@ -714,7 +712,7 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
                    av_ts2str(pkt->duration), av_ts2timestr(pkt->duration, &enc->time_base));
         }
 
-        if ((ret = trigger_fix_sub_duration_heartbeat(ost, pkt)) < 0) {
+        if ((ret = trigger_fix_sub_duration_heartbeat(ctx, ost, pkt)) < 0) {
             av_log(NULL, AV_LOG_ERROR,
                    "Subtitle heartbeat logic failed in %s! (%s)\n",
                    __func__, av_err2str(ret));
@@ -733,14 +731,14 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame)
     av_assert0(0);
 }
 
-static int submit_encode_frame(OutputFile *of, OutputStream *ost,
+static int submit_encode_frame(FfmpegContext* ctx, OutputFile *of, OutputStream *ost,
                                AVFrame *frame)
 {
     Encoder *e = ost->enc;
     int ret;
 
     if (ost->sq_idx_encode < 0)
-        return encode_frame(of, ost, frame);
+        return encode_frame(ctx, of, ost, frame);
 
     if (frame) {
         ret = av_frame_ref(e->sq_frame, frame);
@@ -769,25 +767,25 @@ static int submit_encode_frame(OutputFile *of, OutputStream *ost,
             return (ret == AVERROR(EAGAIN)) ? 0 : ret;
         }
 
-        ret = encode_frame(of, ost, enc_frame);
+        ret = encode_frame(ctx, of, ost, enc_frame);
         if (enc_frame)
             av_frame_unref(enc_frame);
         if (ret < 0) {
             if (ret == AVERROR_EOF)
-                close_output_stream(ost);
+                close_output_stream(ctx, ost);
             return ret;
         }
     }
 }
 
-static int do_audio_out(OutputFile *of, OutputStream *ost,
+static int do_audio_out(FfmpegContext* ctx,OutputFile *of, OutputStream *ost,
                         AVFrame *frame)
 {
     AVCodecContext *enc = ost->enc_ctx;
     int ret;
 
-	if (enc_callback && enc_callback->audio_buffer){
-		enc_callback->audio_buffer(enc_callback->owner, frame, get_current_pts(ost));
+	if (ctx->enc_callback && ctx->enc_callback->audio_buffer){
+		ctx->enc_callback->audio_buffer(ctx->enc_callback->owner, frame, get_current_pts(ost));
 	}
 
     if (!(enc->codec->capabilities & AV_CODEC_CAP_PARAM_CHANGE) &&
@@ -797,10 +795,10 @@ static int do_audio_out(OutputFile *of, OutputStream *ost,
         return 0;
     }
 
-    if (!check_recording_time(ost, frame->pts, frame->time_base))
+    if (!check_recording_time(ctx, ost, frame->pts, frame->time_base))
         return 0;
 
-    ret = submit_encode_frame(of, ost, frame);
+    ret = submit_encode_frame(ctx, of, ost, frame);
     return (ret < 0 && ret != AVERROR_EOF) ? ret : 0;
 }
 
@@ -851,12 +849,12 @@ force_keyframe:
 }
 
 /* May modify/reset frame */
-static int do_video_out(OutputFile *of, OutputStream *ost, AVFrame *in_picture)
+static int do_video_out(FfmpegContext* ctx, OutputFile *of, OutputStream *ost, AVFrame *in_picture)
 {
     int ret;
     AVCodecContext *enc = ost->enc_ctx;
 
-    if (!check_recording_time(ost, in_picture->pts, ost->enc_ctx->time_base))
+    if (!check_recording_time(ctx, ost, in_picture->pts, ost->enc_ctx->time_base))
         return 0;
 
     in_picture->quality = enc->global_quality;
@@ -871,7 +869,7 @@ static int do_video_out(OutputFile *of, OutputStream *ost, AVFrame *in_picture)
    
 #if 1
                 //av_log(NULL, AV_LOG_ERROR, "bitmap flip context 0x%x", ost->sws_ctx);
-                if (enc_callback && enc_callback->video_buffer){
+                if (ctx->enc_callback && ctx->enc_callback->video_buffer){
                     //if (enc_callback->flip==1)
                       //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
                                        
@@ -883,7 +881,7 @@ static int do_video_out(OutputFile *of, OutputStream *ost, AVFrame *in_picture)
 
 #if 1
 
-                        if (enc_callback->flip)
+                        if (ctx->enc_callback->flip)
                         {
                            //flip the bitmap
                              //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
@@ -900,7 +898,7 @@ static int do_video_out(OutputFile *of, OutputStream *ost, AVFrame *in_picture)
 #endif                        
            	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
 	                  	flt->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
-	                 enc_callback->video_buffer(enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
+	                 ctx->enc_callback->video_buffer(ctx->enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
 	                 if (modified){
 	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
 	                       flt->filter->inputs[0]->h, save_frame.data, save_frame.linesize);
@@ -909,43 +907,43 @@ static int do_video_out(OutputFile *of, OutputStream *ost, AVFrame *in_picture)
                 }
 #endif    
 
-    ret = submit_encode_frame(of, ost, in_picture);
+    ret = submit_encode_frame(ctx, of, ost, in_picture);
     return (ret == AVERROR_EOF) ? 0 : ret;
 }
 
-int enc_frame(OutputStream *ost, AVFrame *frame)
+int enc_frame(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame)
 {
-    OutputFile *of = output_files[ost->file_index];
+    OutputFile *of = ctx->output_files[ost->file_index];
     int ret;
 
-    ret = enc_open(ost, frame);
+    ret = enc_open(ctx, ost, frame);
     if (ret < 0)
         return ret;
 
     return ost->enc_ctx->codec_type == AVMEDIA_TYPE_VIDEO ?
-           do_video_out(of, ost, frame) : do_audio_out(of, ost, frame);
+           do_video_out(ctx, of, ost, frame) : do_audio_out(ctx, of, ost, frame);
 }
 
-int enc_flush(void)
+int enc_flush(FfmpegContext* ctx)
 {
     int ret;
 
-    for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
-        OutputFile      *of = output_files[ost->file_index];
+    for (OutputStream *ost = ost_iter(ctx, NULL); ost; ost = ost_iter(ctx, ost)) {
+        OutputFile      *of = ctx->output_files[ost->file_index];
         if (ost->sq_idx_encode >= 0)
             sq_send(of->sq_encode, ost->sq_idx_encode, SQFRAME(NULL));
     }
 
-    for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
+    for (OutputStream *ost = ost_iter(ctx, NULL); ost; ost = ost_iter(ctx, ost)) {
         Encoder          *e = ost->enc;
         AVCodecContext *enc = ost->enc_ctx;
-        OutputFile      *of = output_files[ost->file_index];
+        OutputFile      *of = ctx->output_files[ost->file_index];
 
         if (!enc || !e->opened ||
             (enc->codec_type != AVMEDIA_TYPE_VIDEO && enc->codec_type != AVMEDIA_TYPE_AUDIO))
             continue;
 
-        ret = submit_encode_frame(of, ost, NULL);
+        ret = submit_encode_frame(ctx, of, ost, NULL);
         if (ret != AVERROR_EOF)
             return ret;
     }

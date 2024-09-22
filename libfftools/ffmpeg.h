@@ -721,17 +721,33 @@ typedef struct FrameData {
     int        bits_per_raw_sample;
 } FrameData;
 
-extern InputFile   **input_files;
-extern int        nb_input_files;
+typedef struct FfmpegContext{
+   FILE *vstats_file;
+   unsigned nb_output_dumped;
+   InputFile   **input_files;
+   int        nb_input_files;
 
-extern OutputFile   **output_files;
-extern int         nb_output_files;
 
-extern FilterGraph **filtergraphs;
-extern int        nb_filtergraphs;
+   OutputFile   **output_files;
+   int        nb_output_files;
+   
+   FilterGraph **filtergraphs;
+   int        nb_filtergraphs;
+   
+   AVIOContext *progress_avio;
+   char *filter_nbthreads;
+   
+   AVDictionary *sws_dict;
+   AVDictionary *swr_opts;
+   AVDictionary *format_opts, *codec_opts;  
 
-extern char *vstats_filename;
-extern char *sdp_filename;
+   EncodeCallback* enc_callback;   
+
+   char *vstats_filename;
+   char *sdp_filename;
+   int g_state;      
+   void*      arg;         
+}FfmpegContext;
 
 extern float dts_delta_threshold;
 extern float dts_error_threshold;
@@ -751,10 +767,8 @@ extern int abort_on_flags;
 extern int print_stats;
 extern int64_t stats_period;
 extern int stdin_interaction;
-extern AVIOContext *progress_avio;
 extern float max_error_rate;
 
-extern char *filter_nbthreads;
 extern int filter_complex_nbthreads;
 extern int vstats_version;
 extern int auto_conversion_filters;
@@ -764,14 +778,10 @@ extern const AVIOInterruptCB int_cb;
 extern const OptionDef options[];
 extern HWDevice *filter_hw_device;
 
-extern unsigned nb_output_dumped;
-
 extern int ignore_unknown_streams;
 extern int copy_unknown_streams;
 
 extern int recast_media;
-
-extern FILE *vstats_file;
 
 #if FFMPEG_OPT_PSNR
 extern int do_psnr;
@@ -779,7 +789,10 @@ extern int do_psnr;
 
 
 int ffmpeg_main(int argc, char **argv, EncodeCallback* callback);
-void ffmpeg_cleanup(int ret);
+
+FfmpegContext* init_ffmpeg_context();
+
+void ffmpeg_cleanup(FfmpegContext* ctx, int ret);
 double get_current_pts(OutputStream* ost);
 void term_init(void);
 void term_exit(void);
@@ -789,18 +802,18 @@ void show_usage(void);
 void remove_avoptions(AVDictionary **a, AVDictionary *b);
 int check_avoptions(AVDictionary *m);
 
-int assert_file_overwrite(const char *filename);
+int assert_file_overwrite(FfmpegContext* ctx, const char *filename);
 char *file_read(const char *filename);
 AVDictionary *strip_specifiers(const AVDictionary *dict);
 int find_codec(void *logctx, const char *name,
                enum AVMediaType type, int encoder, const AVCodec **codec);
 int parse_and_set_vsync(const char *arg, int *vsync_var, int file_idx, int st_idx, int is_global);
 
-int check_filter_outputs(void);
+int check_filter_outputs(FfmpegContext* ctx);
 int filtergraph_is_simple(const FilterGraph *fg);
-int init_simple_filtergraph(InputStream *ist, OutputStream *ost,
+int init_simple_filtergraph(FfmpegContext* ctx, InputStream *ist, OutputStream *ost,
                             char *graph_desc);
-int init_complex_filtergraph(FilterGraph *fg);
+int init_complex_filtergraph(FfmpegContext* ctx, FilterGraph *fg);
 
 int copy_av_subtitle(AVSubtitle *dst, const AVSubtitle *src);
 int subtitle_wrap_frame(AVFrame *frame, AVSubtitle *subtitle, int copy);
@@ -813,8 +826,8 @@ FrameData *frame_data(AVFrame *frame);
 
 const FrameData *frame_data_c(AVFrame *frame);
 
-int ifilter_send_frame(InputFilter *ifilter, AVFrame *frame, int keep_reference);
-int ifilter_send_eof(InputFilter *ifilter, int64_t pts, AVRational tb);
+int ifilter_send_frame(FfmpegContext* ctx, InputFilter *ifilter, AVFrame *frame, int keep_reference);
+int ifilter_send_eof(FfmpegContext* ctx, InputFilter *ifilter, int64_t pts, AVRational tb);
 int ifilter_sub2video(InputFilter *ifilter, const AVFrame *frame);
 void ifilter_sub2video_heartbeat(InputFilter *ifilter, int64_t pts, AVRational tb);
 
@@ -825,7 +838,7 @@ void ifilter_sub2video_heartbeat(InputFilter *ifilter, int64_t pts, AVRational t
  */
 int ifilter_parameters_from_dec(InputFilter *ifilter, const AVCodecContext *dec);
 
-int ofilter_bind_ost(OutputFilter *ofilter, OutputStream *ost);
+int ofilter_bind_ost(FfmpegContext* ctx, OutputFilter *ofilter, OutputStream *ost);
 
 /**
  * Create a new filtergraph in the global filtergraph list.
@@ -833,7 +846,7 @@ int ofilter_bind_ost(OutputFilter *ofilter, OutputStream *ost);
  * @param graph_desc Graph description; an av_malloc()ed string, filtergraph
  *                   takes ownership of it.
  */
-int fg_create(FilterGraph **pfg, char *graph_desc);
+int fg_create(FfmpegContext* ctx, FilterGraph **pfg, char *graph_desc);
 
 void fg_free(FilterGraph **pfg);
 
@@ -844,7 +857,7 @@ void fg_free(FilterGraph **pfg);
  * @param[out] best_ist  input stream where a frame would allow to continue
  * @return  0 for success, <0 for error
  */
-int fg_transcode_step(FilterGraph *graph, InputStream **best_ist);
+int fg_transcode_step(FfmpegContext* ctx, FilterGraph *graph, InputStream **best_ist);
 
 void fg_send_command(FilterGraph *fg, double time, const char *target,
                      const char *command, const char *arg, int all_filters);
@@ -855,9 +868,9 @@ void fg_send_command(FilterGraph *fg, double time, const char *target,
  *
  * @return  0 for success, <0 for severe errors
  */
-int reap_filters(FilterGraph *fg, int flush);
+int reap_filters(FfmpegContext* ctx, FilterGraph *fg, int flush);
 
-int ffmpeg_parse_options(int argc, char **argv);
+int ffmpeg_parse_options(FfmpegContext* ctx, int argc, char **argv);
 
 void enc_stats_write(OutputStream *ost, EncStats *es,
                      const AVFrame *frame, const AVPacket *pkt,
@@ -880,7 +893,7 @@ AVBufferRef *hw_device_for_filter(void);
 
 int hwaccel_retrieve_data(AVCodecContext *avctx, AVFrame *input);
 
-int dec_open(InputStream *ist);
+int dec_open(FfmpegContext* ctx, InputStream *ist);
 void dec_free(Decoder **pdec);
 
 /**
@@ -892,15 +905,15 @@ void dec_free(Decoder **pdec);
  * When pkt==NULL and no_eof=1, the stream was reset (e.g. after a seek). Flush
  * decoders and await further input.
  */
-int dec_packet(InputStream *ist, const AVPacket *pkt, int no_eof);
+int dec_packet(FfmpegContext* ctx, InputStream *ist, const AVPacket *pkt, int no_eof);
 
 int enc_alloc(Encoder **penc, const AVCodec *codec);
 void enc_free(Encoder **penc);
 
-int enc_open(OutputStream *ost, const AVFrame *frame);
-int enc_subtitle(OutputFile *of, OutputStream *ost, const AVSubtitle *sub);
-int enc_frame(OutputStream *ost, AVFrame *frame);
-int enc_flush(void);
+int enc_open(FfmpegContext* ctx, OutputStream *ost, const AVFrame *frame);
+int enc_subtitle(FfmpegContext* ctx, OutputFile *of, OutputStream *ost, const AVSubtitle *sub);
+int enc_frame(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame);
+int enc_flush(FfmpegContext* ctx);
 
 /*
  * Initialize muxing state for the given stream, should be called
@@ -908,9 +921,9 @@ int enc_flush(void);
  *
  * Open the muxer once all the streams have been initialized.
  */
-int of_stream_init(OutputFile *of, OutputStream *ost);
+int of_stream_init(FfmpegContext* ctx, OutputFile *of, OutputStream *ost);
 int of_write_trailer(OutputFile *of);
-int of_open(const OptionsContext *o, const char *filename);
+int of_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename);
 void of_free(OutputFile **pof);
 
 void of_enc_stats_close(void);
@@ -920,11 +933,11 @@ int of_output_packet(OutputFile *of, OutputStream *ost, AVPacket *pkt);
 /**
  * @param dts predicted packet dts in AV_TIME_BASE_Q
  */
-int of_streamcopy(OutputStream *ost, const AVPacket *pkt, int64_t dts);
+int of_streamcopy(FfmpegContext* ctx, OutputStream *ost, const AVPacket *pkt, int64_t dts);
 
 int64_t of_filesize(OutputFile *of);
 
-int ifile_open(const OptionsContext *o, const char *filename);
+int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename);
 void ifile_close(InputFile **f);
 
 /**
@@ -937,27 +950,27 @@ void ifile_close(InputFile **f);
  *     caller should flush decoders and read from this demuxer again
  * - a negative error code on failure
  */
-int ifile_get_packet(InputFile *f, AVPacket **pkt);
+int ifile_get_packet(FfmpegContext* ctx, InputFile *f, AVPacket **pkt);
 
-int ist_output_add(InputStream *ist, OutputStream *ost);
-int ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple);
+int ist_output_add(FfmpegContext* ctx, InputStream *ist, OutputStream *ost);
+int ist_filter_add(FfmpegContext* ctx,InputStream *ist, InputFilter *ifilter, int is_simple);
 
 /**
  * Find an unused input stream of given type.
  */
-InputStream *ist_find_unused(enum AVMediaType type);
+InputStream *ist_find_unused(FfmpegContext* ctx, enum AVMediaType type);
 
 /* iterate over all input streams in all input files;
  * pass NULL to start iteration */
-InputStream *ist_iter(InputStream *prev);
+InputStream *ist_iter(FfmpegContext* ctx, InputStream *prev);
 
 /* iterate over all output streams in all output files;
  * pass NULL to start iteration */
-OutputStream *ost_iter(OutputStream *prev);
+OutputStream *ost_iter(FfmpegContext* ctx, OutputStream *prev);
 
-void close_output_stream(OutputStream *ost);
-int trigger_fix_sub_duration_heartbeat(OutputStream *ost, const AVPacket *pkt);
-int fix_sub_duration_heartbeat(InputStream *ist, int64_t signal_pts);
+void close_output_stream(FfmpegContext* ctx, OutputStream *ost);
+int trigger_fix_sub_duration_heartbeat(FfmpegContext* ctx, OutputStream *ost, const AVPacket *pkt);
+int fix_sub_duration_heartbeat(FfmpegContext* ctx, InputStream *ist, int64_t signal_pts);
 void update_benchmark(const char *fmt, ...);
 
 OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter);
