@@ -913,7 +913,7 @@ static int flv_read_header(AVFormatContext *s)
     //CloseHandle(hMapFile);    
 #endif
 #endif
-    flv->key = avformat_get_tle_context();
+    flv->key = ff_get_tle_context();
                
     av_log(s, AV_LOG_ERROR,
            "init aes with key:%s\n", flv->key);

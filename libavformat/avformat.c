@@ -110,7 +110,7 @@ void avformat_clr_tle_context(void){
    memset(tle_key, 0, 33);  
 }
 
-unsigned char* avformat_get_tle_context(void){
+unsigned char* ff_get_tle_context(void){
    return &tle_key[0];  
 }
 

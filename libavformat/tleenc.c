@@ -709,7 +709,7 @@ static int flv_init(struct AVFormatContext *s)
     //printf("Data read from shared memory: %s\n", pBuf);
     flv->key = pBuf;
 #endif
-    flv->key = avformat_get_tle_context();    
+    flv->key = ff_get_tle_context();    
     flv->paes = av_aes_alloc();
     av_log(s, AV_LOG_ERROR, "init aes with key %s\n",
                 flv->key);

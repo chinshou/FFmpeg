@@ -1761,7 +1761,7 @@ void avformat_set_tle_context(unsigned char* key);
 
 void avformat_clr_tle_context(void);
 
-unsigned char* avformat_get_tle_context(void);
+unsigned char* ff_get_tle_context(void);
 
 
 /**

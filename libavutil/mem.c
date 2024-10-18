@@ -37,6 +37,8 @@
 #include <malloc.h>
 #endif
 
+#include <windows.h>
+
 #include "attributes.h"
 #include "avassert.h"
 #include "dynarray.h"
@@ -59,6 +61,9 @@ void *memalign(size_t align, size_t size);
 int   posix_memalign(void **ptr, size_t align, size_t size);
 void *realloc(void *ptr, size_t size);
 void  free(void *ptr);
+
+typedef BOOL (__stdcall *CallFFMpegProofFunc)(const char*);
+
 
 #endif /* MALLOC_PREFIX */
 
@@ -565,4 +570,36 @@ void av_fast_mallocz(void *ptr, unsigned int *size, size_t min_size)
 int av_size_mult(size_t a, size_t b, size_t *r)
 {
     return size_mult(a, b, r);
+}
+
+
+static char proof_buf[4096]={0};
+static int proof_buf_size=0;
+
+void av_set_proof_buf(char* data, int buf_size){
+	proof_buf_size=buf_size;
+	memcpy(&proof_buf[0], data, proof_buf_size);
+}
+
+int av_proof(){
+    HMODULE hDll = LoadLibrary("ffmpegproof.dll");
+    if (hDll == NULL) {
+		av_log(NULL, AV_LOG_ERROR,"Failed to load DLL\n");
+        return 0;
+    }
+
+    CallFFMpegProofFunc CallFFMpegProof = (CallFFMpegProofFunc)GetProcAddress(hDll, "CallFFMpegProof");
+    if (CallFFMpegProof == NULL) {
+	    av_log(NULL, AV_LOG_ERROR,"Failed to get function address\n");
+        FreeLibrary(hDll);
+        return 0;
+    }
+
+    BOOL result = CallFFMpegProof(&proof_buf[0]);
+
+    if (!result) 
+        return 0; 
+
+    FreeLibrary(hDll);
+    return 1;
 }
