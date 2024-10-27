@@ -39,6 +39,7 @@
 #include "libavutil/pixdesc.h"
 #include "libavfilter/avfilter.h"
 #include "libavfilter/buffersink.h"
+#include "libavformat/demux.h"
 #include "libavformat/internal.h"
 #include "avdevice.h"
 
@@ -248,16 +249,22 @@ av_cold static int lavfi_read_header(AVFormatContext *avctx)
                 AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_DBL,
             };
 
-            ret = avfilter_graph_create_filter(&sink, abuffersink,
-                                               inout->name, NULL,
-                                               NULL, lavfi->graph);
-            if (ret >= 0)
-                ret = av_opt_set_bin(sink, "sample_fmts", (const uint8_t*)sample_fmts,
-                                     sizeof(sample_fmts), AV_OPT_SEARCH_CHILDREN);
+            sink = avfilter_graph_alloc_filter(lavfi->graph, abuffersink, inout->name);
+            if (!sink) {
+                ret = AVERROR(ENOMEM);
+                goto end;
+            }
+
+            ret = av_opt_set_bin(sink, "sample_fmts", (const uint8_t*)sample_fmts,
+                                 sizeof(sample_fmts), AV_OPT_SEARCH_CHILDREN);
             if (ret < 0)
                 goto end;
             ret = av_opt_set_int(sink, "all_channel_counts", 1,
                                  AV_OPT_SEARCH_CHILDREN);
+            if (ret < 0)
+                goto end;
+
+            ret = avfilter_init_dict(sink, NULL);
             if (ret < 0)
                 goto end;
         } else {
@@ -493,14 +500,14 @@ static const AVClass lavfi_class = {
     .category   = AV_CLASS_CATEGORY_DEVICE_INPUT,
 };
 
-const AVInputFormat ff_lavfi_demuxer = {
-    .name           = "lavfi",
-    .long_name      = NULL_IF_CONFIG_SMALL("Libavfilter virtual input device"),
+const FFInputFormat ff_lavfi_demuxer = {
+    .p.name         = "lavfi",
+    .p.long_name    = NULL_IF_CONFIG_SMALL("Libavfilter virtual input device"),
+    .p.flags        = AVFMT_NOFILE,
+    .p.priv_class   = &lavfi_class,
     .priv_data_size = sizeof(LavfiContext),
     .read_header    = lavfi_read_header,
     .read_packet    = lavfi_read_packet,
     .read_close     = lavfi_read_close,
-    .flags          = AVFMT_NOFILE,
-    .priv_class     = &lavfi_class,
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
 };

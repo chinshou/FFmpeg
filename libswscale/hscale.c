@@ -18,6 +18,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/mem.h"
 #include "swscale_internal.h"
 
 /// Scaler instance data
@@ -35,7 +36,7 @@ typedef struct ColorContext
     uint32_t *pal;
 } ColorContext;
 
-static int lum_h_scale(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
+static int lum_h_scale(SwsInternal *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
 {
     FilterContext *instance = desc->instance;
     int srcW = desc->src->width;
@@ -83,7 +84,7 @@ static int lum_h_scale(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int
     return sliceH;
 }
 
-static int lum_convert(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
+static int lum_convert(SwsInternal *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
 {
     int srcW = desc->src->width;
     ColorContext * instance = desc->instance;
@@ -163,7 +164,7 @@ int ff_init_desc_hscale(SwsFilterDescriptor *desc, SwsSlice *src, SwsSlice *dst,
     return 0;
 }
 
-static int chr_h_scale(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
+static int chr_h_scale(SwsInternal *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
 {
     FilterContext *instance = desc->instance;
     int srcW = AV_CEIL_RSHIFT(desc->src->width, desc->src->h_chr_sub_sample);
@@ -199,7 +200,7 @@ static int chr_h_scale(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int
     return sliceH;
 }
 
-static int chr_convert(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
+static int chr_convert(SwsInternal *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
 {
     int srcW = AV_CEIL_RSHIFT(desc->src->width, desc->src->h_chr_sub_sample);
     ColorContext * instance = desc->instance;
@@ -269,7 +270,7 @@ int ff_init_desc_chscale(SwsFilterDescriptor *desc, SwsSlice *src, SwsSlice *dst
     return 0;
 }
 
-static int no_chr_scale(SwsContext *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
+static int no_chr_scale(SwsInternal *c, SwsFilterDescriptor *desc, int sliceY, int sliceH)
 {
     desc->dst->plane[1].sliceY = sliceY + sliceH - desc->dst->plane[1].available_lines;
     desc->dst->plane[1].sliceH = desc->dst->plane[1].available_lines;
