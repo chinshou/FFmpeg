@@ -15,6 +15,7 @@ OBJS = ffmpeg.o                        \
     ffmpeg_mux.o        \
     ffmpeg_mux_init.o   \
     ffmpeg_opt.o        \
+    ffmpeg_sched.o      \
     objpool.o           \
     sync_queue.o        \
     cmdutils.o          \
