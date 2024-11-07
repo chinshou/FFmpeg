@@ -23,7 +23,6 @@
 #include "libavutil/dict.h"
 #include "libavutil/error.h"
 #include "libavutil/log.h"
-#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
@@ -160,7 +159,7 @@ static const AVClass dec_class = {
 
 static int decoder_thread(void *arg);
 
-static int dec_alloc(DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
+static int dec_alloc(FfmpegContext* ctx, DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
 {
     DecoderPriv *dp;
     int ret = 0;
@@ -186,7 +185,8 @@ static int dec_alloc(DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
     dp->last_frame_tb                = (AVRational){ 1, 1 };
     dp->hwaccel_pix_fmt              = AV_PIX_FMT_NONE;
 
-    ret = sch_add_dec(sch, decoder_thread, dp, send_end_ts);
+    ctx->arg_dec = dp;
+    ret = sch_add_dec(sch, decoder_thread, ctx, send_end_ts);
     if (ret < 0)
         goto fail;
     dp->sch     = sch;
@@ -912,7 +912,7 @@ fail:
 static int decoder_thread(void *arg)
 {
     FfmpegContext* ctx = arg;
-    DecoderPriv  *dp = (DecoderPriv  *)ctx->arg;
+    DecoderPriv  *dp = (DecoderPriv  *)ctx->arg_dec;
     DecThreadContext dt;
     int ret = 0, input_status = 0;
 
@@ -1645,7 +1645,7 @@ static int dec_open(DecoderPriv *dp, AVDictionary **dec_opts,
     return 0;
 }
 
-int dec_init(Decoder **pdec, Scheduler *sch,
+int dec_init(FfmpegContext* ctx, Decoder **pdec, Scheduler *sch,
              AVDictionary **dec_opts, const DecoderOpts *o,
              AVFrame *param_out)
 {
@@ -1654,7 +1654,7 @@ int dec_init(Decoder **pdec, Scheduler *sch,
 
     *pdec = NULL;
 
-    ret = dec_alloc(&dp, sch, !!(o->flags & DECODER_FLAG_SEND_END_TS));
+    ret = dec_alloc(ctx, &dp, sch, !!(o->flags & DECODER_FLAG_SEND_END_TS));
     if (ret < 0)
         return ret;
 
@@ -1684,7 +1684,7 @@ int dec_create(FfmpegContext* ctx, const OptionsContext *o, const char *arg, Sch
     unsigned enc_idx;
     int ret;
 
-    ret = dec_alloc(&dp, sch, 0);
+    ret = dec_alloc(ctx, &dp, sch, 0);
     if (ret < 0)
         return ret;
 

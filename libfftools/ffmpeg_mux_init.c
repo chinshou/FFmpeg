@@ -1258,7 +1258,9 @@ static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum
     }
 
     if (enc) {
-        ret = sch_add_enc(mux->sch, encoder_thread, ost,
+        ctx->arg_enc = ost;
+        
+        ret = sch_add_enc(mux->sch, encoder_thread, ctx,
                           ost->type == AVMEDIA_TYPE_SUBTITLE ? NULL : enc_open);
         if (ret < 0)
             return ret;
@@ -3325,8 +3327,11 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
         of->bitexact  = check_opt_bitexact(oc, mux->opts, "fflags",
                                            AVFMT_FLAG_BITEXACT);
     }
+    
+    ctx->arg_mux = mux;
+    
 
-    err = sch_add_mux(sch, muxer_thread, mux_check_init, mux,
+    err = sch_add_mux(sch, muxer_thread, mux_check_init, ctx,
                       !strcmp(oc->oformat->name, "rtp"), o->thread_queue_size);
     if (err < 0)
         return err;

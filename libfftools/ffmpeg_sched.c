@@ -626,7 +626,7 @@ int sch_sdp_filename(Scheduler *sch, const char *sdp_filename)
 static const AVClass sch_mux_class = {
     .class_name                = "SchMux",
     .version                   = LIBAVUTIL_VERSION_INT,
-    .parent_log_context_offset = offsetof(SchMux, task.func_arg),
+//    .parent_log_context_offset = offsetof(SchMux, task.func_arg),
 };
 
 int sch_add_mux(Scheduler *sch, SchThreadFunc func, int (*init)(void *),
@@ -682,7 +682,7 @@ int sch_add_mux_stream(Scheduler *sch, unsigned mux_idx)
 static const AVClass sch_demux_class = {
     .class_name                = "SchDemux",
     .version                   = LIBAVUTIL_VERSION_INT,
-    .parent_log_context_offset = offsetof(SchDemux, task.func_arg),
+//    .parent_log_context_offset = offsetof(SchDemux, task.func_arg),
 };
 
 int sch_add_demux(Scheduler *sch, SchThreadFunc func, void *ctx)
@@ -742,7 +742,7 @@ int sch_add_dec_output(Scheduler *sch, unsigned dec_idx)
 static const AVClass sch_dec_class = {
     .class_name                = "SchDec",
     .version                   = LIBAVUTIL_VERSION_INT,
-    .parent_log_context_offset = offsetof(SchDec, task.func_arg),
+//    .parent_log_context_offset = offsetof(SchDec, task.func_arg),
 };
 
 int sch_add_dec(Scheduler *sch, SchThreadFunc func, void *ctx, int send_end_ts)
@@ -785,7 +785,7 @@ int sch_add_dec(Scheduler *sch, SchThreadFunc func, void *ctx, int send_end_ts)
 static const AVClass sch_enc_class = {
     .class_name                = "SchEnc",
     .version                   = LIBAVUTIL_VERSION_INT,
-    .parent_log_context_offset = offsetof(SchEnc, task.func_arg),
+//    .parent_log_context_offset = offsetof(SchEnc, task.func_arg),
 };
 
 int sch_add_enc(Scheduler *sch, SchThreadFunc func, void *ctx,
@@ -823,7 +823,7 @@ int sch_add_enc(Scheduler *sch, SchThreadFunc func, void *ctx,
 static const AVClass sch_fg_class = {
     .class_name                = "SchFilterGraph",
     .version                   = LIBAVUTIL_VERSION_INT,
-    .parent_log_context_offset = offsetof(SchFilterGraph, task.func_arg),
+//    .parent_log_context_offset = offsetof(SchFilterGraph, task.func_arg),
 };
 
 int sch_add_filtergraph(Scheduler *sch, unsigned nb_inputs, unsigned nb_outputs,

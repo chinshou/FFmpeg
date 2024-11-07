@@ -373,6 +373,79 @@ typedef struct OutputFilter {
     atomic_uint_least64_t nb_frames_drop;
 } OutputFilter;
 
+typedef struct FPSConvContext {
+    AVFrame          *last_frame;
+    /* number of frames emitted by the video-encoding sync code */
+    int64_t           frame_number;
+    /* history of nb_frames_prev, i.e. the number of times the
+     * previous frame was duplicated by vsync code in recent
+     * do_video_out() calls */
+    int64_t           frames_prev_hist[3];
+
+    uint64_t          dup_warning;
+
+    int               last_dropped;
+    int               dropped_keyframe;
+
+    enum VideoSyncMethod vsync_method;
+
+    AVRational        framerate;
+    AVRational        framerate_max;
+    const AVRational *framerate_supported;
+    int               framerate_clip;
+} FPSConvContext;
+
+typedef struct OutputFilterPriv {
+    OutputFilter            ofilter;
+
+    int                     index;
+
+    void                   *log_parent;
+    char                    log_name[32];
+
+    char                   *name;
+
+    AVFilterContext        *filter;
+
+    /* desired output stream properties */
+    int                     format;
+    int                     width, height;
+    int                     sample_rate;
+    AVChannelLayout         ch_layout;
+    enum AVColorSpace       color_space;
+    enum AVColorRange       color_range;
+
+    // time base in which the output is sent to our downstream
+    // does not need to match the filtersink's timebase
+    AVRational              tb_out;
+    // at least one frame with the above timebase was sent
+    // to our downstream, so it cannot change anymore
+    int                     tb_out_locked;
+
+    AVRational              sample_aspect_ratio;
+
+    AVDictionary           *sws_opts;
+    AVDictionary           *swr_opts;
+
+    // those are only set if no format is specified and the encoder gives us multiple options
+    // They point directly to the relevant lists of the encoder.
+    const int              *formats;
+    const AVChannelLayout  *ch_layouts;
+    const int              *sample_rates;
+    const enum AVColorSpace *color_spaces;
+    const enum AVColorRange *color_ranges;
+
+    AVRational              enc_timebase;
+    int64_t                 trim_start_us;
+    int64_t                 trim_duration_us;
+    // offset for output timestamps, in AV_TIME_BASE_Q
+    int64_t                 ts_offset;
+    int64_t                 next_pts;
+    FPSConvContext          fps;
+
+    unsigned                flags;
+} OutputFilterPriv;
+
 typedef struct FilterGraph {
     const AVClass *class;
     int            index;
@@ -648,6 +721,12 @@ typedef struct OutputStream {
      * subtitles utilizing fix_sub_duration at random access points.
      */
     unsigned int fix_sub_duration_heartbeat;
+    
+    SwsContext* sws_ctx;
+    SwsContext* sws_ctx_chg;
+    int u_sub, v_sub;
+    void* rgb_buf;
+    AVFrame* frame_rgb;    
 } OutputStream;
 
 typedef struct OutputFile {
@@ -717,7 +796,11 @@ typedef struct FfmpegContext{
    char *vstats_filename;
    char *sdp_filename;
    int g_state;      
-   void*      arg;         
+   void*      arg_dec;
+   void*      arg_enc;
+   void*      arg_filter;
+   void*      arg_mux;
+            
 }FfmpegContext;
 
 extern float dts_delta_threshold;
@@ -851,7 +934,7 @@ int dec_create(FfmpegContext* ctx, const OptionsContext *o, const char *arg, Sch
  * @retval ">=0" non-negative scheduler index on success
  * @retval "<0"  an error code on failure
  */
-int dec_init(Decoder **pdec, Scheduler *sch,
+int dec_init(FfmpegContext* ctx, Decoder **pdec, Scheduler *sch,
              AVDictionary **dec_opts, const DecoderOpts *o,
              AVFrame *param_out);
 void dec_free(Decoder **pdec);
@@ -881,7 +964,7 @@ int enc_alloc(Encoder **penc, const AVCodec *codec,
               Scheduler *sch, unsigned sch_idx, void *log_parent);
 void enc_free(Encoder **penc);
 
-int enc_open(FfmpegContext* ctx,void *opaque, const AVFrame *frame);
+int enc_open(void *opaque, const AVFrame *frame);
 
 int enc_loopback(Encoder *enc);
 
@@ -924,6 +1007,7 @@ InputStream *ist_iter(FfmpegContext* ctx, InputStream *prev);
 OutputStream *ost_iter(FfmpegContext* ctx, OutputStream *prev);
 
 void update_benchmark(const char *fmt, ...);
+OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter);
 
 const char *opt_match_per_type_str(const SpecifierOptList *sol,
                                    char mediatype);

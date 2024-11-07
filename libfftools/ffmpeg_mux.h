@@ -124,7 +124,7 @@ typedef struct Muxer {
     AVPacket               *sq_pkt;
 } Muxer;
 
-int mux_check_init(FfmpegContext* ctx,void *arg);
+int mux_check_init(FfmpegContext* ctx);
 
 static MuxStream *ms_from_ost(OutputStream *ost)
 {

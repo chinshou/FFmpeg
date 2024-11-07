@@ -156,15 +156,6 @@ double get_current_pts(OutputStream* ost){
    
 }
 
-static double get_duration(AVFormatContext* ic){
-  if (ic->duration != AV_NOPTS_VALUE)
-    //seconds
-    return ic->duration / AV_TIME_BASE;
-  
-  return 0;
-}
-
-
 static void term_exit_sigsafe(void)
 {
 #if 0

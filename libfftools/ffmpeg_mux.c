@@ -406,7 +406,10 @@ fail:
 
 int muxer_thread(void *arg)
 {
-    Muxer     *mux = arg;
+
+    FfmpegContext* ctx= arg;
+    
+    Muxer     *mux = ctx->arg_mux;
     OutputFile *of = &mux->of;
 
     MuxThreadContext mt;
@@ -552,9 +555,9 @@ fail:
     return ret;
 }
 
-int mux_check_init(FfmpegContext* ctx, void *arg)
+int mux_check_init(FfmpegContext* ctx)
 {
-    Muxer     *mux = arg;
+    Muxer     *mux = ctx->arg_mux;
     OutputFile *of = &mux->of;
     AVFormatContext *fc = mux->fc;
     int ret;

@@ -165,80 +165,7 @@ static InputFilterPriv *ifp_from_ifilter(InputFilter *ifilter)
     return (InputFilterPriv*)ifilter;
 }
 
-typedef struct FPSConvContext {
-    AVFrame          *last_frame;
-    /* number of frames emitted by the video-encoding sync code */
-    int64_t           frame_number;
-    /* history of nb_frames_prev, i.e. the number of times the
-     * previous frame was duplicated by vsync code in recent
-     * do_video_out() calls */
-    int64_t           frames_prev_hist[3];
-
-    uint64_t          dup_warning;
-
-    int               last_dropped;
-    int               dropped_keyframe;
-
-    enum VideoSyncMethod vsync_method;
-
-    AVRational        framerate;
-    AVRational        framerate_max;
-    const AVRational *framerate_supported;
-    int               framerate_clip;
-} FPSConvContext;
-
-typedef struct OutputFilterPriv {
-    OutputFilter            ofilter;
-
-    int                     index;
-
-    void                   *log_parent;
-    char                    log_name[32];
-
-    char                   *name;
-
-    AVFilterContext        *filter;
-
-    /* desired output stream properties */
-    int                     format;
-    int                     width, height;
-    int                     sample_rate;
-    AVChannelLayout         ch_layout;
-    enum AVColorSpace       color_space;
-    enum AVColorRange       color_range;
-
-    // time base in which the output is sent to our downstream
-    // does not need to match the filtersink's timebase
-    AVRational              tb_out;
-    // at least one frame with the above timebase was sent
-    // to our downstream, so it cannot change anymore
-    int                     tb_out_locked;
-
-    AVRational              sample_aspect_ratio;
-
-    AVDictionary           *sws_opts;
-    AVDictionary           *swr_opts;
-
-    // those are only set if no format is specified and the encoder gives us multiple options
-    // They point directly to the relevant lists of the encoder.
-    const int              *formats;
-    const AVChannelLayout  *ch_layouts;
-    const int              *sample_rates;
-    const enum AVColorSpace *color_spaces;
-    const enum AVColorRange *color_ranges;
-
-    AVRational              enc_timebase;
-    int64_t                 trim_start_us;
-    int64_t                 trim_duration_us;
-    // offset for output timestamps, in AV_TIME_BASE_Q
-    int64_t                 ts_offset;
-    int64_t                 next_pts;
-    FPSConvContext          fps;
-
-    unsigned                flags;
-} OutputFilterPriv;
-
-static OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter)
+OutputFilterPriv *ofp_from_ofilter(OutputFilter *ofilter)
 {
     return (OutputFilterPriv*)ofilter;
 }
@@ -636,7 +563,7 @@ static const AVClass ofilter_class = {
     .class_name                = "OutputFilter",
     .version                   = LIBAVUTIL_VERSION_INT,
     .item_name                 = ofilter_item_name,
-    .parent_log_context_offset = offsetof(OutputFilterPriv, log_parent),
+    //.parent_log_context_offset = offsetof(OutputFilterPriv, log_parent),
     .category                  = AV_CLASS_CATEGORY_FILTER,
 };
 
@@ -1174,7 +1101,7 @@ int fg_create(FfmpegContext* ctx,FilterGraph **pfg, char *graph_desc, Scheduler 
         goto fail;
     }
 
-    ctx->arg = fgp;
+    ctx->arg_filter = fgp;
     ret = sch_add_filtergraph(sch, fg->nb_inputs, fg->nb_outputs,
                               filter_thread, ctx);
     if (ret < 0)
@@ -2971,7 +2898,7 @@ fail:
 static int filter_thread(void *arg)
 {
     FfmpegContext* ctx = (FfmpegContext*)arg;
-    FilterGraphPriv *fgp = ctx->arg;
+    FilterGraphPriv *fgp = ctx->arg_filter;
     FilterGraph      *fg = &fgp->fg;
 
     FilterGraphThread fgt;
