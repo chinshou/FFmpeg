@@ -70,6 +70,8 @@ typedef struct FilterGraphPriv {
 
     Scheduler       *sch;
     unsigned         sch_idx;
+    
+    void* ctx;
 } FilterGraphPriv;
 
 static FilterGraphPriv *fgp_from_fg(FilterGraph *fg)
@@ -1101,9 +1103,9 @@ int fg_create(FfmpegContext* ctx,FilterGraph **pfg, char *graph_desc, Scheduler 
         goto fail;
     }
 
-    ctx->arg_filter = fgp;
+    fgp->ctx =ctx;
     ret = sch_add_filtergraph(sch, fg->nb_inputs, fg->nb_outputs,
-                              filter_thread, ctx);
+                              filter_thread, fgp);
     if (ret < 0)
         goto fail;
     fgp->sch_idx = ret;
@@ -2897,8 +2899,9 @@ fail:
 
 static int filter_thread(void *arg)
 {
-    FfmpegContext* ctx = (FfmpegContext*)arg;
-    FilterGraphPriv *fgp = ctx->arg_filter;
+
+    FilterGraphPriv *fgp = arg;
+    FfmpegContext* ctx = fgp->ctx;
     FilterGraph      *fg = &fgp->fg;
 
     FilterGraphThread fgt;

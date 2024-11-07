@@ -187,8 +187,9 @@ static int hw_device_setup_for_encode(Encoder *e, AVCodecContext *enc_ctx,
 
 int enc_open(void *opaque, const AVFrame *frame)
 {
-    FfmpegContext* ctx= opaque;
-    OutputStream *ost = ctx->arg_enc;
+    OutputStream *ost = opaque; 
+    FfmpegContext* ctx= ost->ctx;
+
     InputStream *ist = ost->ist;
     Encoder              *e = ost->enc;
     EncoderPriv         *ep = ep_from_enc(e);
@@ -926,9 +927,10 @@ fail:
 
 int encoder_thread(void *arg)
 {
-    FfmpegContext* ctx = (FfmpegContext*)arg;
-	
-    OutputStream *ost = (OutputStream *)ctx->arg_enc;
+    
+    OutputStream *ost = arg;
+    FfmpegContext* ctx = (FfmpegContext*)ost->ctx;
+    
     Encoder        *e = ost->enc;
     EncoderPriv   *ep = ep_from_enc(e);
     EncoderThread et;

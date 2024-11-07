@@ -101,6 +101,8 @@ typedef struct DecoderPriv {
         AVDictionary       *opts;
         const AVCodec      *codec;
     } standalone_init;
+    
+    void* ctx;
 } DecoderPriv;
 
 static DecoderPriv *dp_from_dec(Decoder *d)
@@ -185,8 +187,8 @@ static int dec_alloc(FfmpegContext* ctx, DecoderPriv **pdec, Scheduler *sch, int
     dp->last_frame_tb                = (AVRational){ 1, 1 };
     dp->hwaccel_pix_fmt              = AV_PIX_FMT_NONE;
 
-    ctx->arg_dec = dp;
-    ret = sch_add_dec(sch, decoder_thread, ctx, send_end_ts);
+    dp->ctx = ctx;
+    ret = sch_add_dec(sch, decoder_thread, dp, send_end_ts);
     if (ret < 0)
         goto fail;
     dp->sch     = sch;
@@ -911,8 +913,8 @@ fail:
 
 static int decoder_thread(void *arg)
 {
-    FfmpegContext* ctx = arg;
-    DecoderPriv  *dp = (DecoderPriv  *)ctx->arg_dec;
+    DecoderPriv  *dp = (DecoderPriv  *)arg;
+    FfmpegContext* ctx = dp->ctx;
     DecThreadContext dt;
     int ret = 0, input_status = 0;
 

@@ -729,6 +729,8 @@ typedef struct OutputStream {
     AVFrame* frame_rgb;    
     
     int v_height;
+    
+    void* ctx;
 } OutputStream;
 
 typedef struct OutputFile {
@@ -798,10 +800,10 @@ typedef struct FfmpegContext{
    char *vstats_filename;
    char *sdp_filename;
    int g_state;      
-   void*      arg_dec;
-   void*      arg_enc;
-   void*      arg_filter;
-   void*      arg_mux;
+   //void*      arg_dec;
+   //void*      arg_enc;
+   //void*      arg_filter;
+   //void*      arg_mux;
             
 }FfmpegContext;
 

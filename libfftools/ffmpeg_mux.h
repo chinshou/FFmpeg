@@ -122,9 +122,11 @@ typedef struct Muxer {
 
     SyncQueue              *sq_mux;
     AVPacket               *sq_pkt;
+    
+    void* ctx;
 } Muxer;
 
-int mux_check_init(FfmpegContext* ctx);
+int mux_check_init(Muxer* mux);
 
 static MuxStream *ms_from_ost(OutputStream *ost)
 {
