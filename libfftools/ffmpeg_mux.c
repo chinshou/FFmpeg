@@ -840,6 +840,19 @@ static void ost_free(OutputStream **post)
 
     av_freep(&ost->attachment_filename);
 
+    if (ost->type == AVMEDIA_TYPE_VIDEO)
+    {
+                av_log(NULL, AV_LOG_ERROR,"ost_free \n");
+		if (ost->sws_ctx)
+		  sws_freeContext(ost->sws_ctx);
+		if (ost->sws_ctx_chg)
+		  sws_freeContext(ost->sws_ctx_chg);
+		//todo:fixme it seems failed with align free
+		//if (ost->frame_rgb)
+		//  av_frame_free(ost->frame_rgb);
+		//if (ost->rgb_buf)
+		//  av_free(ost->rgb_buf);      
+    }
     enc_stats_uninit(&ost->enc_stats_pre);
     enc_stats_uninit(&ost->enc_stats_post);
     enc_stats_uninit(&ms->stats);

@@ -727,6 +727,8 @@ typedef struct OutputStream {
     int u_sub, v_sub;
     void* rgb_buf;
     AVFrame* frame_rgb;    
+    
+    int v_height;
 } OutputStream;
 
 typedef struct OutputFile {

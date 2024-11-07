@@ -308,6 +308,7 @@ int enc_open(void *opaque, const AVFrame *frame)
         int picture_size = av_image_get_buffer_size(fmt, enc_ctx->width, enc_ctx->height,1);
         ost->frame_rgb->width= enc_ctx->width;
         ost->frame_rgb->height= enc_ctx->height;
+        ost->v_height = 0;
         
                 
         ost->rgb_buf = av_malloc(picture_size);
@@ -859,8 +860,11 @@ static int frame_encode(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame, A
 			                 save_frame.data[2]+=save_frame.linesize[2] * ((flt->filter->inputs[0]->h >> ost->v_sub) - 1);
 			                 save_frame.linesize[2] *= -1;
                         }
+                         if (ost->v_height==0)
+                           ost->v_height = flt->filter->inputs[0]->h;
+
            	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
-	                  	flt->filter->inputs[0]->h, ost->frame_rgb->data, ost->frame_rgb->linesize);
+	                  	ost->v_height, ost->frame_rgb->data, ost->frame_rgb->linesize);
 	                 ctx->enc_callback->video_buffer(ctx->enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
 	                 if (modified){
 	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
