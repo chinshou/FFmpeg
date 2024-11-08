@@ -30,6 +30,13 @@
 #include "internal.h"
 #include "mux.h"
 
+int64_t av_stream_get_end_pts(const AVStream *st)
+{
+    //if (cffstream(st).priv_pts) {
+        return cffstream(st)->priv_pts.val;
+    //} else
+    //    return AV_NOPTS_VALUE;
+}
 int avformat_query_codec(const AVOutputFormat *ofmt, enum AVCodecID codec_id,
                          int std_compliance)
 {

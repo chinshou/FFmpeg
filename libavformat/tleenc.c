@@ -23,7 +23,9 @@
 #include "libavutil/dict.h"
 #include "libavutil/intfloat.h"
 #include "libavutil/avassert.h"
+#include "libavutil/mastering_display_metadata.h"
 #include "libavutil/mathematics.h"
+#include "libavutil/mem.h"
 #include "libavcodec/codec_desc.h"
 #include "libavcodec/mpeg4audio.h"
 #include "avio.h"
@@ -34,6 +36,7 @@
 #include "avformat.h"
 #include "flv.h"
 #include "internal.h"
+#include "nal.h"
 #include "mux.h"
 #include "libavutil/opt.h"
 #include "libavcodec/put_bits.h"
@@ -131,7 +134,7 @@ typedef struct FLVContext {
 
     int flags;
     int64_t last_ts[FLV_STREAM_TYPE_NB];
-    
+    int metadata_pkt_written;
     //aes encrypt info
     char *key;
     struct AVAES* paes;
@@ -247,10 +250,10 @@ error:
             flags |= FLV_CODECID_NELLYMOSER            | FLV_SAMPLESSIZE_16BIT;
         break;
     case AV_CODEC_ID_PCM_MULAW:
-        flags = FLV_CODECID_PCM_MULAW | FLV_SAMPLERATE_SPECIAL | FLV_SAMPLESSIZE_16BIT;
+        flags |= FLV_CODECID_PCM_MULAW | FLV_SAMPLESSIZE_16BIT;
         break;
     case AV_CODEC_ID_PCM_ALAW:
-        flags = FLV_CODECID_PCM_ALAW  | FLV_SAMPLERATE_SPECIAL | FLV_SAMPLESSIZE_16BIT;
+        flags |= FLV_CODECID_PCM_ALAW | FLV_SAMPLESSIZE_16BIT;
         break;
     case 0:
         flags |= par->codec_tag << 4;
@@ -275,6 +278,9 @@ static void put_amf_string(FLVContext *flv, AVIOContext *pb, const char *str)
 {
     size_t len = strlen(str);
     avio_wb16(pb, len);
+    // Avoid avio_write() if put_amf_string(pb, "") is inlined.
+    if (av_builtin_constant_p(len == 0) && len == 0)
+        return;
     //aes_encrypt(flv->paes, (char*)str, len);
     char *clone = av_strdup(str);
     caesar_encrypt(clone, len, "tle_caesar_key");
@@ -528,6 +534,142 @@ static void write_metadata(AVFormatContext *s, unsigned int ts)
     avio_wb32(pb, flv->metadata_totalsize + 11);
 }
 
+static void flv_write_metadata_packet(AVFormatContext *s, AVCodecParameters *par, unsigned int ts)
+{
+    AVIOContext *pb = s->pb;
+    FLVContext *flv = s->priv_data;
+    AVContentLightMetadata *lightMetadata = NULL;
+    AVMasteringDisplayMetadata *displayMetadata = NULL;
+    int64_t metadata_size_pos = 0;
+    int64_t total_size = 0;
+    const AVPacketSideData *side_data = NULL;
+
+    if (flv->metadata_pkt_written) return;
+    if (par->codec_id == AV_CODEC_ID_HEVC || par->codec_id == AV_CODEC_ID_AV1 ||
+        par->codec_id == AV_CODEC_ID_VP9) {
+        int flags_size = 5;
+        side_data = av_packet_side_data_get(par->coded_side_data, par->nb_coded_side_data,
+                                            AV_PKT_DATA_CONTENT_LIGHT_LEVEL);
+        if (side_data)
+            lightMetadata = (AVContentLightMetadata *)side_data->data;
+
+        side_data = av_packet_side_data_get(par->coded_side_data, par->nb_coded_side_data,
+                                            AV_PKT_DATA_MASTERING_DISPLAY_METADATA);
+        if (side_data)
+            displayMetadata = (AVMasteringDisplayMetadata *)side_data->data;
+
+        /*
+        * Reference Enhancing FLV
+        * https://github.com/veovera/enhanced-rtmp/blob/main/enhanced-rtmp.pdf
+        * */
+        avio_w8(pb, FLV_TAG_TYPE_VIDEO); //write video tag type
+        metadata_size_pos = avio_tell(pb);
+        avio_wb24(pb, 0 + flags_size);
+        put_timestamp(pb, ts); //ts = pkt->dts, gen
+        avio_wb24(pb, flv->reserved);
+
+        if (par->codec_id == AV_CODEC_ID_HEVC) {
+            avio_w8(pb, FLV_IS_EX_HEADER | PacketTypeMetadata| FLV_FRAME_VIDEO_INFO_CMD); // ExVideoTagHeader mode with PacketTypeMetadata
+            avio_write(pb, "hvc1", 4);
+        } else if (par->codec_id == AV_CODEC_ID_AV1 || par->codec_id == AV_CODEC_ID_VP9) {
+            avio_w8(pb, FLV_IS_EX_HEADER | PacketTypeMetadata| FLV_FRAME_VIDEO_INFO_CMD);
+            avio_write(pb, par->codec_id == AV_CODEC_ID_AV1 ? "av01" : "vp09", 4);
+        }
+
+        avio_w8(pb, AMF_DATA_TYPE_STRING);
+        put_amf_string(flv, pb, "colorInfo");
+
+        avio_w8(pb, AMF_DATA_TYPE_OBJECT);
+
+        put_amf_string(flv, pb, "colorConfig");  // colorConfig
+
+        avio_w8(pb, AMF_DATA_TYPE_OBJECT);
+
+        if (par->color_trc != AVCOL_TRC_UNSPECIFIED &&
+            par->color_trc < AVCOL_TRC_NB) {
+            put_amf_string(flv, pb, "transferCharacteristics");  // color_trc
+            put_amf_double(pb, par->color_trc);
+        }
+
+        if (par->color_space != AVCOL_SPC_UNSPECIFIED &&
+            par->color_space < AVCOL_SPC_NB) {
+            put_amf_string(flv, pb, "matrixCoefficients"); // colorspace
+            put_amf_double(pb, par->color_space);
+        }
+
+        if (par->color_primaries != AVCOL_PRI_UNSPECIFIED &&
+            par->color_primaries < AVCOL_PRI_NB) {
+            put_amf_string(flv, pb, "colorPrimaries"); // color_primaries
+            put_amf_double(pb, par->color_primaries);
+        }
+
+        put_amf_string(flv, pb, "");
+        avio_w8(pb, AMF_END_OF_OBJECT);
+
+        if (lightMetadata) {
+            put_amf_string(flv, pb, "hdrCll");
+            avio_w8(pb, AMF_DATA_TYPE_OBJECT);
+
+            put_amf_string(flv, pb, "maxFall");
+            put_amf_double(pb, lightMetadata->MaxFALL);
+
+            put_amf_string(flv, pb, "maxCLL");
+            put_amf_double(pb, lightMetadata->MaxCLL);
+
+            put_amf_string(flv, pb, "");
+            avio_w8(pb, AMF_END_OF_OBJECT);
+        }
+
+        if (displayMetadata && (displayMetadata->has_primaries || displayMetadata->has_luminance)) {
+            put_amf_string(flv, pb, "hdrMdcv");
+            avio_w8(pb, AMF_DATA_TYPE_OBJECT);
+            if (displayMetadata->has_primaries) {
+                put_amf_string(flv, pb, "redX");
+                put_amf_double(pb, av_q2d(displayMetadata->display_primaries[0][0]));
+
+                put_amf_string(flv, pb, "redY");
+                put_amf_double(pb, av_q2d(displayMetadata->display_primaries[0][1]));
+
+                put_amf_string(flv, pb, "greenX");
+                put_amf_double(pb, av_q2d(displayMetadata->display_primaries[1][0]));
+
+                put_amf_string(flv, pb, "greenY");
+                put_amf_double(pb, av_q2d(displayMetadata->display_primaries[1][1]));
+
+                put_amf_string(flv, pb, "blueX");
+                put_amf_double(pb, av_q2d(displayMetadata->display_primaries[2][0]));
+
+                put_amf_string(flv, pb, "blueY");
+                put_amf_double(pb, av_q2d(displayMetadata->display_primaries[2][1]));
+
+                put_amf_string(flv, pb, "whitePointX");
+                put_amf_double(pb, av_q2d(displayMetadata->white_point[0]));
+
+                put_amf_string(flv, pb, "whitePointY");
+                put_amf_double(pb, av_q2d(displayMetadata->white_point[1]));
+            }
+            if (displayMetadata->has_luminance) {
+                put_amf_string(flv, pb, "maxLuminance");
+                put_amf_double(pb, av_q2d(displayMetadata->max_luminance));
+
+                put_amf_string(flv, pb, "minLuminance");
+                put_amf_double(pb, av_q2d(displayMetadata->min_luminance));
+            }
+            put_amf_string(flv, pb, "");
+            avio_w8(pb, AMF_END_OF_OBJECT);
+        }
+        put_amf_string(flv, pb, "");
+        avio_w8(pb, AMF_END_OF_OBJECT);
+
+        total_size = avio_tell(pb) - metadata_size_pos - 10;
+        avio_seek(pb, metadata_size_pos, SEEK_SET);
+        avio_wb24(pb, total_size);
+        avio_skip(pb, total_size + 10 - 3);
+        avio_wb32(pb, total_size + 11); // previous tag size
+        flv->metadata_pkt_written = 1;
+    }
+}
+
 static int unsupported_codec(AVFormatContext *s,
                              const char* type, int codec_id)
 {
@@ -678,51 +820,7 @@ static int flv_init(struct AVFormatContext *s)
 {
     int i;
     FLVContext *flv = s->priv_data;
-#if 0    
-    HANDLE hMapFile;
-    LPCTSTR pBuf;
 
-    // Open the named shared memory
-    hMapFile = OpenFileMapping(
-        FILE_MAP_ALL_ACCESS,   // read/write access
-        FALSE,                 // do not inherit the name
-        "muxerk");      // name of mapping object
-
-    if (hMapFile == NULL) {
-        av_log(s, AV_LOG_ERROR,"could not open file mapping object\n");
-        return -1;
-    }
-#define BUFFER_SIZE 33
-
-    // Map the shared memory
-    pBuf = (LPTSTR) MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, BUFFER_SIZE);
-
-    if (pBuf == NULL) {
-        av_log(s, AV_LOG_ERROR,"could not map view of file\n");
-        CloseHandle(hMapFile);
-        return 1;
-    }
-    av_log(s, AV_LOG_ERROR, "pbuf %s\n",
-                pBuf);
-                
-    // Read and print the data from shared memory
-    //printf("Data read from shared memory: %s\n", pBuf);
-    flv->key = pBuf;
-#endif
-    flv->key = ff_get_tle_context();    
-    flv->paes = av_aes_alloc();
-    av_log(s, AV_LOG_ERROR, "init aes with key %s\n",
-                flv->key);
-    av_aes_init(flv->paes, flv->key, 256, 0);        
-    avformat_clr_tle_context();
-    
-#if 0
-    // Unmap the shared memory
-    UnmapViewOfFile(pBuf);
-
-    // Close the file mapping object
-    CloseHandle(hMapFile);  
-#endif
     if (s->nb_streams > FLV_STREAM_TYPE_NB) {
         av_log(s, AV_LOG_ERROR, "invalid number of streams %d\n",
                 s->nb_streams);
@@ -972,6 +1070,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             memcpy(par->extradata, side, side_size);
             flv_write_codec_header(s, par, pkt->dts);
         }
+        flv_write_metadata_packet(s, par, pkt->dts);
     }
 
     if (flv->delay == AV_NOPTS_VALUE)
@@ -1027,7 +1126,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
     if (par->codec_id == AV_CODEC_ID_H264 || par->codec_id == AV_CODEC_ID_MPEG4) {
         /* check if extradata looks like mp4 formatted */
         if (par->extradata_size > 0 && *(uint8_t*)par->extradata != 1)
-            if ((ret = ff_avc_parse_nal_units_buf(pkt->data, &data, &size)) < 0)
+            if ((ret = ff_nal_parse_units_buf(pkt->data, &data, &size)) < 0)
                 return ret;
     } else if (par->codec_id == AV_CODEC_ID_HEVC) {
         if (par->extradata_size > 0 && *(uint8_t*)par->extradata != 1)

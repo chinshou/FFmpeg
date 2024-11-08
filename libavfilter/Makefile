@@ -22,7 +22,6 @@ OBJS = allfilters.o                                                     \
        graphdump.o                                                      \
        graphparser.o                                                    \
        version.o                                                        \
-       subreader.o  							\
        video.o                                                          \
 
 include $(SRC_PATH)/libavfilter/dnn/Makefile
@@ -193,7 +192,6 @@ OBJS-$(CONFIG_SINE_FILTER)                   += asrc_sine.o
 OBJS-$(CONFIG_ANULLSINK_FILTER)              += asink_anullsink.o
 
 # video filters
-OBJS-$(CONFIG_ASS_OLD_FILTER)                += vf_ass_old.o
 OBJS-$(CONFIG_ADDROI_FILTER)                 += vf_addroi.o
 OBJS-$(CONFIG_ALPHAEXTRACT_FILTER)           += vf_extractplanes.o
 OBJS-$(CONFIG_ALPHAMERGE_FILTER)             += vf_alphamerge.o framesync.o

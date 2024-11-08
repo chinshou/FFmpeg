@@ -1214,7 +1214,9 @@ typedef struct AVStreamGroup {
     int disposition;
 } AVStreamGroup;
 
+
 struct AVCodecParserContext *av_stream_get_parser(const AVStream *s);
+int64_t    av_stream_get_end_pts(const AVStream *st);
 
 #define AV_PROGRAM_RUNNING 1
 
@@ -1992,7 +1994,6 @@ const char *avformat_configuration(void);
  */
 const char *avformat_license(void);
 
-void av_register_input_format(AVInputFormat *format);
 
 /**
  * Do global initialization of network libraries. This is optional,
