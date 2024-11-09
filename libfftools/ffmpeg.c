@@ -1007,7 +1007,7 @@ static int64_t getmaxrss(void)
 #endif
 }
 
-FfmpegContext* init_ffmpeg_context(){
+FfmpegContext* init_ffmpeg_context(void){
       FfmpegContext* ctx=(FfmpegContext*)av_mallocz(sizeof(FfmpegContext));
       return ctx;
 }
