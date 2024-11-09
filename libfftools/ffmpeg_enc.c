@@ -840,36 +840,36 @@ static int frame_encode(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame, A
             }
 #endif
                 if (ctx->enc_callback && ctx->enc_callback->video_buffer){
-                                       
+                                                          
                     if (ost->sws_ctx){
+                                       
                        int modified = 0;
                     
                        AVFrame save_frame= *frame;
                        OutputFilterPriv* flt= ofp_from_ofilter(ost->filter);
-
+                         if (ost->v_height==0)
+                           ost->v_height = flt->filter->inputs[0]->h;
+                           
                         if (ctx->enc_callback->flip)
                         {
                            //flip the bitmap
                              //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
                              
-                             save_frame.data[0] += save_frame.linesize[0] * (flt->filter->inputs[0]->h - 1);
+                             save_frame.data[0] += save_frame.linesize[0] * (ost->v_height - 1);
 			                 save_frame.linesize[0] *= -1;
 
-			                 save_frame.data[1] += save_frame.linesize[1] * ((flt->filter->inputs[0]->h >> ost->u_sub)  - 1);
+			                 save_frame.data[1] += save_frame.linesize[1] * ((ost->v_height >> ost->u_sub)  - 1);
 			                 save_frame.linesize[1] *= -1;
 
-			                 save_frame.data[2]+=save_frame.linesize[2] * ((flt->filter->inputs[0]->h >> ost->v_sub) - 1);
+			                 save_frame.data[2]+=save_frame.linesize[2] * ((ost->v_height >> ost->v_sub) - 1);
 			                 save_frame.linesize[2] *= -1;
                         }
-                         if (ost->v_height==0)
-                           ost->v_height = flt->filter->inputs[0]->h;
-
            	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
 	                  	ost->v_height, ost->frame_rgb->data, ost->frame_rgb->linesize);
 	                 ctx->enc_callback->video_buffer(ctx->enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
 	                 if (modified){
 	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
-	                       flt->filter->inputs[0]->h, save_frame.data, save_frame.linesize);
+	                       ost->v_height, save_frame.data, save_frame.linesize);
 	                 }
                     }
                 }
