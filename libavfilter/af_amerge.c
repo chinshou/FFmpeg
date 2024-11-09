@@ -26,12 +26,12 @@
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "avfilter.h"
 #include "filters.h"
 #include "audio.h"
 #include "formats.h"
-#include "internal.h"
 
 #define SWR_CH_MAX 64
 
@@ -153,7 +153,6 @@ static int config_output(AVFilterLink *outlink)
     AVFilterContext *ctx = outlink->src;
     AMergeContext *s = ctx->priv;
     AVBPrint bp;
-    char buf[128];
     int i;
 
     s->bps = av_get_bytes_per_sample(outlink->format);
@@ -162,12 +161,10 @@ static int config_output(AVFilterLink *outlink)
     av_bprint_init(&bp, 0, AV_BPRINT_SIZE_AUTOMATIC);
     for (i = 0; i < s->nb_inputs; i++) {
         av_bprintf(&bp, "%sin%d:", i ? " + " : "", i);
-        av_channel_layout_describe(&ctx->inputs[i]->ch_layout, buf, sizeof(buf));
-        av_bprintf(&bp, "%s", buf);
+        av_channel_layout_describe_bprint(&ctx->inputs[i]->ch_layout, &bp);
     }
     av_bprintf(&bp, " -> out:");
-    av_channel_layout_describe(&outlink->ch_layout, buf, sizeof(buf));
-    av_bprintf(&bp, "%s", buf);
+    av_channel_layout_describe_bprint(&outlink->ch_layout, &bp);
     av_log(ctx, AV_LOG_VERBOSE, "%s\n", bp.str);
 
     return 0;
@@ -248,14 +245,11 @@ static int try_push_frame(AVFilterContext *ctx, int nb_samples)
                                     av_make_q(1, outlink->sample_rate),
                                     outlink->time_base);
 
-    if ((ret = av_channel_layout_copy(&outbuf->ch_layout, &outlink->ch_layout)) < 0)
+    if ((ret = av_channel_layout_copy(&outbuf->ch_layout, &outlink->ch_layout)) < 0) {
+        free_frames(s->nb_inputs, inbuf);
+        av_frame_free(&outbuf);
         return ret;
-#if FF_API_OLD_CHANNEL_LAYOUT
-FF_DISABLE_DEPRECATION_WARNINGS
-    outbuf->channel_layout = outlink->channel_layout;
-    outbuf->channels       = outlink->ch_layout.nb_channels;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
+    }
 
     while (nb_samples) {
         /* Unroll the most common sample formats: speed +~350% for the loop,

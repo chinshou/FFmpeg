@@ -28,6 +28,7 @@
 #include "libavutil/cpu.h"
 #include "libavutil/emms.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 #include "config.h"
@@ -61,7 +62,7 @@ static av_always_inline void fillPlane(uint8_t *plane, int stride, int width,
     }
 }
 
-static void hScale16To19_c(SwsContext *c, int16_t *_dst, int dstW,
+static void hScale16To19_c(SwsInternal *c, int16_t *_dst, int dstW,
                            const uint8_t *_src, const int16_t *filter,
                            const int32_t *filterPos, int filterSize)
 {
@@ -91,7 +92,7 @@ static void hScale16To19_c(SwsContext *c, int16_t *_dst, int dstW,
     }
 }
 
-static void hScale16To15_c(SwsContext *c, int16_t *dst, int dstW,
+static void hScale16To15_c(SwsInternal *c, int16_t *dst, int dstW,
                            const uint8_t *_src, const int16_t *filter,
                            const int32_t *filterPos, int filterSize)
 {
@@ -120,7 +121,7 @@ static void hScale16To15_c(SwsContext *c, int16_t *dst, int dstW,
 }
 
 // bilinear / bicubic scaling
-static void hScale8To15_c(SwsContext *c, int16_t *dst, int dstW,
+static void hScale8To15_c(SwsInternal *c, int16_t *dst, int dstW,
                           const uint8_t *src, const int16_t *filter,
                           const int32_t *filterPos, int filterSize)
 {
@@ -136,7 +137,7 @@ static void hScale8To15_c(SwsContext *c, int16_t *dst, int dstW,
     }
 }
 
-static void hScale8To19_c(SwsContext *c, int16_t *_dst, int dstW,
+static void hScale8To19_c(SwsInternal *c, int16_t *_dst, int dstW,
                           const uint8_t *src, const int16_t *filter,
                           const int32_t *filterPos, int filterSize)
 {
@@ -223,7 +224,7 @@ static void lumRangeFromJpeg16_c(int16_t *_dst, int width)
     int i;
     int32_t *dst = (int32_t *) _dst;
     for (i = 0; i < width; i++)
-        dst[i] = (dst[i]*(14071/4) + (33561947<<4)/4)>>12;
+        dst[i] = ((int)(dst[i]*(14071U/4) + (33561947<<4)/4)) >> 12;
 }
 
 
@@ -232,10 +233,9 @@ static void lumRangeFromJpeg16_c(int16_t *_dst, int width)
     if (DEBUG_SWSCALE_BUFFERS)                  \
         av_log(c, AV_LOG_DEBUG, __VA_ARGS__)
 
-static int swscale(SwsContext *c, const uint8_t *src[],
-                   int srcStride[], int srcSliceY, int srcSliceH,
-                   uint8_t *dst[], int dstStride[],
-                   int dstSliceY, int dstSliceH)
+int ff_swscale(SwsInternal *c, const uint8_t *const src[], const int srcStride[],
+               int srcSliceY, int srcSliceH, uint8_t *const dst[],
+               const int dstStride[], int dstSliceY, int dstSliceH)
 {
     const int scale_dst = dstSliceY > 0 || dstSliceH < c->dstH;
 
@@ -286,20 +286,29 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     int hasLumHoles = 1;
     int hasChrHoles = 1;
 
+    const uint8_t *src2[4];
+    int srcStride2[4];
+
     if (isPacked(c->srcFormat)) {
-        src[1] =
-        src[2] =
-        src[3] = src[0];
-        srcStride[1] =
-        srcStride[2] =
-        srcStride[3] = srcStride[0];
+        src2[0] =
+        src2[1] =
+        src2[2] =
+        src2[3] = src[0];
+        srcStride2[0] =
+        srcStride2[1] =
+        srcStride2[2] =
+        srcStride2[3] = srcStride[0];
+    } else {
+        memcpy(src2, src, sizeof(src2));
+        memcpy(srcStride2, srcStride, sizeof(srcStride2));
     }
-    srcStride[1] *= 1 << c->vChrDrop;
-    srcStride[2] *= 1 << c->vChrDrop;
+
+    srcStride2[1] *= 1 << c->vChrDrop;
+    srcStride2[2] *= 1 << c->vChrDrop;
 
     DEBUG_BUFFERS("swscale() %p[%d] %p[%d] %p[%d] %p[%d] -> %p[%d] %p[%d] %p[%d] %p[%d]\n",
-                  src[0], srcStride[0], src[1], srcStride[1],
-                  src[2], srcStride[2], src[3], srcStride[3],
+                  src2[0], srcStride2[0], src2[1], srcStride2[1],
+                  src2[2], srcStride2[2], src2[3], srcStride2[3],
                   dst[0], dstStride[0], dst[1], dstStride[1],
                   dst[2], dstStride[2], dst[3], dstStride[3]);
     DEBUG_BUFFERS("srcSliceY: %d srcSliceH: %d dstY: %d dstH: %d\n",
@@ -309,7 +318,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 
     if (dstStride[0]&15 || dstStride[1]&15 ||
         dstStride[2]&15 || dstStride[3]&15) {
-        SwsContext *const ctx = c->parent ? c->parent : c;
+        SwsInternal *const ctx = c->parent ? sws_internal(c->parent) : c;
         if (flags & SWS_PRINT_INFO &&
             !atomic_exchange_explicit(&ctx->stride_unaligned_warned, 1, memory_order_relaxed)) {
             av_log(c, AV_LOG_WARNING,
@@ -319,12 +328,12 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     }
 
 #if ARCH_X86
-    if (   (uintptr_t)dst[0]&15 || (uintptr_t)dst[1]&15 || (uintptr_t)dst[2]&15
-        || (uintptr_t)src[0]&15 || (uintptr_t)src[1]&15 || (uintptr_t)src[2]&15
-        || dstStride[0]&15 || dstStride[1]&15 || dstStride[2]&15 || dstStride[3]&15
-        || srcStride[0]&15 || srcStride[1]&15 || srcStride[2]&15 || srcStride[3]&15
+    if (   (uintptr_t) dst[0]&15 || (uintptr_t) dst[1]&15 || (uintptr_t) dst[2]&15
+        || (uintptr_t)src2[0]&15 || (uintptr_t)src2[1]&15 || (uintptr_t)src2[2]&15
+        ||  dstStride[0]&15 ||  dstStride[1]&15 ||  dstStride[2]&15 ||  dstStride[3]&15
+        || srcStride2[0]&15 || srcStride2[1]&15 || srcStride2[2]&15 || srcStride2[3]&15
     ) {
-        SwsContext *const ctx = c->parent ? c->parent : c;
+        SwsInternal *const ctx = c->parent ? sws_internal(c->parent) : c;
         int cpu_flags = av_get_cpu_flags();
         if (flags & SWS_PRINT_INFO && HAVE_MMXEXT && (cpu_flags & AV_CPU_FLAG_SSE2) &&
             !atomic_exchange_explicit(&ctx->stride_unaligned_warned,1, memory_order_relaxed)) {
@@ -355,7 +364,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     ff_init_vscale_pfn(c, yuv2plane1, yuv2planeX, yuv2nv12cX,
                    yuv2packed1, yuv2packed2, yuv2packedX, yuv2anyX, c->use_mmx_vfilter);
 
-    ff_init_slice_from_src(src_slice, (uint8_t**)src, srcStride, c->srcW,
+    ff_init_slice_from_src(src_slice, (uint8_t**)src2, srcStride2, c->srcW,
             srcSliceY, srcSliceH, chrSrcSliceY, chrSrcSliceH, 1);
 
     ff_init_slice_from_src(vout_slice, (uint8_t**)dst, dstStride, c->dstW,
@@ -479,6 +488,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
 
 #if HAVE_MMX_INLINE
         ff_updateMMXDitherTables(c, dstY);
+        c->dstW_mmx = c->dstW;
 #endif
         if (should_dither) {
             c->chrDither8 = ff_dither_8x8_128[chrDstY & 7];
@@ -530,7 +540,7 @@ static int swscale(SwsContext *c, const uint8_t *src[],
     return dstY - lastDstY;
 }
 
-av_cold void ff_sws_init_range_convert(SwsContext *c)
+av_cold void ff_sws_init_range_convert(SwsInternal *c)
 {
     c->lumConvertRange = NULL;
     c->chrConvertRange = NULL;
@@ -552,10 +562,20 @@ av_cold void ff_sws_init_range_convert(SwsContext *c)
                 c->chrConvertRange = chrRangeToJpeg16_c;
             }
         }
+
+#if ARCH_AARCH64
+        ff_sws_init_range_convert_aarch64(c);
+#elif ARCH_LOONGARCH64
+        ff_sws_init_range_convert_loongarch(c);
+#elif ARCH_RISCV
+        ff_sws_init_range_convert_riscv(c);
+#elif ARCH_X86
+        ff_sws_init_range_convert_x86(c);
+#endif
     }
 }
 
-static av_cold void sws_init_swscale(SwsContext *c)
+static av_cold void sws_init_swscale(SwsInternal *c)
 {
     enum AVPixelFormat srcFormat = c->srcFormat;
 
@@ -563,7 +583,8 @@ static av_cold void sws_init_swscale(SwsContext *c)
                              &c->yuv2nv12cX, &c->yuv2packed1,
                              &c->yuv2packed2, &c->yuv2packedX, &c->yuv2anyX);
 
-    ff_sws_init_input_funcs(c);
+    ff_sws_init_input_funcs(c, &c->lumToYV12, &c->alpToYV12, &c->chrToYV12,
+                            &c->readLumPlanar, &c->readAlpPlanar, &c->readChrPlanar);
 
     if (c->srcBpc == 8) {
         if (c->dstBpc <= 14) {
@@ -587,7 +608,7 @@ static av_cold void sws_init_swscale(SwsContext *c)
         c->needs_hcscale = 1;
 }
 
-void ff_sws_init_scale(SwsContext *c)
+void ff_sws_init_scale(SwsInternal *c)
 {
     sws_init_swscale(c);
 
@@ -601,6 +622,8 @@ void ff_sws_init_scale(SwsContext *c)
     ff_sws_init_swscale_arm(c);
 #elif ARCH_LOONGARCH64
     ff_sws_init_swscale_loongarch(c);
+#elif ARCH_RISCV
+    ff_sws_init_swscale_riscv(c);
 #endif
 }
 
@@ -633,29 +656,31 @@ static int check_image_pointers(const uint8_t * const data[4], enum AVPixelForma
     return 1;
 }
 
-static void xyz12Torgb48(struct SwsContext *c, uint16_t *dst,
-                         const uint16_t *src, int stride, int h)
+void ff_xyz12Torgb48(const SwsInternal *c, uint8_t *dst, int dst_stride,
+                     const uint8_t *src, int src_stride, int w, int h)
 {
-    int xp,yp;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(c->srcFormat);
 
-    for (yp=0; yp<h; yp++) {
-        for (xp=0; xp+2<stride; xp+=3) {
+    for (int yp = 0; yp < h; yp++) {
+        const uint16_t *src16 = (const uint16_t *) src;
+        uint16_t *dst16 = (uint16_t *) dst;
+
+        for (int xp = 0; xp < 3 * w; xp += 3) {
             int x, y, z, r, g, b;
 
             if (desc->flags & AV_PIX_FMT_FLAG_BE) {
-                x = AV_RB16(src + xp + 0);
-                y = AV_RB16(src + xp + 1);
-                z = AV_RB16(src + xp + 2);
+                x = AV_RB16(src16 + xp + 0);
+                y = AV_RB16(src16 + xp + 1);
+                z = AV_RB16(src16 + xp + 2);
             } else {
-                x = AV_RL16(src + xp + 0);
-                y = AV_RL16(src + xp + 1);
-                z = AV_RL16(src + xp + 2);
+                x = AV_RL16(src16 + xp + 0);
+                y = AV_RL16(src16 + xp + 1);
+                z = AV_RL16(src16 + xp + 2);
             }
 
-            x = c->xyzgamma[x>>4];
-            y = c->xyzgamma[y>>4];
-            z = c->xyzgamma[z>>4];
+            x = c->xyzgamma[x >> 4];
+            y = c->xyzgamma[y >> 4];
+            z = c->xyzgamma[z >> 4];
 
             // convert from XYZlinear to sRGBlinear
             r = c->xyz2rgb_matrix[0][0] * x +
@@ -675,38 +700,41 @@ static void xyz12Torgb48(struct SwsContext *c, uint16_t *dst,
 
             // convert from sRGBlinear to RGB and scale from 12bit to 16bit
             if (desc->flags & AV_PIX_FMT_FLAG_BE) {
-                AV_WB16(dst + xp + 0, c->rgbgamma[r] << 4);
-                AV_WB16(dst + xp + 1, c->rgbgamma[g] << 4);
-                AV_WB16(dst + xp + 2, c->rgbgamma[b] << 4);
+                AV_WB16(dst16 + xp + 0, c->rgbgamma[r] << 4);
+                AV_WB16(dst16 + xp + 1, c->rgbgamma[g] << 4);
+                AV_WB16(dst16 + xp + 2, c->rgbgamma[b] << 4);
             } else {
-                AV_WL16(dst + xp + 0, c->rgbgamma[r] << 4);
-                AV_WL16(dst + xp + 1, c->rgbgamma[g] << 4);
-                AV_WL16(dst + xp + 2, c->rgbgamma[b] << 4);
+                AV_WL16(dst16 + xp + 0, c->rgbgamma[r] << 4);
+                AV_WL16(dst16 + xp + 1, c->rgbgamma[g] << 4);
+                AV_WL16(dst16 + xp + 2, c->rgbgamma[b] << 4);
             }
         }
-        src += stride;
-        dst += stride;
+
+        src += src_stride;
+        dst += dst_stride;
     }
 }
 
-static void rgb48Toxyz12(struct SwsContext *c, uint16_t *dst,
-                         const uint16_t *src, int stride, int h)
+void ff_rgb48Toxyz12(const SwsInternal *c, uint8_t *dst, int dst_stride,
+                     const uint8_t *src, int src_stride, int w, int h)
 {
-    int xp,yp;
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(c->dstFormat);
 
-    for (yp=0; yp<h; yp++) {
-        for (xp=0; xp+2<stride; xp+=3) {
+    for (int yp = 0; yp < h; yp++) {
+        uint16_t *src16 = (uint16_t *) src;
+        uint16_t *dst16 = (uint16_t *) dst;
+
+        for (int xp = 0; xp < 3 * w; xp += 3) {
             int x, y, z, r, g, b;
 
             if (desc->flags & AV_PIX_FMT_FLAG_BE) {
-                r = AV_RB16(src + xp + 0);
-                g = AV_RB16(src + xp + 1);
-                b = AV_RB16(src + xp + 2);
+                r = AV_RB16(src16 + xp + 0);
+                g = AV_RB16(src16 + xp + 1);
+                b = AV_RB16(src16 + xp + 2);
             } else {
-                r = AV_RL16(src + xp + 0);
-                g = AV_RL16(src + xp + 1);
-                b = AV_RL16(src + xp + 2);
+                r = AV_RL16(src16 + xp + 0);
+                g = AV_RL16(src16 + xp + 1);
+                b = AV_RL16(src16 + xp + 2);
             }
 
             r = c->rgbgammainv[r>>4];
@@ -731,21 +759,22 @@ static void rgb48Toxyz12(struct SwsContext *c, uint16_t *dst,
 
             // convert from XYZlinear to X'Y'Z' and scale from 12bit to 16bit
             if (desc->flags & AV_PIX_FMT_FLAG_BE) {
-                AV_WB16(dst + xp + 0, c->xyzgammainv[x] << 4);
-                AV_WB16(dst + xp + 1, c->xyzgammainv[y] << 4);
-                AV_WB16(dst + xp + 2, c->xyzgammainv[z] << 4);
+                AV_WB16(dst16 + xp + 0, c->xyzgammainv[x] << 4);
+                AV_WB16(dst16 + xp + 1, c->xyzgammainv[y] << 4);
+                AV_WB16(dst16 + xp + 2, c->xyzgammainv[z] << 4);
             } else {
-                AV_WL16(dst + xp + 0, c->xyzgammainv[x] << 4);
-                AV_WL16(dst + xp + 1, c->xyzgammainv[y] << 4);
-                AV_WL16(dst + xp + 2, c->xyzgammainv[z] << 4);
+                AV_WL16(dst16 + xp + 0, c->xyzgammainv[x] << 4);
+                AV_WL16(dst16 + xp + 1, c->xyzgammainv[y] << 4);
+                AV_WL16(dst16 + xp + 2, c->xyzgammainv[z] << 4);
             }
         }
-        src += stride;
-        dst += stride;
+
+        src += src_stride;
+        dst += dst_stride;
     }
 }
 
-static void update_palette(SwsContext *c, const uint32_t *pal)
+void ff_update_palette(SwsInternal *c, const uint32_t *pal)
 {
     for (int i = 0; i < 256; i++) {
         int r, g, b, y, u, v, a = 0xff;
@@ -820,13 +849,13 @@ static void update_palette(SwsContext *c, const uint32_t *pal)
     }
 }
 
-static int scale_internal(SwsContext *c,
+static int scale_internal(SwsContext *sws,
                           const uint8_t * const srcSlice[], const int srcStride[],
                           int srcSliceY, int srcSliceH,
                           uint8_t *const dstSlice[], const int dstStride[],
                           int dstSliceY, int dstSliceH);
 
-static int scale_gamma(SwsContext *c,
+static int scale_gamma(SwsInternal *c,
                        const uint8_t * const srcSlice[], const int srcStride[],
                        int srcSliceY, int srcSliceH,
                        uint8_t * const dstSlice[], const int dstStride[],
@@ -834,57 +863,58 @@ static int scale_gamma(SwsContext *c,
 {
     int ret = scale_internal(c->cascaded_context[0],
                              srcSlice, srcStride, srcSliceY, srcSliceH,
-                             c->cascaded_tmp, c->cascaded_tmpStride, 0, c->srcH);
+                             c->cascaded_tmp[0], c->cascaded_tmpStride[0], 0, c->srcH);
 
     if (ret < 0)
         return ret;
 
     if (c->cascaded_context[2])
-        ret = scale_internal(c->cascaded_context[1], (const uint8_t * const *)c->cascaded_tmp,
-                             c->cascaded_tmpStride, srcSliceY, srcSliceH,
-                             c->cascaded1_tmp, c->cascaded1_tmpStride, 0, c->dstH);
+        ret = scale_internal(c->cascaded_context[1], (const uint8_t * const *)c->cascaded_tmp[0],
+                             c->cascaded_tmpStride[0], srcSliceY, srcSliceH,
+                             c->cascaded_tmp[1], c->cascaded_tmpStride[1], 0, c->dstH);
     else
-        ret = scale_internal(c->cascaded_context[1], (const uint8_t * const *)c->cascaded_tmp,
-                             c->cascaded_tmpStride, srcSliceY, srcSliceH,
+        ret = scale_internal(c->cascaded_context[1], (const uint8_t * const *)c->cascaded_tmp[0],
+                             c->cascaded_tmpStride[0], srcSliceY, srcSliceH,
                              dstSlice, dstStride, dstSliceY, dstSliceH);
 
     if (ret < 0)
         return ret;
 
     if (c->cascaded_context[2]) {
-        ret = scale_internal(c->cascaded_context[2], (const uint8_t * const *)c->cascaded1_tmp,
-                             c->cascaded1_tmpStride, c->cascaded_context[1]->dstY - ret,
-                             c->cascaded_context[1]->dstY,
+        const int dstY1 = sws_internal(c->cascaded_context[1])->dstY;
+        ret = scale_internal(c->cascaded_context[2], (const uint8_t * const *)c->cascaded_tmp[1],
+                             c->cascaded_tmpStride[1], dstY1 - ret, dstY1,
                              dstSlice, dstStride, dstSliceY, dstSliceH);
     }
     return ret;
 }
 
-static int scale_cascaded(SwsContext *c,
+static int scale_cascaded(SwsInternal *c,
                           const uint8_t * const srcSlice[], const int srcStride[],
                           int srcSliceY, int srcSliceH,
                           uint8_t * const dstSlice[], const int dstStride[],
                           int dstSliceY, int dstSliceH)
 {
+    const int dstH0 = sws_internal(c->cascaded_context[0])->dstH;
     int ret = scale_internal(c->cascaded_context[0],
                              srcSlice, srcStride, srcSliceY, srcSliceH,
-                             c->cascaded_tmp, c->cascaded_tmpStride,
-                             0, c->cascaded_context[0]->dstH);
+                             c->cascaded_tmp[0], c->cascaded_tmpStride[0],
+                             0, dstH0);
     if (ret < 0)
         return ret;
     ret = scale_internal(c->cascaded_context[1],
-                         (const uint8_t * const * )c->cascaded_tmp, c->cascaded_tmpStride,
-                         0, c->cascaded_context[0]->dstH,
-                         dstSlice, dstStride, dstSliceY, dstSliceH);
+                         (const uint8_t * const * )c->cascaded_tmp[0], c->cascaded_tmpStride[0],
+                         0, dstH0, dstSlice, dstStride, dstSliceY, dstSliceH);
     return ret;
 }
 
-static int scale_internal(SwsContext *c,
+static int scale_internal(SwsContext *sws,
                           const uint8_t * const srcSlice[], const int srcStride[],
                           int srcSliceY, int srcSliceH,
                           uint8_t *const dstSlice[], const int dstStride[],
                           int dstSliceY, int dstSliceH)
 {
+    SwsInternal *c = sws_internal(sws);
     const int scale_dst = dstSliceY > 0 || dstSliceH < c->dstH;
     const int frame_start = scale_dst || !c->sliceDir;
     int i, ret;
@@ -904,7 +934,8 @@ static int scale_internal(SwsContext *c,
 
     if ((srcSliceY  & (macro_height_src - 1)) ||
         ((srcSliceH & (macro_height_src - 1)) && srcSliceY + srcSliceH != c->srcH) ||
-        srcSliceY + srcSliceH > c->srcH) {
+        srcSliceY + srcSliceH > c->srcH ||
+        (isBayer(c->srcFormat) && srcSliceH <= 1)) {
         av_log(c, AV_LOG_ERROR, "Slice parameters %d, %d are invalid\n", srcSliceY, srcSliceH);
         return AVERROR(EINVAL);
     }
@@ -933,16 +964,19 @@ static int scale_internal(SwsContext *c,
         return scale_gamma(c, srcSlice, srcStride, srcSliceY, srcSliceH,
                            dstSlice, dstStride, dstSliceY, dstSliceH);
 
-    if (c->cascaded_context[0] && srcSliceY == 0 && srcSliceH == c->cascaded_context[0]->srcH)
+    if (c->cascaded_context[0] && srcSliceY == 0 &&
+        srcSliceH == sws_internal(c->cascaded_context[0])->srcH)
+    {
         return scale_cascaded(c, srcSlice, srcStride, srcSliceY, srcSliceH,
                               dstSlice, dstStride, dstSliceY, dstSliceH);
+    }
 
     if (!srcSliceY && (c->flags & SWS_BITEXACT) && c->dither == SWS_DITHER_ED && c->dither_error[0])
         for (i = 0; i < 4; i++)
             memset(c->dither_error[i], 0, sizeof(c->dither_error[0][0]) * (c->dstW+2));
 
     if (usePal(c->srcFormat))
-        update_palette(c, (const uint32_t *)srcSlice[1]);
+        ff_update_palette(c, (const uint32_t *)srcSlice[1]);
 
     memcpy(src2,       srcSlice,  sizeof(src2));
     memcpy(dst2,       dstSlice,  sizeof(dst2));
@@ -990,7 +1024,7 @@ static int scale_internal(SwsContext *c,
         base = srcStride[0] < 0 ? c->xyz_scratch - srcStride[0] * (srcSliceH-1) :
                                   c->xyz_scratch;
 
-        xyz12Torgb48(c, (uint16_t*)base, (const uint16_t*)src2[0], srcStride[0]/2, srcSliceH);
+        ff_xyz12Torgb48(c, base, srcStride[0], src2[0], srcStride[0], c->srcW, srcSliceH);
         src2[0] = base;
     }
 
@@ -1016,7 +1050,7 @@ static int scale_internal(SwsContext *c,
     reset_ptr(src2, c->srcFormat);
     reset_ptr((void*)dst2, c->dstFormat);
 
-    if (c->convert_unscaled && !c->lumConvertRange && !c->chrConvertRange) {
+    if (c->convert_unscaled) {
         int offset  = srcSliceY_internal;
         int slice_h = srcSliceH;
 
@@ -1043,26 +1077,26 @@ static int scale_internal(SwsContext *c,
         if (scale_dst)
             dst2[0] += dstSliceY * dstStride2[0];
     } else {
-        ret = swscale(c, src2, srcStride2, srcSliceY_internal, srcSliceH,
-                      dst2, dstStride2, dstSliceY, dstSliceH);
+        ret = ff_swscale(c, src2, srcStride2, srcSliceY_internal, srcSliceH,
+                         dst2, dstStride2, dstSliceY, dstSliceH);
     }
 
     if (c->dstXYZ && !(c->srcXYZ && c->srcW==c->dstW && c->srcH==c->dstH)) {
-        uint16_t *dst16;
+        uint8_t *dst;
 
         if (scale_dst) {
-            dst16 = (uint16_t *)dst2[0];
+            dst = dst2[0];
         } else {
             int dstY = c->dstY ? c->dstY : srcSliceY + srcSliceH;
 
             av_assert0(dstY >= ret);
             av_assert0(ret >= 0);
             av_assert0(c->dstH >= dstY);
-            dst16 = (uint16_t*)(dst2[0] + (dstY - ret) * dstStride2[0]);
+            dst = dst2[0] + (dstY - ret) * dstStride2[0];
         }
 
         /* replace on the same data */
-        rgb48Toxyz12(c, dst16, dst16, dstStride2[0]/2, ret);
+        ff_rgb48Toxyz12(c, dst, dstStride2[0], dst, dstStride2[0], c->dstW, ret);
     }
 
     /* reset slice direction at end of frame */
@@ -1072,15 +1106,17 @@ static int scale_internal(SwsContext *c,
     return ret;
 }
 
-void sws_frame_end(struct SwsContext *c)
+void sws_frame_end(SwsContext *sws)
 {
+    SwsInternal *c = sws_internal(sws);
     av_frame_unref(c->frame_src);
     av_frame_unref(c->frame_dst);
     c->src_ranges.nb_ranges = 0;
 }
 
-int sws_frame_start(struct SwsContext *c, AVFrame *dst, const AVFrame *src)
+int sws_frame_start(SwsContext *sws, AVFrame *dst, const AVFrame *src)
 {
+    SwsInternal *c = sws_internal(sws);
     int ret, allocated = 0;
 
     ret = av_frame_ref(c->frame_src, src);
@@ -1109,9 +1145,10 @@ int sws_frame_start(struct SwsContext *c, AVFrame *dst, const AVFrame *src)
     return 0;
 }
 
-int sws_send_slice(struct SwsContext *c, unsigned int slice_start,
+int sws_send_slice(SwsContext *sws, unsigned int slice_start,
                    unsigned int slice_height)
 {
+    SwsInternal *c = sws_internal(sws);
     int ret;
 
     ret = ff_range_add(&c->src_ranges, slice_start, slice_height);
@@ -1121,18 +1158,20 @@ int sws_send_slice(struct SwsContext *c, unsigned int slice_start,
     return 0;
 }
 
-unsigned int sws_receive_slice_alignment(const struct SwsContext *c)
+unsigned int sws_receive_slice_alignment(const SwsContext *sws)
 {
+    SwsInternal *c = sws_internal(sws);
     if (c->slice_ctx)
-        return c->slice_ctx[0]->dst_slice_align;
+        return sws_internal(c->slice_ctx[0])->dst_slice_align;
 
     return c->dst_slice_align;
 }
 
-int sws_receive_slice(struct SwsContext *c, unsigned int slice_start,
+int sws_receive_slice(SwsContext *sws, unsigned int slice_start,
                       unsigned int slice_height)
 {
-    unsigned int align = sws_receive_slice_alignment(c);
+    SwsInternal *c = sws_internal(sws);
+    unsigned int align = sws_receive_slice_alignment(sws);
     uint8_t *dst[4];
 
     /* wait until complete input has been received */
@@ -1150,8 +1189,11 @@ int sws_receive_slice(struct SwsContext *c, unsigned int slice_start,
     }
 
     if (c->slicethread) {
-        int nb_jobs = c->slice_ctx[0]->dither == SWS_DITHER_ED ? 1 : c->nb_slice_ctx;
+        int nb_jobs = c->nb_slice_ctx;
         int ret = 0;
+
+        if (sws_internal(c->slice_ctx[0])->dither == SWS_DITHER_ED)
+            nb_jobs = 1;
 
         c->dst_slice_start  = slice_start;
         c->dst_slice_height = slice_height;
@@ -1171,28 +1213,28 @@ int sws_receive_slice(struct SwsContext *c, unsigned int slice_start,
     }
 
     for (int i = 0; i < FF_ARRAY_ELEMS(dst); i++) {
-        ptrdiff_t offset = c->frame_dst->linesize[i] * (slice_start >> c->chrDstVSubSample);
+        ptrdiff_t offset = c->frame_dst->linesize[i] * (ptrdiff_t)(slice_start >> c->chrDstVSubSample);
         dst[i] = FF_PTR_ADD(c->frame_dst->data[i], offset);
     }
 
-    return scale_internal(c, (const uint8_t * const *)c->frame_src->data,
+    return scale_internal(sws, (const uint8_t * const *)c->frame_src->data,
                           c->frame_src->linesize, 0, c->srcH,
                           dst, c->frame_dst->linesize, slice_start, slice_height);
 }
 
-int sws_scale_frame(struct SwsContext *c, AVFrame *dst, const AVFrame *src)
+int sws_scale_frame(SwsContext *sws, AVFrame *dst, const AVFrame *src)
 {
     int ret;
 
-    ret = sws_frame_start(c, dst, src);
+    ret = sws_frame_start(sws, dst, src);
     if (ret < 0)
         return ret;
 
-    ret = sws_send_slice(c, 0, src->height);
+    ret = sws_send_slice(sws, 0, src->height);
     if (ret >= 0)
-        ret = sws_receive_slice(c, 0, dst->height);
+        ret = sws_receive_slice(sws, 0, dst->height);
 
-    sws_frame_end(c);
+    sws_frame_end(sws);
 
     return ret;
 }
@@ -1201,24 +1243,28 @@ int sws_scale_frame(struct SwsContext *c, AVFrame *dst, const AVFrame *src)
  * swscale wrapper, so we don't need to export the SwsContext.
  * Assumes planar YUV to be in YUV order instead of YVU.
  */
-int attribute_align_arg sws_scale(struct SwsContext *c,
+int attribute_align_arg sws_scale(SwsContext *sws,
                                   const uint8_t * const srcSlice[],
                                   const int srcStride[], int srcSliceY,
                                   int srcSliceH, uint8_t *const dst[],
                                   const int dstStride[])
 {
-    if (c->nb_slice_ctx)
-        c = c->slice_ctx[0];
+    SwsInternal *c = sws_internal(sws);
+    if (c->nb_slice_ctx) {
+        sws = c->slice_ctx[0];
+        c = sws_internal(sws);
+    }
 
-    return scale_internal(c, srcSlice, srcStride, srcSliceY, srcSliceH,
+    return scale_internal(sws, srcSlice, srcStride, srcSliceY, srcSliceH,
                           dst, dstStride, 0, c->dstH);
 }
 
 void ff_sws_slice_worker(void *priv, int jobnr, int threadnr,
                          int nb_jobs, int nb_threads)
 {
-    SwsContext *parent = priv;
-    SwsContext      *c = parent->slice_ctx[threadnr];
+    SwsInternal *parent = priv;
+    SwsContext     *sws = parent->slice_ctx[threadnr];
+    SwsInternal      *c = sws_internal(sws);
 
     const int slice_height = FFALIGN(FFMAX((parent->dst_slice_height + nb_jobs - 1) / nb_jobs, 1),
                                      c->dst_slice_align);
@@ -1232,12 +1278,12 @@ void ff_sws_slice_worker(void *priv, int jobnr, int threadnr,
         for (int i = 0; i < FF_ARRAY_ELEMS(dst) && parent->frame_dst->data[i]; i++) {
             const int vshift = (i == 1 || i == 2) ? c->chrDstVSubSample : 0;
             const ptrdiff_t offset = parent->frame_dst->linesize[i] *
-                ((slice_start + parent->dst_slice_start) >> vshift);
+                (ptrdiff_t)((slice_start + parent->dst_slice_start) >> vshift);
 
             dst[i] = parent->frame_dst->data[i] + offset;
         }
 
-        err = scale_internal(c, (const uint8_t * const *)parent->frame_src->data,
+        err = scale_internal(sws, (const uint8_t * const *)parent->frame_src->data,
                              parent->frame_src->linesize, 0, c->srcH,
                              dst, parent->frame_dst->linesize,
                              parent->dst_slice_start + slice_start, slice_end - slice_start);

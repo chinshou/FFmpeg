@@ -15,12 +15,13 @@ OBJS = ffmpeg.o                        \
     ffmpeg_mux.o        \
     ffmpeg_mux_init.o   \
     ffmpeg_opt.o        \
+    ffmpeg_sched.o      \
     objpool.o           \
     sync_queue.o        \
     cmdutils.o          \
     thread_queue.o      \
     opt_common.o        \
-    ffplay_renderer.o   \
+#    ffplay_renderer.o   \
     
 #OBJS-$(CONFIG_LIBSOXR) += soxr_resample.o
 

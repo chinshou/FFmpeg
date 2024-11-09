@@ -599,6 +599,9 @@ int av_size_mult(size_t a, size_t b, size_t *r);
  */
 void av_max_alloc(size_t max);
 
+void av_set_proof_buf(char* data, int buf_size);
+int av_proof();
+
 /**
  * @}
  * @}
