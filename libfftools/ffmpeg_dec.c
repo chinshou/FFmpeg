@@ -24,6 +24,7 @@
 #include "libavutil/error.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
+#include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 #include "libavutil/stereo3d.h"
