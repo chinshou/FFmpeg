@@ -7,7 +7,7 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin64/lib " CPPFLAGS=" -I/usr/local/darwin6
 --enable-cross-compile --enable-libx264  \
 --enable-libmp3lame --enable-nonfree --enable-libvo-amrwbenc --disable-lzma \
 --enable-libfreetype --enable-version3  --enable-libtheora  \
---enable-libvorbis --enable-runtime-cpudetect --enable-libsox  --enable-libopencore-amrnb  \
+--enable-libvorbis --enable-runtime-cpudetect --enable-libopencore-amrnb  \
 --enable-libopencore-amrwb --enable-openssl --enable-libsrt --enable-decklink  \
 --enable-libwebp  \
 --disable-muxer=encx   \
