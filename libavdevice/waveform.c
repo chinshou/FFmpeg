@@ -22,9 +22,13 @@
 #include "libavutil/opt.h"
 #include "libavutil/parseutils.h"                                                                                                                                                     
 #include "libavformat/avformat.h"
-#include "libavutil/samplefmt.h"            
+#include "libavutil/samplefmt.h"
+#include "libavutil/mem.h"                
 #include "libavformat/internal.h"                                                                                                        
-#include <windows.h>                                                                                                                                 
+#include <windows.h>                                    
+#include <mmsystem.h>
+#include "libavformat/demux.h"
+                                                                            
                                                                                                                                                      
 #define AUDIO_BLOCK_COUNT 32                                                                                                                         
 #define AUDIO_BLOCK_SIZE  16384                                                                                                                      
@@ -283,7 +287,7 @@ static int waveform_read_header(AVFormatContext *s)
     st->codecpar->codec_id    = bits_to_codec_id(fx.wBitsPerSample);                                                                                    
     st->codecpar->sample_rate = fx.nSamplesPerSec;                                                                                                      
     st->codecpar->format  = bits_to_sample_fmt(fx.wBitsPerSample);                                                                                  
-    st->codecpar->channels    = fx.nChannels;                                                                                                           
+    st->codecpar->ch_layout.nb_channels    = fx.nChannels;                                                                                                           
                                                                                                                                                      
     for (i = 0; i < AUDIO_BLOCK_COUNT; i++) {                                                                                                        
         ctx->headers[i].lpData         = av_malloc(AUDIO_BLOCK_SIZE);                                                                                
@@ -358,13 +362,13 @@ static const AVOption options[] = {
 	{ NULL },
 };
                                                                                                                                                      
-AVInputFormat ff_waveform_demuxer = {                                                                                                                   
-    .name ="waveform",                                                                                                                                      
-    .long_name=NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
+FFInputFormat ff_waveform_demuxer = {                                                                                                                   
+    .p.name ="waveform",                                                                                                                                      
+    .p.long_name=NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
     .priv_data_size =sizeof(struct waveform_ctx),                                                                                                                     
     .read_header =waveform_read_header,                                                                                                                            
     .read_packet =waveform_read_packet,                                                                                                                            
     .read_close =waveform_read_close,                                                                                                                             
-    .flags = AVFMT_NOFILE,                                                                                                                           
+    .p.flags = AVFMT_NOFILE,                                                                                                                           
 };                                                                                                                                                   
 

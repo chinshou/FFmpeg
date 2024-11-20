@@ -20,12 +20,12 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/tx.h"
 #include "avfilter.h"
 #include "audio.h"
 #include "filters.h"
-#include "internal.h"
 #include "formats.h"
 #include "window_func.h"
 
@@ -146,17 +146,20 @@ typedef struct AudioSurroundContext {
                       int n);
 } AudioSurroundContext;
 
-static int query_formats(AVFilterContext *ctx)
+static int query_formats(const AVFilterContext *ctx,
+                         AVFilterFormatsConfig **cfg_in,
+                         AVFilterFormatsConfig **cfg_out)
 {
-    AudioSurroundContext *s = ctx->priv;
-    AVFilterFormats *formats = NULL;
+    static const enum AVSampleFormat formats[] = {
+        AV_SAMPLE_FMT_FLTP,
+        AV_SAMPLE_FMT_NONE,
+    };
+
+    const AudioSurroundContext *s = ctx->priv;
     AVFilterChannelLayouts *layouts = NULL;
     int ret;
 
-    ret = ff_add_format(&formats, AV_SAMPLE_FMT_FLTP);
-    if (ret)
-        return ret;
-    ret = ff_set_common_formats(ctx, formats);
+    ret = ff_set_common_formats_from_list2(ctx, cfg_in, cfg_out, formats);
     if (ret)
         return ret;
 
@@ -165,7 +168,7 @@ static int query_formats(AVFilterContext *ctx)
     if (ret)
         return ret;
 
-    ret = ff_channel_layouts_ref(layouts, &ctx->outputs[0]->incfg.channel_layouts);
+    ret = ff_channel_layouts_ref(layouts, &cfg_out[0]->channel_layouts);
     if (ret)
         return ret;
 
@@ -174,11 +177,11 @@ static int query_formats(AVFilterContext *ctx)
     if (ret)
         return ret;
 
-    ret = ff_channel_layouts_ref(layouts, &ctx->inputs[0]->outcfg.channel_layouts);
+    ret = ff_channel_layouts_ref(layouts, &cfg_in[0]->channel_layouts);
     if (ret)
         return ret;
 
-    return ff_set_common_all_samplerates(ctx);
+    return 0;
 }
 
 static void set_input_levels(AVFilterContext *ctx)
@@ -1122,6 +1125,31 @@ static av_cold int init(AVFilterContext *ctx)
     s->create_lfe = av_channel_layout_index_from_channel(&s->out_ch_layout,
                                                          AV_CHAN_LOW_FREQUENCY) >= 0;
 
+    switch (out_channel_layout) {
+    case AV_CH_LAYOUT_MONO:
+    case AV_CH_LAYOUT_STEREO:
+    case AV_CH_LAYOUT_2POINT1:
+    case AV_CH_LAYOUT_2_1:
+    case AV_CH_LAYOUT_2_2:
+    case AV_CH_LAYOUT_SURROUND:
+    case AV_CH_LAYOUT_3POINT1:
+    case AV_CH_LAYOUT_QUAD:
+    case AV_CH_LAYOUT_4POINT0:
+    case AV_CH_LAYOUT_4POINT1:
+    case AV_CH_LAYOUT_5POINT0:
+    case AV_CH_LAYOUT_5POINT1:
+    case AV_CH_LAYOUT_5POINT0_BACK:
+    case AV_CH_LAYOUT_5POINT1_BACK:
+    case AV_CH_LAYOUT_6POINT0:
+    case AV_CH_LAYOUT_6POINT1:
+    case AV_CH_LAYOUT_7POINT0:
+    case AV_CH_LAYOUT_7POINT1:
+    case AV_CH_LAYOUT_OCTAGONAL:
+        break;
+    default:
+        goto fail;
+    }
+
     switch (in_channel_layout) {
     case AV_CH_LAYOUT_STEREO:
         s->filter = filter_stereo;
@@ -1416,9 +1444,9 @@ static const AVOption surround_options[] = {
     { "lfe",       "output LFE",                OFFSET(output_lfe),             AV_OPT_TYPE_BOOL,   {.i64=1},     0,   1, TFLAGS },
     { "lfe_low",   "LFE low cut off",           OFFSET(lowcutf),                AV_OPT_TYPE_INT,    {.i64=128},   0, 256, FLAGS },
     { "lfe_high",  "LFE high cut off",          OFFSET(highcutf),               AV_OPT_TYPE_INT,    {.i64=256},   0, 512, FLAGS },
-    { "lfe_mode",  "set LFE channel mode",      OFFSET(lfe_mode),               AV_OPT_TYPE_INT,    {.i64=0},     0,   1, TFLAGS, "lfe_mode" },
-    {  "add",      "just add LFE channel",                  0,                  AV_OPT_TYPE_CONST,  {.i64=0},     0,   1, TFLAGS, "lfe_mode" },
-    {  "sub",      "subtract LFE channel with others",      0,                  AV_OPT_TYPE_CONST,  {.i64=1},     0,   1, TFLAGS, "lfe_mode" },
+    { "lfe_mode",  "set LFE channel mode",      OFFSET(lfe_mode),               AV_OPT_TYPE_INT,    {.i64=0},     0,   1, TFLAGS, .unit = "lfe_mode" },
+    {  "add",      "just add LFE channel",                  0,                  AV_OPT_TYPE_CONST,  {.i64=0},     0,   1, TFLAGS, .unit = "lfe_mode" },
+    {  "sub",      "subtract LFE channel with others",      0,                  AV_OPT_TYPE_CONST,  {.i64=1},     0,   1, TFLAGS, .unit = "lfe_mode" },
     { "smooth",    "set temporal smoothness strength",      OFFSET(smooth),     AV_OPT_TYPE_FLOAT,  {.dbl=0},     0,   1, TFLAGS },
     { "angle",     "set soundfield transform angle",        OFFSET(angle),      AV_OPT_TYPE_FLOAT,  {.dbl=90},    0, 360, TFLAGS },
     { "focus",     "set soundfield transform focus",        OFFSET(focus),      AV_OPT_TYPE_FLOAT,  {.dbl=0},    -1,   1, TFLAGS },
@@ -1492,7 +1520,7 @@ const AVFilter ff_af_surround = {
     .activate       = activate,
     FILTER_INPUTS(inputs),
     FILTER_OUTPUTS(outputs),
-    FILTER_QUERY_FUNC(query_formats),
+    FILTER_QUERY_FUNC2(query_formats),
     .flags          = AVFILTER_FLAG_SLICE_THREADS,
     .process_command = process_command,
 };

@@ -22,10 +22,10 @@
  */
 
 #include "libavutil/file_open.h"
+#include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "filters.h"
 #include "dnn_filter_common.h"
-#include "internal.h"
 #include "video.h"
 #include "libavutil/time.h"
 #include "libavutil/avstring.h"
@@ -35,6 +35,8 @@
 typedef enum {
     DDMT_SSD,
     DDMT_YOLOV1V2,
+    DDMT_YOLOV3,
+    DDMT_YOLOV4
 } DNNDetectionModelType;
 
 typedef struct DnnDetectContext {
@@ -60,19 +62,20 @@ typedef struct DnnDetectContext {
 #define OFFSET2(x) offsetof(DnnDetectContext, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption dnn_detect_options[] = {
-    { "dnn_backend", "DNN backend",                OFFSET(backend_type),     AV_OPT_TYPE_INT,       { .i64 = DNN_OV },    INT_MIN, INT_MAX, FLAGS, "backend" },
+    { "dnn_backend", "DNN backend",                OFFSET(backend_type),     AV_OPT_TYPE_INT,       { .i64 = DNN_OV },    INT_MIN, INT_MAX, FLAGS, .unit = "backend" },
 #if (CONFIG_LIBTENSORFLOW == 1)
-    { "tensorflow",  "tensorflow backend flag",    0,                        AV_OPT_TYPE_CONST,     { .i64 = DNN_TF },    0, 0, FLAGS, "backend" },
+    { "tensorflow",  "tensorflow backend flag",    0,                        AV_OPT_TYPE_CONST,     { .i64 = DNN_TF },    0, 0, FLAGS, .unit = "backend" },
 #endif
 #if (CONFIG_LIBOPENVINO == 1)
-    { "openvino",    "openvino backend flag",      0,                        AV_OPT_TYPE_CONST,     { .i64 = DNN_OV },    0, 0, FLAGS, "backend" },
+    { "openvino",    "openvino backend flag",      0,                        AV_OPT_TYPE_CONST,     { .i64 = DNN_OV },    0, 0, FLAGS, .unit = "backend" },
 #endif
-    DNN_COMMON_OPTIONS
     { "confidence",  "threshold of confidence",    OFFSET2(confidence),      AV_OPT_TYPE_FLOAT,     { .dbl = 0.5 },  0, 1, FLAGS},
     { "labels",      "path to labels file",        OFFSET2(labels_filename), AV_OPT_TYPE_STRING,    { .str = NULL }, 0, 0, FLAGS },
-    { "model_type",  "DNN detection model type",   OFFSET2(model_type),      AV_OPT_TYPE_INT,       { .i64 = DDMT_SSD },    INT_MIN, INT_MAX, FLAGS, "model_type" },
-        { "ssd",     "output shape [1, 1, N, 7]",  0,                        AV_OPT_TYPE_CONST,       { .i64 = DDMT_SSD },    0, 0, FLAGS, "model_type" },
-        { "yolo",    "output shape [1, N*Cx*Cy*DetectionBox]",  0,           AV_OPT_TYPE_CONST,       { .i64 = DDMT_YOLOV1V2 },    0, 0, FLAGS, "model_type" },
+    { "model_type",  "DNN detection model type",   OFFSET2(model_type),      AV_OPT_TYPE_INT,       { .i64 = DDMT_SSD },    INT_MIN, INT_MAX, FLAGS, .unit = "model_type" },
+        { "ssd",     "output shape [1, 1, N, 7]",  0,                        AV_OPT_TYPE_CONST,       { .i64 = DDMT_SSD },    0, 0, FLAGS, .unit = "model_type" },
+        { "yolo",    "output shape [1, N*Cx*Cy*DetectionBox]",  0,           AV_OPT_TYPE_CONST,       { .i64 = DDMT_YOLOV1V2 },    0, 0, FLAGS, .unit = "model_type" },
+        { "yolov3",  "outputs shape [1, N*D, Cx, Cy]",  0,                   AV_OPT_TYPE_CONST,       { .i64 = DDMT_YOLOV3 },      0, 0, FLAGS, .unit = "model_type" },
+        { "yolov4",  "outputs shape [1, N*D, Cx, Cy]",  0,                   AV_OPT_TYPE_CONST,       { .i64 = DDMT_YOLOV4 },    0, 0, FLAGS, .unit = "model_type" },
     { "cell_w",      "cell width",                 OFFSET2(cell_w),          AV_OPT_TYPE_INT,       { .i64 = 0 },    0, INTMAX_MAX, FLAGS },
     { "cell_h",      "cell height",                OFFSET2(cell_h),          AV_OPT_TYPE_INT,       { .i64 = 0 },    0, INTMAX_MAX, FLAGS },
     { "nb_classes",  "The number of class",        OFFSET2(nb_classes),      AV_OPT_TYPE_INT,       { .i64 = 0 },    0, INTMAX_MAX, FLAGS },
@@ -80,7 +83,15 @@ static const AVOption dnn_detect_options[] = {
     { NULL }
 };
 
-AVFILTER_DEFINE_CLASS(dnn_detect);
+AVFILTER_DNN_DEFINE_CLASS(dnn_detect, DNN_TF | DNN_OV);
+
+static inline float sigmoid(float x) {
+    return 1.f / (1.f + exp(-x));
+}
+
+static inline float linear(float x) {
+    return x;
+}
 
 static int dnn_detect_get_label_id(int nb_classes, int cell_size, float *label_data)
 {
@@ -106,12 +117,16 @@ static int dnn_detect_parse_anchors(char *anchors_str, float **anchors)
         i++;
     }
     nb_anchor++;
-    anchors_buf = av_mallocz(nb_anchor * sizeof(*anchors));
+    anchors_buf = av_mallocz(nb_anchor * sizeof(**anchors));
     if (!anchors_buf) {
         return 0;
     }
     for (int i = 0; i < nb_anchor; i++) {
         token = av_strtok(anchors_str, "&", &saveptr);
+        if (!token) {
+            av_freep(&anchors_buf);
+            return 0;
+        }
         anchors_buf[i] = strtof(token, NULL);
         anchors_str = NULL;
     }
@@ -135,19 +150,44 @@ static int dnn_detect_parse_yolo_output(AVFrame *frame, DNNData *output, int out
 {
     DnnDetectContext *ctx = filter_ctx->priv;
     float conf_threshold = ctx->confidence;
-    int detection_boxes, box_size, cell_w, cell_h, scale_w, scale_h;
+    int detection_boxes, box_size;
+    int cell_w = 0, cell_h = 0, scale_w = 0, scale_h = 0;
     int nb_classes = ctx->nb_classes;
     float *output_data = output[output_index].data;
     float *anchors = ctx->anchors;
     AVDetectionBBox *bbox;
+    float (*post_process_raw_data)(float x) = linear;
+    int is_NHWC = 0;
 
     if (ctx->model_type == DDMT_YOLOV1V2) {
         cell_w = ctx->cell_w;
         cell_h = ctx->cell_h;
         scale_w = cell_w;
         scale_h = cell_h;
+    } else {
+        if (output[output_index].dims[2] != output[output_index].dims[3] &&
+            output[output_index].dims[2] == output[output_index].dims[1]) {
+            is_NHWC = 1;
+            cell_w = output[output_index].dims[2];
+            cell_h = output[output_index].dims[1];
+        } else {
+            cell_w = output[output_index].dims[3];
+            cell_h = output[output_index].dims[2];
+        }
+        scale_w = ctx->scale_width;
+        scale_h = ctx->scale_height;
     }
     box_size = nb_classes + 5;
+
+    switch (ctx->model_type) {
+    case DDMT_YOLOV1V2:
+    case DDMT_YOLOV3:
+        post_process_raw_data = linear;
+        break;
+    case DDMT_YOLOV4:
+        post_process_raw_data = sigmoid;
+         break;
+    }
 
     if (!cell_h || !cell_w) {
         av_log(filter_ctx, AV_LOG_ERROR, "cell_w and cell_h are detected\n");
@@ -164,15 +204,16 @@ static int dnn_detect_parse_yolo_output(AVFrame *frame, DNNData *output, int out
         return AVERROR(EINVAL);
     }
 
-    if (output[output_index].channels * output[output_index].width *
-            output[output_index].height % (box_size * cell_w * cell_h)) {
+    if (output[output_index].dims[1] * output[output_index].dims[2] *
+            output[output_index].dims[3] % (box_size * cell_w * cell_h)) {
         av_log(filter_ctx, AV_LOG_ERROR, "wrong cell_w, cell_h or nb_classes\n");
         return AVERROR(EINVAL);
     }
-    detection_boxes = output[output_index].channels *
-                      output[output_index].height *
-                      output[output_index].width / box_size / cell_w / cell_h;
+    detection_boxes = output[output_index].dims[1] *
+                      output[output_index].dims[2] *
+                      output[output_index].dims[3] / box_size / cell_w / cell_h;
 
+    anchors = anchors + (detection_boxes * output_index * 2);
     /**
      * find all candidate bbox
      * yolo output can be reshaped to [B, N*D, Cx, Cy]
@@ -185,19 +226,36 @@ static int dnn_detect_parse_yolo_output(AVFrame *frame, DNNData *output, int out
                 float *detection_boxes_data;
                 int label_id;
 
-                detection_boxes_data = output_data + box_id * box_size * cell_w * cell_h;
-                conf = detection_boxes_data[cy * cell_w + cx + 4 * cell_w * cell_h];
+                if (is_NHWC) {
+                    detection_boxes_data = output_data +
+                        ((cy * cell_w + cx) * detection_boxes + box_id) * box_size;
+                    conf = post_process_raw_data(detection_boxes_data[4]);
+                } else {
+                    detection_boxes_data = output_data + box_id * box_size * cell_w * cell_h;
+                    conf = post_process_raw_data(
+                                detection_boxes_data[cy * cell_w + cx + 4 * cell_w * cell_h]);
+                }
+
+                if (is_NHWC) {
+                    x = post_process_raw_data(detection_boxes_data[0]);
+                    y = post_process_raw_data(detection_boxes_data[1]);
+                    w = detection_boxes_data[2];
+                    h = detection_boxes_data[3];
+                    label_id = dnn_detect_get_label_id(ctx->nb_classes, 1, detection_boxes_data + 5);
+                    conf = conf * post_process_raw_data(detection_boxes_data[label_id + 5]);
+                } else {
+                    x = post_process_raw_data(detection_boxes_data[cy * cell_w + cx]);
+                    y = post_process_raw_data(detection_boxes_data[cy * cell_w + cx + cell_w * cell_h]);
+                    w = detection_boxes_data[cy * cell_w + cx + 2 * cell_w * cell_h];
+                    h = detection_boxes_data[cy * cell_w + cx + 3 * cell_w * cell_h];
+                    label_id = dnn_detect_get_label_id(ctx->nb_classes, cell_w * cell_h,
+                        detection_boxes_data + cy * cell_w + cx + 5 * cell_w * cell_h);
+                    conf = conf * post_process_raw_data(
+                                detection_boxes_data[cy * cell_w + cx + (label_id + 5) * cell_w * cell_h]);
+                }
                 if (conf < conf_threshold) {
                     continue;
                 }
-
-                x    = detection_boxes_data[cy * cell_w + cx];
-                y    = detection_boxes_data[cy * cell_w + cx + cell_w * cell_h];
-                w    = detection_boxes_data[cy * cell_w + cx + 2 * cell_w * cell_h];
-                h    = detection_boxes_data[cy * cell_w + cx + 3 * cell_w * cell_h];
-                label_id = dnn_detect_get_label_id(ctx->nb_classes, cell_w * cell_h,
-                                    detection_boxes_data + cy * cell_w + cx + 5 * cell_w * cell_h);
-                conf = conf * detection_boxes_data[cy * cell_w + cx + (label_id + 5) * cell_w * cell_h];
 
                 bbox = av_mallocz(sizeof(*bbox));
                 if (!bbox)
@@ -218,6 +276,7 @@ static int dnn_detect_parse_yolo_output(AVFrame *frame, DNNData *output, int out
                     av_freep(&bbox);
                     return AVERROR(ENOMEM);
                 }
+                bbox = NULL;
             }
     }
     return 0;
@@ -284,24 +343,63 @@ static int dnn_detect_post_proc_yolo(AVFrame *frame, DNNData *output, AVFilterCo
     return 0;
 }
 
-static int dnn_detect_post_proc_ssd(AVFrame *frame, DNNData *output, AVFilterContext *filter_ctx)
+static int dnn_detect_post_proc_yolov3(AVFrame *frame, DNNData *output,
+                                       AVFilterContext *filter_ctx, int nb_outputs)
+{
+    int ret = 0;
+    for (int i = 0; i < nb_outputs; i++) {
+        ret = dnn_detect_parse_yolo_output(frame, output, i, filter_ctx);
+        if (ret < 0)
+            return ret;
+    }
+    ret = dnn_detect_fill_side_data(frame, filter_ctx);
+    if (ret < 0)
+        return ret;
+    return 0;
+}
+
+static int dnn_detect_post_proc_ssd(AVFrame *frame, DNNData *output, int nb_outputs,
+                                    AVFilterContext *filter_ctx)
 {
     DnnDetectContext *ctx = filter_ctx->priv;
     float conf_threshold = ctx->confidence;
-    int proposal_count = output->height;
-    int detect_size = output->width;
-    float *detections = output->data;
+    int proposal_count = 0;
+    int detect_size = 0;
+    float *detections = NULL, *labels = NULL;
     int nb_bboxes = 0;
     AVDetectionBBoxHeader *header;
     AVDetectionBBox *bbox;
+    int scale_w = ctx->scale_width;
+    int scale_h = ctx->scale_height;
 
-    if (output->width != 7) {
+    if (nb_outputs == 1 && output->dims[3] == 7) {
+        proposal_count = output->dims[2];
+        detect_size = output->dims[3];
+        detections = output->data;
+    } else if (nb_outputs == 2 && output[0].dims[3] == 5) {
+        proposal_count = output[0].dims[2];
+        detect_size = output[0].dims[3];
+        detections = output[0].data;
+        labels = output[1].data;
+    } else if (nb_outputs == 2 && output[1].dims[3] == 5) {
+        proposal_count = output[1].dims[2];
+        detect_size = output[1].dims[3];
+        detections = output[1].data;
+        labels = output[0].data;
+    } else {
         av_log(filter_ctx, AV_LOG_ERROR, "Model output shape doesn't match ssd requirement.\n");
         return AVERROR(EINVAL);
     }
 
+    if (proposal_count == 0)
+        return 0;
+
     for (int i = 0; i < proposal_count; ++i) {
-        float conf = detections[i * detect_size + 2];
+        float conf;
+        if (nb_outputs == 1)
+            conf = detections[i * detect_size + 2];
+        else
+            conf = detections[i * detect_size + 4];
         if (conf < conf_threshold) {
             continue;
         }
@@ -323,12 +421,24 @@ static int dnn_detect_post_proc_ssd(AVFrame *frame, DNNData *output, AVFilterCon
 
     for (int i = 0; i < proposal_count; ++i) {
         int av_unused image_id = (int)detections[i * detect_size + 0];
-        int label_id = (int)detections[i * detect_size + 1];
-        float conf   =      detections[i * detect_size + 2];
-        float x0     =      detections[i * detect_size + 3];
-        float y0     =      detections[i * detect_size + 4];
-        float x1     =      detections[i * detect_size + 5];
-        float y1     =      detections[i * detect_size + 6];
+        int label_id;
+        float conf, x0, y0, x1, y1;
+
+        if (nb_outputs == 1) {
+            label_id = (int)detections[i * detect_size + 1];
+            conf = detections[i * detect_size + 2];
+            x0   = detections[i * detect_size + 3];
+            y0   = detections[i * detect_size + 4];
+            x1   = detections[i * detect_size + 5];
+            y1   = detections[i * detect_size + 6];
+        } else {
+            label_id = (int)labels[i];
+            x0     =      detections[i * detect_size] / scale_w;
+            y0     =      detections[i * detect_size + 1] / scale_h;
+            x1     =      detections[i * detect_size + 2] / scale_w;
+            y1     =      detections[i * detect_size + 3] / scale_h;
+            conf   =      detections[i * detect_size + 4];
+        }
 
         if (conf < conf_threshold) {
             continue;
@@ -354,11 +464,11 @@ static int dnn_detect_post_proc_ssd(AVFrame *frame, DNNData *output, AVFilterCon
             break;
         }
     }
-
     return 0;
 }
 
-static int dnn_detect_post_proc_ov(AVFrame *frame, DNNData *output, AVFilterContext *filter_ctx)
+static int dnn_detect_post_proc_ov(AVFrame *frame, DNNData *output, int nb_outputs,
+                                   AVFilterContext *filter_ctx)
 {
     AVFrameSideData *sd;
     DnnDetectContext *ctx = filter_ctx->priv;
@@ -372,7 +482,7 @@ static int dnn_detect_post_proc_ov(AVFrame *frame, DNNData *output, AVFilterCont
 
     switch (ctx->model_type) {
     case DDMT_SSD:
-        ret = dnn_detect_post_proc_ssd(frame, output, filter_ctx);
+        ret = dnn_detect_post_proc_ssd(frame, output, nb_outputs, filter_ctx);
         if (ret < 0)
             return ret;
         break;
@@ -380,8 +490,14 @@ static int dnn_detect_post_proc_ov(AVFrame *frame, DNNData *output, AVFilterCont
         ret = dnn_detect_post_proc_yolo(frame, output, filter_ctx);
         if (ret < 0)
             return ret;
+        break;
+    case DDMT_YOLOV3:
+    case DDMT_YOLOV4:
+        ret = dnn_detect_post_proc_yolov3(frame, output, filter_ctx, nb_outputs);
+        if (ret < 0)
+            return ret;
+        break;
     }
-
     return 0;
 }
 
@@ -466,7 +582,7 @@ static int dnn_detect_post_proc(AVFrame *frame, DNNData *output, uint32_t nb, AV
     DnnContext *dnn_ctx = &ctx->dnnctx;
     switch (dnn_ctx->backend_type) {
     case DNN_OV:
-        return dnn_detect_post_proc_ov(frame, output, filter_ctx);
+        return dnn_detect_post_proc_ov(frame, output, nb, filter_ctx);
     case DNN_TF:
         return dnn_detect_post_proc_tf(frame, output, filter_ctx);
     default:
@@ -553,11 +669,6 @@ static int check_output_nb(DnnDetectContext *ctx, DNNBackendType backend_type, i
         }
         return 0;
     case DNN_OV:
-        if (output_nb != 1) {
-            av_log(ctx, AV_LOG_ERROR, "Dnn detect filter with openvino backend needs 1 output only, \
-                                       but get %d instead\n", output_nb);
-            return AVERROR(EINVAL);
-        }
         return 0;
     default:
         avpriv_report_missing_feature(ctx, "Dnn detect filter does not support current backend\n");
@@ -695,22 +806,55 @@ static av_cold void dnn_detect_uninit(AVFilterContext *context)
     DnnDetectContext *ctx = context->priv;
     AVDetectionBBox *bbox;
     ff_dnn_uninit(&ctx->dnnctx);
-    while(av_fifo_can_read(ctx->bboxes_fifo)) {
-        av_fifo_read(ctx->bboxes_fifo, &bbox, 1);
-        av_freep(&bbox);
+    if (ctx->bboxes_fifo) {
+        while (av_fifo_can_read(ctx->bboxes_fifo)) {
+            av_fifo_read(ctx->bboxes_fifo, &bbox, 1);
+            av_freep(&bbox);
+        }
+        av_fifo_freep2(&ctx->bboxes_fifo);
     }
-    av_fifo_freep2(&ctx->bboxes_fifo);
     av_freep(&ctx->anchors);
     free_detect_labels(ctx);
 }
+
+static int config_input(AVFilterLink *inlink)
+{
+    AVFilterContext *context     = inlink->dst;
+    DnnDetectContext *ctx = context->priv;
+    DNNData model_input;
+    int ret, width_idx, height_idx;
+
+    ret = ff_dnn_get_input(&ctx->dnnctx, &model_input);
+    if (ret != 0) {
+        av_log(ctx, AV_LOG_ERROR, "could not get input from the model\n");
+        return ret;
+    }
+    width_idx = dnn_get_width_idx_by_layout(model_input.layout);
+    height_idx = dnn_get_height_idx_by_layout(model_input.layout);
+    ctx->scale_width = model_input.dims[width_idx] == -1 ? inlink->w :
+        model_input.dims[width_idx];
+    ctx->scale_height = model_input.dims[height_idx] ==  -1 ? inlink->h :
+        model_input.dims[height_idx];
+
+    return 0;
+}
+
+static const AVFilterPad dnn_detect_inputs[] = {
+    {
+        .name         = "default",
+        .type         = AVMEDIA_TYPE_VIDEO,
+        .config_props = config_input,
+    },
+};
 
 const AVFilter ff_vf_dnn_detect = {
     .name          = "dnn_detect",
     .description   = NULL_IF_CONFIG_SMALL("Apply DNN detect filter to the input."),
     .priv_size     = sizeof(DnnDetectContext),
+    .preinit       = ff_dnn_filter_init_child_class,
     .init          = dnn_detect_init,
     .uninit        = dnn_detect_uninit,
-    FILTER_INPUTS(ff_video_default_filterpad),
+    FILTER_INPUTS(dnn_detect_inputs),
     FILTER_OUTPUTS(ff_video_default_filterpad),
     FILTER_PIXFMTS_ARRAY(pix_fmts),
     .priv_class    = &dnn_detect_class,

@@ -42,6 +42,7 @@
 #include <SDL_vulkan.h>
 
 #include "libavutil/bprint.h"
+#include "libavutil/mem.h"
 
 #endif
 
@@ -209,6 +210,16 @@ static int add_device_extension(const AVDictionary *opt,
     return av_dict_set(dict, dev_ext_key, ext_list, AV_DICT_DONT_STRDUP_VAL);
 }
 
+static const char *select_device(const AVDictionary *opt)
+{
+    const AVDictionaryEntry *entry;
+
+    entry = av_dict_get(opt, "device", NULL, 0);
+    if (entry)
+        return entry->value;
+    return NULL;
+}
+
 static int create_vk_by_hwcontext(VkRenderer *renderer,
                                   const char **ext, unsigned num_ext,
                                   const AVDictionary *opt)
@@ -229,7 +240,7 @@ static int create_vk_by_hwcontext(VkRenderer *renderer,
     }
 
     ret = av_hwdevice_ctx_create(&ctx->hw_device_ref, AV_HWDEVICE_TYPE_VULKAN,
-                           NULL, dict, 0);
+                                 select_device(opt), dict, 0);
     av_dict_free(&dict);
     if (ret < 0)
         return ret;
@@ -367,6 +378,7 @@ static int create_vk_by_placebo(VkRenderer *renderer,
             .opt_extensions = optional_device_exts,
             .num_opt_extensions = FF_ARRAY_ELEMS(optional_device_exts),
             .extra_queues = VK_QUEUE_VIDEO_DECODE_BIT_KHR,
+            .device_name = select_device(opt),
     ));
     if (!ctx->placebo_vulkan)
         return AVERROR_EXTERNAL;
@@ -685,6 +697,7 @@ static int display(VkRenderer *renderer, AVFrame *frame)
     struct pl_frame target = {0};
     RendererContext *ctx = (RendererContext *) renderer;
     int ret = 0;
+    struct pl_color_space hint = {0};
 
     ret = convert_frame(renderer, frame);
     if (ret < 0)
@@ -697,6 +710,8 @@ static int display(VkRenderer *renderer, AVFrame *frame)
         return AVERROR_EXTERNAL;
     }
 
+    pl_color_space_from_avframe(&hint, frame);
+    pl_swapchain_colorspace_hint(ctx->swapchain, &hint);
     if (!pl_swapchain_start_frame(ctx->swapchain, &swap_frame)) {
         av_log(NULL, AV_LOG_ERROR, "start frame failed\n");
         ret = AVERROR_EXTERNAL;
@@ -754,7 +769,7 @@ static void destroy(VkRenderer *renderer)
         vkDestroySurfaceKHR = (PFN_vkDestroySurfaceKHR)
                 ctx->get_proc_addr(ctx->inst, "vkDestroySurfaceKHR");
         vkDestroySurfaceKHR(ctx->inst, ctx->vk_surface, NULL);
-        ctx->vk_surface = NULL;
+        ctx->vk_surface = VK_NULL_HANDLE;
     }
 
     av_buffer_unref(&ctx->hw_device_ref);
