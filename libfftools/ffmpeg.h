@@ -774,7 +774,7 @@ typedef struct FrameData {
 
 typedef struct FfmpegContext{
    FILE *vstats_file;
-   unsigned nb_output_dumped;
+   atomic_uint nb_output_dumped;
    InputFile   **input_files;
    int        nb_input_files;
 
@@ -850,7 +850,7 @@ extern FILE *vstats_file;
 
 int ffmpeg_main(int argc, char **argv, EncodeCallback* callback);
 
-FfmpegContext* init_ffmpeg_context();
+FfmpegContext* init_ffmpeg_context(void);
 
 void ffmpeg_cleanup(FfmpegContext* ctx, int ret);
 double get_current_pts(OutputStream* ost);
