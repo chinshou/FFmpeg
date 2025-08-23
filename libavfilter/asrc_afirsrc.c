@@ -92,7 +92,7 @@ static av_cold int init(AVFilterContext *ctx)
     AudioFIRSourceContext *s = ctx->priv;
 
     if (!(s->nb_taps & 1)) {
-        av_log(s, AV_LOG_WARNING, "Number of taps %d must be odd length.\n", s->nb_taps);
+        av_log(ctx, AV_LOG_WARNING, "Number of taps %d must be odd length.\n", s->nb_taps);
         s->nb_taps |= 1;
     }
 
@@ -297,17 +297,16 @@ static const AVFilterPad afirsrc_outputs[] = {
     },
 };
 
-const AVFilter ff_asrc_afirsrc = {
-    .name          = "afirsrc",
-    .description   = NULL_IF_CONFIG_SMALL("Generate a FIR coefficients audio stream."),
+const FFFilter ff_asrc_afirsrc = {
+    .p.name        = "afirsrc",
+    .p.description = NULL_IF_CONFIG_SMALL("Generate a FIR coefficients audio stream."),
+    .p.priv_class  = &afirsrc_class,
     .init          = init,
     .uninit        = uninit,
     .activate      = activate,
     .priv_size     = sizeof(AudioFIRSourceContext),
-    .inputs        = NULL,
     FILTER_OUTPUTS(afirsrc_outputs),
     FILTER_QUERY_FUNC2(query_formats),
-    .priv_class    = &afirsrc_class,
 };
 
 #define DEFAULT_BANDS "25 40 63 100 160 250 400 630 1000 1600 2500 4000 6300 10000 16000 24000"
@@ -579,14 +578,13 @@ static const AVFilterPad afireqsrc_outputs[] = {
     },
 };
 
-const AVFilter ff_asrc_afireqsrc = {
-    .name          = "afireqsrc",
-    .description   = NULL_IF_CONFIG_SMALL("Generate a FIR equalizer coefficients audio stream."),
+const FFFilter ff_asrc_afireqsrc = {
+    .p.name        = "afireqsrc",
+    .p.description = NULL_IF_CONFIG_SMALL("Generate a FIR equalizer coefficients audio stream."),
+    .p.priv_class  = &afireqsrc_class,
     .uninit        = uninit,
     .activate      = activate,
     .priv_size     = sizeof(AudioFIRSourceContext),
-    .inputs        = NULL,
     FILTER_OUTPUTS(afireqsrc_outputs),
     FILTER_QUERY_FUNC2(query_formats),
-    .priv_class    = &afireqsrc_class,
 };

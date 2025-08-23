@@ -103,7 +103,7 @@ static void premultiply8(const uint8_t *msrc, const uint8_t *asrc,
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            dst[x] = ((msrc[x] * (((asrc[x] >> 1) & 1) + asrc[x])) + 128) >> 8;
+            dst[x] = (msrc[x] * asrc[x] + 128) >> 8;
         }
 
         dst  += dlinesize;
@@ -123,7 +123,7 @@ static void premultiply8yuv(const uint8_t *msrc, const uint8_t *asrc,
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            dst[x] = ((((msrc[x] - 128) * (((asrc[x] >> 1) & 1) + asrc[x]))) >> 8) + 128;
+            dst[x] = (((msrc[x] - 128) * asrc[x]) >> 8) + 128;
         }
 
         dst  += dlinesize;
@@ -143,7 +143,7 @@ static void premultiply8offset(const uint8_t *msrc, const uint8_t *asrc,
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            dst[x] = ((((msrc[x] - offset) * (((asrc[x] >> 1) & 1) + asrc[x])) + 128) >> 8) + offset;
+            dst[x] = ((((msrc[x] - offset) * asrc[x]) + 128) >> 8) + offset;
         }
 
         dst  += dlinesize;
@@ -166,7 +166,7 @@ static void premultiply16(const uint8_t *mmsrc, const uint8_t *aasrc,
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            dst[x] = ((msrc[x] * (((asrc[x] >> 1) & 1) + asrc[x])) + half) >> shift;
+            dst[x] = (msrc[x] * asrc[x] + half) >> shift;
         }
 
         dst  += dlinesize / 2;
@@ -189,7 +189,7 @@ static void premultiply16yuv(const uint8_t *mmsrc, const uint8_t *aasrc,
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            dst[x] = ((((msrc[x] - half) * (int64_t)(((asrc[x] >> 1) & 1) + asrc[x]))) >> shift) + half;
+            dst[x] = (((msrc[x] - half) * (int64_t)asrc[x]) >> shift) + half;
         }
 
         dst  += dlinesize / 2;
@@ -212,7 +212,7 @@ static void premultiply16offset(const uint8_t *mmsrc, const uint8_t *aasrc,
 
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            dst[x] = ((((msrc[x] - offset) * (int64_t)(((asrc[x] >> 1) & 1) + asrc[x])) + half) >> shift) + offset;
+            dst[x] = ((((msrc[x] - offset) * (int64_t)asrc[x]) + half) >> shift) + offset;
         }
 
         dst  += dlinesize / 2;
@@ -824,40 +824,38 @@ static const AVFilterPad premultiply_outputs[] = {
 
 #if CONFIG_PREMULTIPLY_FILTER
 
-const AVFilter ff_vf_premultiply = {
-    .name          = "premultiply",
-    .description   = NULL_IF_CONFIG_SMALL("PreMultiply first stream with first plane of second stream."),
+const FFFilter ff_vf_premultiply = {
+    .p.name        = "premultiply",
+    .p.description = NULL_IF_CONFIG_SMALL("PreMultiply first stream with first plane of second stream."),
+    .p.priv_class  = &premultiply_class,
+    .p.flags       = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
+                     AVFILTER_FLAG_DYNAMIC_INPUTS |
+                     AVFILTER_FLAG_SLICE_THREADS,
     .priv_size     = sizeof(PreMultiplyContext),
     .init          = init,
     .uninit        = uninit,
     .activate      = activate,
-    .inputs        = NULL,
     FILTER_OUTPUTS(premultiply_outputs),
     FILTER_QUERY_FUNC2(query_formats),
-    .priv_class    = &premultiply_class,
-    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
-                     AVFILTER_FLAG_DYNAMIC_INPUTS |
-                     AVFILTER_FLAG_SLICE_THREADS,
 };
 
 #endif /* CONFIG_PREMULTIPLY_FILTER */
 
 #if CONFIG_UNPREMULTIPLY_FILTER
 
-const AVFilter ff_vf_unpremultiply = {
-    .name          = "unpremultiply",
-    .description   = NULL_IF_CONFIG_SMALL("UnPreMultiply first stream with first plane of second stream."),
-    .priv_class    = &premultiply_class,
+const FFFilter ff_vf_unpremultiply = {
+    .p.name        = "unpremultiply",
+    .p.description = NULL_IF_CONFIG_SMALL("UnPreMultiply first stream with first plane of second stream."),
+    .p.priv_class  = &premultiply_class,
+    .p.flags       = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
+                     AVFILTER_FLAG_DYNAMIC_INPUTS |
+                     AVFILTER_FLAG_SLICE_THREADS,
     .priv_size     = sizeof(PreMultiplyContext),
     .init          = init,
     .uninit        = uninit,
     .activate      = activate,
-    .inputs        = NULL,
     FILTER_OUTPUTS(premultiply_outputs),
     FILTER_QUERY_FUNC2(query_formats),
-    .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL |
-                     AVFILTER_FLAG_DYNAMIC_INPUTS |
-                     AVFILTER_FLAG_SLICE_THREADS,
 };
 
 #endif /* CONFIG_UNPREMULTIPLY_FILTER */

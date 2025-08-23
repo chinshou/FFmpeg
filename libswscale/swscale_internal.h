@@ -22,9 +22,11 @@
 #define SWSCALE_SWSCALE_INTERNAL_H
 
 #include <stdatomic.h>
+#include <assert.h>
 
 #include "config.h"
 #include "swscale.h"
+#include "graph.h"
 
 #include "libavutil/avassert.h"
 #include "libavutil/common.h"
@@ -46,6 +48,8 @@
 #define YUVRGB_TABLE_LUMA_HEADROOM 512
 
 #define MAX_FILTER_SIZE SWS_MAX_FILTER_SIZE
+
+#define SWS_MAX_THREADS 8192 /* sanity clamp */
 
 #if HAVE_BIGENDIAN
 #define ALT32_CORR (-1)
@@ -71,23 +75,6 @@ static inline SwsInternal *sws_internal(const SwsContext *sws)
 {
     return (SwsInternal *) sws;
 }
-
-typedef enum SwsDither {
-    SWS_DITHER_NONE = 0,
-    SWS_DITHER_AUTO,
-    SWS_DITHER_BAYER,
-    SWS_DITHER_ED,
-    SWS_DITHER_A_DITHER,
-    SWS_DITHER_X_DITHER,
-    SWS_DITHER_NB,
-} SwsDither;
-
-typedef enum SwsAlphaBlend {
-    SWS_ALPHA_BLEND_NONE  = 0,
-    SWS_ALPHA_BLEND_UNIFORM,
-    SWS_ALPHA_BLEND_CHECKERBOARD,
-    SWS_ALPHA_BLEND_NB,
-} SwsAlphaBlend;
 
 typedef struct Range {
     unsigned int start;
@@ -328,17 +315,19 @@ struct SwsFilterDescriptor;
 
 /* This struct should be aligned on at least a 32-byte boundary. */
 struct SwsInternal {
-    /**
-     * info on struct for av_log
-     */
-    const AVClass *av_class;
+    /* Currently active user-facing options. Also contains AVClass */
+    SwsContext opts;
 
+    /* Parent context (for slice contexts) */
     SwsContext *parent;
 
     AVSliceThread      *slicethread;
     SwsContext        **slice_ctx;
     int                *slice_err;
     int              nb_slice_ctx;
+
+    /* Scaling graph, reinitialized dynamically as needed. */
+    SwsGraph *graph[2]; /* top, bottom fields */
 
     // values passed to current sws_receive_slice() call
     int dst_slice_start;
@@ -349,18 +338,12 @@ struct SwsInternal {
      * sws_scale() wrapper so they can be freely modified here.
      */
     SwsFunc convert_unscaled;
-    int srcW;                     ///< Width  of source      luma/alpha planes.
-    int srcH;                     ///< Height of source      luma/alpha planes.
-    int dstW;                     ///< Width  of destination luma/alpha planes.
-    int dstH;                     ///< Height of destination luma/alpha planes.
     int chrSrcW;                  ///< Width  of source      chroma     planes.
     int chrSrcH;                  ///< Height of source      chroma     planes.
     int chrDstW;                  ///< Width  of destination chroma     planes.
     int chrDstH;                  ///< Height of destination chroma     planes.
     int lumXInc, chrXInc;
     int lumYInc, chrYInc;
-    enum AVPixelFormat dstFormat; ///< Destination pixel format.
-    enum AVPixelFormat srcFormat; ///< Source      pixel format.
     int dstFormatBpp;             ///< Number of bits per pixel of the destination pixel format.
     int srcFormatBpp;             ///< Number of bits per pixel of the source      pixel format.
     int dstBpc, srcBpc;
@@ -370,15 +353,13 @@ struct SwsInternal {
     int chrDstVSubSample;         ///< Binary logarithm of vertical   subsampling factor between luma/alpha and chroma planes in destination image.
     int vChrDrop;                 ///< Binary logarithm of extra vertical subsampling factor in source image chroma planes specified by user.
     int sliceDir;                 ///< Direction that slices are fed to the scaler (1 = top-to-bottom, -1 = bottom-to-top).
-    int nb_threads;               ///< Number of threads used for scaling
-    double param[2];              ///< Input parameters for scaling algorithms that need them.
 
     AVFrame *frame_src;
     AVFrame *frame_dst;
 
     RangeList src_ranges;
 
-    /* The cascaded_* fields allow spliting a scaler task into multiple
+    /* The cascaded_* fields allow splitting a scaler task into multiple
      * sequential steps, this is for example used to limit the maximum
      * downscaling factor that needs to be supported in one scaler.
      */
@@ -388,7 +369,6 @@ struct SwsInternal {
     int cascaded_mainindex;
 
     double gamma_value;
-    int gamma_flag;
     int is_internal_gamma;
     uint16_t *gamma;
     uint16_t *inv_gamma;
@@ -458,7 +438,6 @@ struct SwsInternal {
     int warned_unuseable_bilinear;
 
     int dstY;                     ///< Last destination vertical line output from last slice.
-    int flags;                    ///< Flags passed by the user to select scaler algorithm, optimizations, subsampling, etc...
     void *yuvTable;             // pointer to the yuv->rgb table start so it can be freed()
     // alignment ensures the offset can be added in a single
     // instruction on e.g. ARM
@@ -484,16 +463,10 @@ struct SwsInternal {
     int contrast, brightness, saturation;    // for sws_getColorspaceDetails
     int srcColorspaceTable[4];
     int dstColorspaceTable[4];
-    int srcRange;                 ///< 0 = MPG YUV range, 1 = JPG YUV range (source      image).
-    int dstRange;                 ///< 0 = MPG YUV range, 1 = JPG YUV range (destination image).
     int src0Alpha;
     int dst0Alpha;
     int srcXYZ;
     int dstXYZ;
-    int src_h_chr_pos;
-    int dst_h_chr_pos;
-    int src_v_chr_pos;
-    int dst_v_chr_pos;
     int yuv2rgb_y_offset;
     int yuv2rgb_y_coeff;
     int yuv2rgb_v2r_coeff;
@@ -572,12 +545,12 @@ struct SwsInternal {
     int use_mmx_vfilter;
 
 /* pre defined color-spaces gamma */
-#define XYZ_GAMMA (2.6f)
-#define RGB_GAMMA (2.2f)
-    int16_t *xyzgamma;
-    int16_t *rgbgamma;
-    int16_t *xyzgammainv;
-    int16_t *rgbgammainv;
+#define XYZ_GAMMA (2.6)
+#define RGB_GAMMA (2.2)
+    uint16_t *xyzgamma;
+    uint16_t *rgbgamma;
+    uint16_t *xyzgammainv;
+    uint16_t *rgbgammainv;
     int16_t xyz2rgb_matrix[3][4];
     int16_t rgb2xyz_matrix[3][4];
 
@@ -674,16 +647,30 @@ struct SwsInternal {
                     const int32_t *filterPos, int filterSize);
     /** @} */
 
-    /// Color range conversion function for luma plane if needed.
-    void (*lumConvertRange)(int16_t *dst, int width);
-    /// Color range conversion function for chroma planes if needed.
-    void (*chrConvertRange)(int16_t *dst1, int16_t *dst2, int width);
+    /**
+     * Color range conversion functions if needed.
+     * If SwsInternal->dstBpc is > 14:
+     * - int16_t *dst (data is 15 bpc)
+     * - uint16_t coeff
+     * - int32_t offset
+     * Otherwise (SwsInternal->dstBpc is <= 14):
+     * - int32_t *dst (data is 19 bpc)
+     * - uint32_t coeff
+     * - int64_t offset
+     */
+    /** @{ */
+    void (*lumConvertRange)(int16_t *dst, int width,
+                            uint32_t coeff, int64_t offset);
+    void (*chrConvertRange)(int16_t *dst1, int16_t *dst2, int width,
+                            uint32_t coeff, int64_t offset);
+    /** @} */
+
+    uint32_t lumConvertRange_coeff;
+    uint32_t chrConvertRange_coeff;
+    int64_t  lumConvertRange_offset;
+    int64_t  chrConvertRange_offset;
 
     int needs_hcscale; ///< Set if there are chroma planes to be converted.
-
-    SwsDither dither;
-
-    SwsAlphaBlend alphablend;
 
     // scratch buffer for converting packed rgb0 sources
     // filled with a copy of the input frame + fully opaque alpha,
@@ -700,10 +687,21 @@ struct SwsInternal {
     unsigned int dst_slice_align;
     atomic_int   stride_unaligned_warned;
     atomic_int   data_unaligned_warned;
+    int          color_conversion_warned;
 
     Half2FloatTables *h2f_tables;
 };
 //FIXME check init (where 0)
+
+static_assert(offsetof(SwsInternal, redDither) + DITHER32_INT == offsetof(SwsInternal, dither32),
+              "dither32 must be at the same offset as redDither + DITHER32_INT");
+
+#if ARCH_X86_64
+/* x86 yuv2gbrp uses the SwsInternal for yuv coefficients
+   if struct offsets change the asm needs to be updated too */
+static_assert(offsetof(SwsInternal, yuv2rgb_y_offset) == 40348,
+              "yuv2rgb_y_offset must be updated in x86 asm");
+#endif
 
 SwsFunc ff_yuv2rgb_get_func_ptr(SwsInternal *c);
 int ff_yuv2rgb_c_init_tables(SwsInternal *c, const int inv_table[4],
@@ -984,6 +982,9 @@ extern const uint8_t ff_dither_8x8_220[9][8];
 extern const int32_t ff_yuv2rgb_coeffs[11][4];
 
 extern const AVClass ff_sws_context_class;
+
+int ff_sws_init_single_context(SwsContext *sws, SwsFilter *srcFilter,
+                               SwsFilter *dstFilter);
 
 /**
  * Set c->convert_unscaled to an unscaled converter if one exists for the

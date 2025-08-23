@@ -149,7 +149,7 @@ static int config_output(AVFilterLink *outlink)
     int height = ctx->inputs[0]->h;
     AVRational time_base  = ctx->inputs[0]->time_base;
     AVRational frame_rate = inl0->frame_rate;
-    float factor, overlap, scale;
+    float factor, overlap;
     int i, ch, ret;
 
     outlink->sample_rate = s->sample_rate;
@@ -184,7 +184,7 @@ static int config_output(AVFilterLink *outlink)
     s->win_size = s->size * 2;
     s->nb_freq = s->size;
 
-    ret = av_tx_init(&s->fft, &s->tx_fn, AV_TX_FLOAT_FFT, 1, s->win_size, &scale, 0);
+    ret = av_tx_init(&s->fft, &s->tx_fn, AV_TX_FLOAT_FFT, 1, s->win_size, NULL, 0);
     if (ret < 0) {
         av_log(ctx, AV_LOG_ERROR, "Unable to create FFT context. "
                "The window size might be too high.\n");
@@ -539,14 +539,14 @@ static const AVFilterPad spectrumsynth_outputs[] = {
     },
 };
 
-const AVFilter ff_vaf_spectrumsynth = {
-    .name          = "spectrumsynth",
-    .description   = NULL_IF_CONFIG_SMALL("Convert input spectrum videos to audio output."),
+const FFFilter ff_vaf_spectrumsynth = {
+    .p.name        = "spectrumsynth",
+    .p.description = NULL_IF_CONFIG_SMALL("Convert input spectrum videos to audio output."),
+    .p.priv_class  = &spectrumsynth_class,
     .uninit        = uninit,
     .activate      = activate,
     .priv_size     = sizeof(SpectrumSynthContext),
     FILTER_INPUTS(spectrumsynth_inputs),
     FILTER_OUTPUTS(spectrumsynth_outputs),
     FILTER_QUERY_FUNC2(query_formats),
-    .priv_class    = &spectrumsynth_class,
 };

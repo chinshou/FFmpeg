@@ -137,7 +137,7 @@ static int eval_expr(AVFilterContext *ctx)
     var_values[VAR_OVERLAY_X] =
     var_values[VAR_OX]        = av_expr_eval(ox_expr, var_values, NULL);
 
-    /* calc overlay_w and overlay_h again incase relative to ox,oy */
+    /* calc overlay_w and overlay_h again in case relative to ox,oy */
     var_values[VAR_OVERLAY_W] =
     var_values[VAR_OW]        = av_expr_eval(ow_expr, var_values, NULL);
     var_values[VAR_OVERLAY_H] =
@@ -423,9 +423,11 @@ static const AVFilterPad overlay_qsv_outputs[] = {
     },
 };
 
-const AVFilter ff_vf_overlay_qsv = {
-    .name           = "overlay_qsv",
-    .description    = NULL_IF_CONFIG_SMALL("Quick Sync Video overlay."),
+const FFFilter ff_vf_overlay_qsv = {
+    .p.name         = "overlay_qsv",
+    .p.description  = NULL_IF_CONFIG_SMALL("Quick Sync Video overlay."),
+    .p.priv_class   = &overlay_qsv_class,
+    .p.flags        = AVFILTER_FLAG_HWDEVICE,
     .priv_size      = sizeof(QSVOverlayContext),
     .preinit        = overlay_qsv_framesync_preinit,
     .init           = overlay_qsv_init,
@@ -434,7 +436,5 @@ const AVFilter ff_vf_overlay_qsv = {
     FILTER_INPUTS(overlay_qsv_inputs),
     FILTER_OUTPUTS(overlay_qsv_outputs),
     FILTER_QUERY_FUNC2(overlay_qsv_query_formats),
-    .priv_class     = &overlay_qsv_class,
     .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
-    .flags          = AVFILTER_FLAG_HWDEVICE,
 };

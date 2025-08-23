@@ -225,7 +225,7 @@ static void drawtext(AVFrame *pic, int x, int y, const char *txt, int o)
     int font_height;
     int i;
 
-    font = avpriv_cga_font,   font_height =  8;
+    font = avpriv_cga_font_get(),   font_height =  8;
 
     for (i = 0; txt[i]; i++) {
         int char_y, mask;
@@ -502,9 +502,10 @@ static const AVFilterPad showvolume_outputs[] = {
     },
 };
 
-const AVFilter ff_avf_showvolume = {
-    .name          = "showvolume",
-    .description   = NULL_IF_CONFIG_SMALL("Convert input audio volume to video output."),
+const FFFilter ff_avf_showvolume = {
+    .p.name        = "showvolume",
+    .p.description = NULL_IF_CONFIG_SMALL("Convert input audio volume to video output."),
+    .p.priv_class  = &showvolume_class,
     .init          = init,
     .activate      = activate,
     .uninit        = uninit,
@@ -512,5 +513,4 @@ const AVFilter ff_avf_showvolume = {
     FILTER_INPUTS(showvolume_inputs),
     FILTER_OUTPUTS(showvolume_outputs),
     FILTER_QUERY_FUNC2(query_formats),
-    .priv_class    = &showvolume_class,
 };

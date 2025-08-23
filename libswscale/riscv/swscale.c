@@ -28,6 +28,10 @@ void ff_range_chr_from_jpeg_16_rvv(int16_t *, int16_t *, int);
 
 av_cold void ff_sws_init_range_convert_riscv(SwsInternal *c)
 {
+    /* This code is currently disabled because of changes in the base
+     * implementation of these functions. This code should be enabled
+     * again once those changes are ported to this architecture. */
+#if 0
 #if HAVE_RVV
     int flags = av_get_cpu_flags();
 
@@ -41,11 +45,12 @@ av_cold void ff_sws_init_range_convert_riscv(SwsInternal *c)
 
     if (c->dstBpc <= 14 &&
         (flags & AV_CPU_FLAG_RVV_I32) && (flags & AV_CPU_FLAG_RVB)) {
-        bool from = c->srcRange != 0;
+        bool from = c->opts.src_range != 0;
 
         c->lumConvertRange = convs[from].lum;
         c->chrConvertRange = convs[from].chr;
     }
+#endif
 #endif
 }
 
@@ -72,7 +77,7 @@ av_cold void ff_sws_init_swscale_riscv(SwsInternal *c)
     int flags = av_get_cpu_flags();
 
     if ((flags & AV_CPU_FLAG_RVV_I32) && (flags & AV_CPU_FLAG_RVB)) {
-        switch (c->srcFormat) {
+        switch (c->opts.src_format) {
             case AV_PIX_FMT_ABGR:
                 c->lumToYV12 = ff_abgr32ToY_rvv;
                 if (c->chrSrcHSubSample)
