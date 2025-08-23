@@ -103,6 +103,7 @@
 #include "ffmpeg_sched.h"
 #include "ffmpeg_utils.h"
 #include "sync_queue.h"
+#include "graph/graphprint.h"
 
 const char program_name[] = "ffmpeg";
 const int program_birth_year = 2000;
@@ -348,23 +349,24 @@ const AVIOInterruptCB int_cb = { decode_interrupt_cb, NULL };
 
 void ffmpeg_cleanup(FfmpegContext* ctx, int ret)
 {
-    int i, j;
+    if ((print_graphs || print_graphs_file) && nb_output_files > 0)
+        print_filtergraphs(filtergraphs, nb_filtergraphs, input_files, nb_input_files, output_files, nb_output_files);
 
 #if 0
     if (do_benchmark) {
-        int maxrss = getmaxrss() / 1024;
-        av_log(NULL, AV_LOG_INFO, "bench: maxrss=%ikB\n", maxrss);
+        int64_t maxrss = getmaxrss() / 1024;
+        av_log(NULL, AV_LOG_INFO, "bench: maxrss=%"PRId64"KiB\n", maxrss);
     }
 #endif    
 
-    for (i = 0; i < ctx->nb_filtergraphs; i++)
+    for (int i = 0; i < ctx->nb_filtergraphs; i++)
         fg_free(&ctx->filtergraphs[i]);
     av_freep(&ctx->filtergraphs);
 
-    for (i = 0; i < ctx->nb_output_files; i++)
+    for (int i = 0; i < ctx->nb_output_files; i++)
         of_free(&ctx->output_files[i]);
 
-    for (i = 0; i < ctx->nb_input_files; i++)
+    for (int i = 0; i < ctx->nb_input_files; i++)
         ifile_close(&ctx->input_files[i]);
 
     for (int i = 0; i < ctx->nb_decoders; i++)
@@ -383,6 +385,9 @@ void ffmpeg_cleanup(FfmpegContext* ctx, int ret)
     hw_device_free_all();
 
     av_freep(&ctx->filter_nbthreads);
+
+    av_freep(&ctx->print_graphs_file);
+    av_freep(&ctx->print_graphs_format);
 
     av_freep(&ctx->input_files);
     av_freep(&ctx->output_files);
@@ -599,7 +604,7 @@ static void print_report(FfmpegContext* ctx, int is_last_report, int64_t timer_s
     static int64_t last_time = -1;
     static int first_report = 1;
     uint64_t nb_frames_dup = 0, nb_frames_drop = 0;
-    int mins, secs, us;
+    int mins, secs, ms, us;
     int64_t hours;
     const char *hours_sign;
     int ret;
@@ -712,6 +717,15 @@ static void print_report(FfmpegContext* ctx, int is_last_report, int64_t timer_s
         av_bprintf(&buf, " speed=%4.3gx", speed);
         av_bprintf(&buf_script, "speed=%4.3gx\n", speed);
     }
+
+    secs = (int)t;
+    ms = (int)((t - secs) * 1000);
+    mins = secs / 60;
+    secs %= 60;
+    hours = mins / 60;
+    mins %= 60;
+
+    av_bprintf(&buf, " elapsed=%"PRId64":%02d:%02d.%02d", hours, mins, secs, ms / 10);
 
     if (print_stats || is_last_report) {
         const char end = is_last_report ? '\n' : '\r';

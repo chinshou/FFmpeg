@@ -126,9 +126,9 @@ typedef struct Muxer {
     void* ctx;
 } Muxer;
 
-int mux_check_init(Muxer* mux);
+int mux_check_init(void *arg);
 
-static MuxStream *ms_from_ost(OutputStream *ost)
+static inline MuxStream *ms_from_ost(OutputStream *ost)
 {
     return (MuxStream*)ost;
 }
