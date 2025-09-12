@@ -1195,7 +1195,7 @@ static int fg_complex_bind_input(FfmpegContext* ctx,FilterGraph *fg, InputFilter
         int dec_idx;
 
         dec_idx = strtol(ifilter->linklabel + 4, &p, 0);
-        if (dec_idx < 0 || dec_idx >= nb_decoders) {
+        if (dec_idx < 0 || dec_idx >= ctx->nb_decoders) {
             av_log(fg, AV_LOG_ERROR, "Invalid decoder index %d in filtergraph description %s\n",
                    dec_idx, fg->graph_desc);
             return AVERROR(EINVAL);
