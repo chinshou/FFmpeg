@@ -853,9 +853,12 @@ extern char *filter_nbthreads;
 extern int filter_complex_nbthreads;
 extern int filter_buffered_frames;
 extern int vstats_version;
+#if 0
 extern int print_graphs;
 extern char *print_graphs_file;
 extern char *print_graphs_format;
+#endif
+
 extern int auto_conversion_filters;
 
 extern const AVIOInterruptCB int_cb;

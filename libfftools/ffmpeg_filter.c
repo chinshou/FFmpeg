@@ -3104,8 +3104,10 @@ read_frames:
 
 finish:
 
+#if 0
     if (print_graphs || print_graphs_file)
         print_filtergraph(fg, fgt.graph);
+#endif
 
     // EOF is normal termination
     if (ret == AVERROR_EOF)

@@ -32,10 +32,6 @@ OBJS = ffmpeg.o                        \
     textformat/tw_avio.o      \
     textformat/tw_buffer.o    \
     textformat/tw_stdout.o    \
-OUTDIRS += fftools
-OUTDIRS += fftools/textformat
-OUTDIRS += fftools/resources
-OUTDIRS += fftools/graph
 #    ffplay_renderer.o   \
     
 #OBJS-$(CONFIG_LIBSOXR) += soxr_resample.o

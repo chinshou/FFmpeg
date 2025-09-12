@@ -349,10 +349,10 @@ const AVIOInterruptCB int_cb = { decode_interrupt_cb, NULL };
 
 void ffmpeg_cleanup(FfmpegContext* ctx, int ret)
 {
-    if ((print_graphs || print_graphs_file) && nb_output_files > 0)
+#if 0
+	if ((print_graphs || print_graphs_file) && nb_output_files > 0)
         print_filtergraphs(filtergraphs, nb_filtergraphs, input_files, nb_input_files, output_files, nb_output_files);
 
-#if 0
     if (do_benchmark) {
         int64_t maxrss = getmaxrss() / 1024;
         av_log(NULL, AV_LOG_INFO, "bench: maxrss=%"PRId64"KiB\n", maxrss);
@@ -386,8 +386,10 @@ void ffmpeg_cleanup(FfmpegContext* ctx, int ret)
 
     av_freep(&ctx->filter_nbthreads);
 
+#if 0
     av_freep(&ctx->print_graphs_file);
     av_freep(&ctx->print_graphs_format);
+#endif
 
     av_freep(&ctx->input_files);
     av_freep(&ctx->output_files);
