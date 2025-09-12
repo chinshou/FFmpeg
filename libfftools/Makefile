@@ -16,7 +16,6 @@ OBJS = ffmpeg.o                        \
     ffmpeg_mux_init.o   \
     ffmpeg_opt.o        \
     ffmpeg_sched.o      \
-    graph/graphprint.o        \
     sync_queue.o        \
     cmdutils.o          \
     thread_queue.o      \
