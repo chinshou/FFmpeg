@@ -1064,7 +1064,7 @@ static int opt_preset(FfmpegContext* ctx, void *optctx, const char *opt, const c
         else if (!strcmp(key, "scodec")) opt_subtitle_codec(ctx, o, key, value);
         else if (!strcmp(key, "dcodec")) opt_data_codec    (ctx, o, key, value);
         else if ((parse_option(ctx, o, key, value, options) < 0) &&
-                 (opt_default_new(ctx, o, key, value) < 0) {
+                 (opt_default_new(ctx, o, key, value) < 0)) {
             av_log(NULL, AV_LOG_FATAL, "%s: Invalid option or argument: '%s', parsed as '%s' = '%s'\n",
                    filename, line, key, value);
             ret = AVERROR(EINVAL);
@@ -1766,8 +1766,8 @@ const OptionDef options[] = {
         "write execution graph data to the specified file", "filename" },
     { "print_graphs_format", OPT_TYPE_STRING, 0,
         { &print_graphs_format },
-#endif
       "set the output printing format (available formats are: default, compact, csv, flat, ini, json, xml, mermaid, mermaidhtml)", "format" },
+#endif
     { "auto_conversion_filters", OPT_TYPE_BOOL, OPT_EXPERT,
         { &auto_conversion_filters },
         "enable automatic conversion filters globally" },

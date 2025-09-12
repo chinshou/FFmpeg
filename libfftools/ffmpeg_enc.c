@@ -863,7 +863,7 @@ static int frame_encode(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame, A
                        AVFrame save_frame= *frame;
                        OutputFilterPriv* flt= ofp_from_ofilter(ost->filter);
                          if (ost->v_height==0)
-                           ost->v_height = flt->filter->inputs[0]->h;
+                           ost->v_height = flt->ofilter.filter->inputs[0]->h;
                            
                         if (ctx->enc_callback->flip)
                         {
