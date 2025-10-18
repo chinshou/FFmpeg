@@ -56,13 +56,13 @@
 #include "libavcodec/defs.h"
 #include "libavcodec/internal.h"
 #include "libavutil/channel_layout.h"
-#include "libavutil/dict_internal.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/timecode.h"
 #include "libavutil/opt.h"
 #include "avformat.h"
 #include "avlanguage.h"
+#include "avio_internal.h"
 #include "demux.h"
 #include "internal.h"
 #include "mxf.h"
@@ -491,11 +491,16 @@ static int klv_read_packet(MXFContext *mxf, KLVPacket *klv, AVIOContext *pb)
         return AVERROR_INVALIDDATA;
 
     memcpy(klv->key, mxf_klv_key, 4);
-    avio_read(pb, klv->key + 4, 12);
+    int ret = ffio_read_size(pb, klv->key + 4, 12);
+    if (ret < 0)
+        return ret;
     length = klv_decode_ber_length(pb, &llen);
     if (length < 0)
         return length;
     klv->length = length;
+    if (klv->offset > INT64_MAX - 16 - llen)
+        return AVERROR_INVALIDDATA;
+
     pos = klv->offset + 16 + llen;
     if (pos > INT64_MAX - length)
         return AVERROR_INVALIDDATA;
@@ -657,6 +662,7 @@ static int mxf_decrypt_triplet(AVFormatContext *s, AVPacket *pkt, KLVPacket *klv
     uint64_t plaintext_size;
     uint8_t ivec[16];
     uint8_t tmpbuf[16];
+    int ret;
     int index;
     int body_sid;
 
@@ -694,7 +700,9 @@ static int mxf_decrypt_triplet(AVFormatContext *s, AVPacket *pkt, KLVPacket *klv
     if (size < 32 || size - 32 < orig_size || (int)orig_size != orig_size)
         return AVERROR_INVALIDDATA;
     avio_read(pb, ivec, 16);
-    avio_read(pb, tmpbuf, 16);
+    ret = ffio_read_size(pb, tmpbuf, 16);
+    if (ret < 16)
+        return ret;
     if (mxf->aesc)
         av_aes_crypt(mxf->aesc, tmpbuf, tmpbuf, 1, ivec, 1);
     if (memcmp(tmpbuf, checkv, 16))
@@ -750,6 +758,7 @@ static int mxf_read_partition_pack(void *arg, AVIOContext *pb, int tag, int size
     uint64_t footer_partition;
     uint32_t nb_essence_containers;
     uint64_t this_partition;
+    int ret;
 
     if (mxf->partitions_count >= INT_MAX / 2)
         return AVERROR_INVALIDDATA;
@@ -815,9 +824,10 @@ static int mxf_read_partition_pack(void *arg, AVIOContext *pb, int tag, int size
     if (partition->body_offset < 0)
         return AVERROR_INVALIDDATA;
 
-    if (avio_read(pb, op, sizeof(UID)) != sizeof(UID)) {
+    ret = ffio_read_size(pb, op, sizeof(UID));
+    if (ret < 0) {
         av_log(mxf->fc, AV_LOG_ERROR, "Failed reading UID\n");
-        return AVERROR_INVALIDDATA;
+        return ret;
     }
     nb_essence_containers = avio_rb32(pb);
 
@@ -945,7 +955,7 @@ static int mxf_add_metadata_set(MXFContext *mxf, MXFMetadataSet **metadata_set, 
     int ret;
 
     // Index Table is special because it might be added manually without
-    // partition and we iterate thorugh all instances of them. Also some files
+    // partition and we iterate through all instances of them. Also some files
     // use the same Instance UID for different index tables...
     if (type != IndexTableSegment) {
         for (int i = 0; i < mg->metadata_sets_count; i++) {
@@ -1549,11 +1559,14 @@ static int mxf_read_indirect_value(void *arg, AVIOContext *pb, int size)
 {
     MXFTaggedValue *tagged_value = arg;
     uint8_t key[17];
+    int ret;
 
     if (size <= 17)
         return 0;
 
-    avio_read(pb, key, 17);
+    ret = ffio_read_size(pb, key, 17);
+    if (ret < 0)
+        return ret;
     /* TODO: handle other types of of indirect values */
     if (memcmp(key, mxf_indirect_value_utf16le, 17) == 0) {
         return mxf_read_utf16le_string(pb, size - 17, &tagged_value->value);
@@ -1672,7 +1685,7 @@ static const MXFCodecUL mxf_sound_essence_container_uls[] = {
 
 static const MXFCodecUL mxf_data_essence_container_uls[] = {
     { { 0x06,0x0e,0x2b,0x34,0x04,0x01,0x01,0x09,0x0d,0x01,0x03,0x01,0x02,0x0d,0x00,0x00 }, 16, AV_CODEC_ID_NONE,      "vbi_smpte_436M", 11 },
-    { { 0x06,0x0e,0x2b,0x34,0x04,0x01,0x01,0x09,0x0d,0x01,0x03,0x01,0x02,0x0e,0x00,0x00 }, 16, AV_CODEC_ID_NONE, "vbi_vanc_smpte_436M", 11 },
+    { { 0x06,0x0e,0x2b,0x34,0x04,0x01,0x01,0x09,0x0d,0x01,0x03,0x01,0x02,0x0e,0x00,0x00 }, 16, AV_CODEC_ID_SMPTE_436M_ANC, "vbi_vanc_smpte_436M", 11 },
     { { 0x06,0x0e,0x2b,0x34,0x04,0x01,0x01,0x09,0x0d,0x01,0x03,0x01,0x02,0x13,0x01,0x01 }, 16, AV_CODEC_ID_TTML },
     { { 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00 },  0, AV_CODEC_ID_NONE },
 };
@@ -1924,6 +1937,8 @@ static int mxf_edit_unit_absolute_offset(MXFContext *mxf, MXFIndexTable *index_t
     // clamp to actual range of index
     index_end = av_sat_add64(last_segment->index_start_position, last_segment->index_duration);
     edit_unit = FFMAX(FFMIN(edit_unit, index_end), first_segment->index_start_position);
+    if (edit_unit < 0)
+        return AVERROR_PATCHWELCOME;
 
     // guess which table segment this edit unit is in
     // saturation is fine since it's just a guess
@@ -3100,9 +3115,7 @@ static int mxf_parse_structural_metadata(MXFContext *mxf)
                 st->codecpar->codec_type = type;
             if (container_ul->desc)
                 av_dict_set(&st->metadata, "data_type", container_ul->desc, 0);
-            if (mxf->eia608_extract &&
-                container_ul->desc &&
-                !strcmp(container_ul->desc, "vbi_vanc_smpte_436M")) {
+            if (mxf->eia608_extract && st->codecpar->codec_id == AV_CODEC_ID_SMPTE_436M_ANC) {
                 st->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
                 st->codecpar->codec_id = AV_CODEC_ID_EIA_608;
             }
@@ -3200,7 +3213,7 @@ static int64_t mxf_timestamp_to_int64(uint64_t timestamp)
 
 #define SET_TS_METADATA(pb, name, var, str) do { \
     var = avio_rb64(pb); \
-    if (var && (ret = avpriv_dict_set_timestamp(&s->metadata, name, mxf_timestamp_to_int64(var))) < 0) \
+    if (var && (ret = ff_dict_set_timestamp(&s->metadata, name, mxf_timestamp_to_int64(var))) < 0) \
         return ret; \
 } while (0)
 
@@ -3949,7 +3962,7 @@ static int64_t mxf_set_current_edit_unit(MXFContext *mxf, AVStream *st, int64_t 
     int64_t new_edit_unit;
     MXFIndexTable *t = mxf_find_index_table(mxf, track->index_sid);
 
-    if (!t || track->wrapping == UnknownWrapped)
+    if (!t || track->wrapping == UnknownWrapped || edit_unit > INT64_MAX - track->edit_units_per_packet)
         return -1;
 
     if (mxf_edit_unit_absolute_offset(mxf, t, edit_unit + track->edit_units_per_packet, track->edit_rate, NULL, &next_ofs, NULL, 0) < 0 &&

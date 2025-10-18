@@ -1,5 +1,6 @@
 *.a
 *.o
+*.objs
 *.o.*
 *.d
 *.def
@@ -41,10 +42,7 @@
 /src
 /mapfile
 /tools/python/__pycache__/
-build/ffbuild
-build/libavformat
-build/libavdevice
-build/libavcodec
-build/doc
-build/libavfilter
-build/libavutil
+/libavcodec/vulkan/*.c
+/libavfilter/vulkan/*.c
+/.*/
+!/.forgejo/

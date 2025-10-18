@@ -108,7 +108,7 @@ typedef struct H2645SEIFilmGrainCharacteristics {
     uint8_t intensity_interval_upper_bound[3][256];
     int16_t comp_model_value[3][256][6];
     int repetition_period;       //< H.264 only
-    int persistence_flag;        //< HEVC  only
+    int persistence_flag;        //< HEVC/VVC
 } H2645SEIFilmGrainCharacteristics;
 
 typedef struct H2645SEIMasteringDisplay {
@@ -138,10 +138,10 @@ typedef struct H2645SEI {
     H2645SEIAmbientViewingEnvironment ambient_viewing_environment;
     H2645SEIMasteringDisplay mastering_display;
     H2645SEIContentLight content_light;
+    AVFilmGrainAFGS1Params aom_film_grain;
 
     // Dynamic allocations due to large size.
-    H2645SEIFilmGrainCharacteristics* film_grain_characteristics;
-    AVFilmGrainAFGS1Params* aom_film_grain;
+    H2645SEIFilmGrainCharacteristics *film_grain_characteristics;
 } H2645SEI;
 
 enum {
