@@ -19,6 +19,7 @@ LDFLAGS=" -L/usr/lib -L/usr/local/darwin64/lib " CPPFLAGS=" -I/usr/local/darwin6
 --disable-filter=coreimagesrc \
 --extra-ldflags=" -lcurl -liconv -lbz2 -lz -framework OpenAL" \
 --extra-cflags=" -mmacosx-version-min=10.9 " \
+--extra-ldflags=" -mmacosx-version-min=10.9 " \
 --extra-cxxflags=" -std=c++11 -stdlib=libc++" \
  --enable-libass 
 echo Please check libsdl existence problem , uninstall all libsdl
