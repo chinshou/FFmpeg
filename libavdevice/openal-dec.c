@@ -21,8 +21,8 @@
  * OpenAL 1.1 capture device for libavdevice
  **/
 
-#include <AL/al.h>
-#include <AL/alc.h>
+#include <OpenAL/al.h>
+#include <OpenAL/alc.h>
 
 #include "libavutil/opt.h"
 #include "libavutil/time.h"

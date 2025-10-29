@@ -186,7 +186,7 @@ static void drawtext(AVFrame *pic, int x, int y, const char *txt,
     int font_height;
     int i;
 
-    font = avpriv_cga_font,   font_height =  8;
+    font = avpriv_cga_font_get(),   font_height =  8;
 
     if (y + 8 >= pic->height ||
         x + len * 8 >= pic->width)
@@ -578,11 +578,11 @@ static const AVFilterPad graphmonitor_outputs[] = {
 
 #if CONFIG_GRAPHMONITOR_FILTER
 
-const AVFilter ff_vf_graphmonitor = {
-    .name          = "graphmonitor",
-    .description   = NULL_IF_CONFIG_SMALL("Show various filtergraph stats."),
+const FFFilter ff_vf_graphmonitor = {
+    .p.name        = "graphmonitor",
+    .p.description = NULL_IF_CONFIG_SMALL("Show various filtergraph stats."),
+    .p.priv_class  = &graphmonitor_class,
     .priv_size     = sizeof(GraphMonitorContext),
-    .priv_class    = &graphmonitor_class,
     .init          = init,
     .uninit        = uninit,
     .activate      = activate,
@@ -596,10 +596,10 @@ const AVFilter ff_vf_graphmonitor = {
 
 #if CONFIG_AGRAPHMONITOR_FILTER
 
-const AVFilter ff_avf_agraphmonitor = {
-    .name          = "agraphmonitor",
-    .description   = NULL_IF_CONFIG_SMALL("Show various filtergraph stats."),
-    .priv_class    = &graphmonitor_class,
+const FFFilter ff_avf_agraphmonitor = {
+    .p.name        = "agraphmonitor",
+    .p.description = NULL_IF_CONFIG_SMALL("Show various filtergraph stats."),
+    .p.priv_class  = &graphmonitor_class,
     .priv_size     = sizeof(GraphMonitorContext),
     .init          = init,
     .uninit        = uninit,

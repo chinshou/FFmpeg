@@ -854,7 +854,6 @@ static int new_stream_audio(FfmpegContext* ctx, Muxer *mux, const OptionsContext
     return 0;
 }
 
-
 static int new_stream_subtitle(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o,
                                OutputStream *ost)
 {
@@ -932,6 +931,7 @@ ost_bind_filter(FfmpegContext* ctx, const Muxer *mux, MuxStream *ms, OutputFilte
         .ts_offset        = mux->of.start_time == AV_NOPTS_VALUE ?
                             0 : mux->of.start_time,
         .vs               = vs,
+        .nb_threads       = -1,
 
         .flags = OFILTER_FLAG_DISABLE_CONVERT * !!keep_pix_fmt |
                  OFILTER_FLAG_AUTOSCALE       * !!autoscale    |
@@ -984,7 +984,7 @@ ost_bind_filter(FfmpegContext* ctx, const Muxer *mux, MuxStream *ms, OutputFilte
     }
 
     if (threads_manual) {
-        ret = av_opt_get(enc_ctx, "threads", 0, (uint8_t**)&opts.nb_threads);
+        ret = av_opt_get_int(enc_ctx, "threads", 0, &opts.nb_threads);
         if (ret < 0)
             return ret;
     }
@@ -1004,7 +1004,6 @@ ost_bind_filter(FfmpegContext* ctx, const Muxer *mux, MuxStream *ms, OutputFilte
             ost->filter = ost->fg_simple->outputs[0];
 
     }
-    av_freep(&opts.nb_threads);
     if (ret < 0)
         return ret;
 
@@ -1596,7 +1595,7 @@ static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
 {
     AVFormatContext *oc = mux->fc;
     InputStream *best_ist = NULL;
-    int best_score = 0;
+    int64_t best_score = 0;
     int qcr;
 
     /* video: highest resolution */
@@ -1607,16 +1606,16 @@ static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
     for (int j = 0; j < ctx->nb_input_files; j++) {
         InputFile *ifile = ctx->input_files[j];
         InputStream *file_best_ist = NULL;
-        int file_best_score = 0;
+        int64_t file_best_score = 0;
         for (int i = 0; i < ifile->nb_streams; i++) {
             InputStream *ist = ifile->streams[i];
-            int score;
+            int64_t score;
 
             if (ist->user_set_discard == AVDISCARD_ALL ||
                 ist->st->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
                 continue;
 
-            score = ist->st->codecpar->width * ist->st->codecpar->height
+            score = ist->st->codecpar->width * (int64_t)ist->st->codecpar->height
                        + 100000000 * !!(ist->st->event_flags & AVSTREAM_EVENT_FLAG_NEW_PACKETS)
                        + 5000000*!!(ist->st->disposition & AV_DISPOSITION_DEFAULT);
             if((qcr!=MKTAG('A', 'P', 'I', 'C')) && (ist->st->disposition & AV_DISPOSITION_ATTACHED_PIC))

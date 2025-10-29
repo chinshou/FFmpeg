@@ -150,7 +150,7 @@ static void unlock_frames(AVFContext* ctx)
     pthread_mutex_unlock(&ctx->frame_lock);
 }
 
-/** FrameReciever class - delegate for AVCaptureSession
+/** FrameReceiver class - delegate for AVCaptureSession
  */
 @interface AVFFrameReceiver : NSObject
 {
@@ -242,7 +242,7 @@ static void unlock_frames(AVFContext* ctx)
 
 @end
 
-/** AudioReciever class - delegate for AVCaptureSession
+/** AudioReceiver class - delegate for AVCaptureSession
  */
 @interface AVFAudioReceiver : NSObject
 {
@@ -749,7 +749,7 @@ static int get_audio_config(AVFormatContext *s)
                 break;
             }
         }
-        av_log(s, AV_LOG_ERROR, "audio format is 0x%x\n", stream->codec->codec_id );
+        //av_log(s, AV_LOG_ERROR, "audio format is 0x%x\n", stream->codec->codec_id );
     } else {
         unlock_frames(ctx);
         av_log(s, AV_LOG_ERROR, "audio format is not supported\n");
@@ -828,8 +828,10 @@ static NSArray* getDevicesWithMediaType(AVMediaType mediaType) {
                               mediaType:mediaType
                                position:AVCaptureDevicePositionUnspecified];
     return [captureDeviceDiscoverySession devices];
-#else
+#elif TARGET_OS_OSX
     return [AVCaptureDevice devicesWithMediaType:mediaType];
+#else
+    return nil;
 #endif
 }
 

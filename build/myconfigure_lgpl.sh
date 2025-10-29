@@ -9,7 +9,7 @@ export PKG_CONFIG_PATH=/usr/i686-mingw32/lib/pkgconfig/
  --enable-libass --enable-libbluray --enable-decklink \
  --enable-openssl --enable-libopus  \
  --enable-libvo-amrwbenc  --enable-libwebp  --enable-nvenc --enable-cuda --enable-cuvid \
- --disable-demuxer=encx --enable-libsrt --enable-libmfx --enable-libsox  \
+ --disable-demuxer=encx --enable-libsrt --enable-libmfx  \
  --disable-muxer=encx \
  --disable-muxer=encx_audio \
  --enable-libxml2   \

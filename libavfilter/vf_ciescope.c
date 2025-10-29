@@ -1132,7 +1132,7 @@ fill_in_tongue(uint16_t*                  const pixels,
 
     /* Scan the image line by line and  fill  the  tongue  outline
        with the RGB values determined by the color system for the x-y
-       co-ordinates within the tongue.
+       coordinates within the tongue.
     */
 
     for (y = 0; y < h; ++y) {
@@ -1553,11 +1553,11 @@ static const AVFilterPad outputs[] = {
     },
 };
 
-const AVFilter ff_vf_ciescope = {
-    .name          = "ciescope",
-    .description   = NULL_IF_CONFIG_SMALL("Video CIE scope."),
+const FFFilter ff_vf_ciescope = {
+    .p.name        = "ciescope",
+    .p.description = NULL_IF_CONFIG_SMALL("Video CIE scope."),
+    .p.priv_class  = &ciescope_class,
     .priv_size     = sizeof(CiescopeContext),
-    .priv_class    = &ciescope_class,
     .uninit        = uninit,
     FILTER_INPUTS(inputs),
     FILTER_OUTPUTS(outputs),

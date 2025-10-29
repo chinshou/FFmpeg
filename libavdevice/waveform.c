@@ -361,14 +361,23 @@ static const AVOption options[] = {
     { "channels",   "A string describing samplerate.", OFFSET(channels), AV_OPT_TYPE_INT, {.i64 = 2}, 1, 2, DEC },
 	{ NULL },
 };
-                                                                                                                                                     
+                                                             
+static const AVClass class = {
+    .class_name = "waveform indev",
+    .item_name = av_default_item_name,
+    .option = options,
+    .version = LIBAVUTIL_VERSION_INT,
+    .category = AV_CLASS_CATEGORY_DEVICE_AUDIO_INPUT,
+};
+                                                                                        
 FFInputFormat ff_waveform_demuxer = {                                                                                                                   
     .p.name ="waveform",                                                                                                                                      
     .p.long_name=NULL_IF_CONFIG_SMALL("Waveform Audio"),                                                                                                          
+    .p.flags = AVFMT_NOFILE,                                                                                                                           
+    .p.priv_class   = &class,
     .priv_data_size =sizeof(struct waveform_ctx),                                                                                                                     
     .read_header =waveform_read_header,                                                                                                                            
     .read_packet =waveform_read_packet,                                                                                                                            
     .read_close =waveform_read_close,                                                                                                                             
-    .p.flags = AVFMT_NOFILE,                                                                                                                           
 };                                                                                                                                                   
 

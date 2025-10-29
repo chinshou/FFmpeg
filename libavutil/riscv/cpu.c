@@ -25,7 +25,7 @@
 #include "libavutil/log.h"
 #include "config.h"
 
-#if HAVE_GETAUXVAL
+#if HAVE_GETAUXVAL || HAVE_ELF_AUX_INFO
 #include <sys/auxv.h>
 #define HWCAP_RV(letter) (1ul << ((letter) - 'A'))
 #endif
@@ -82,9 +82,10 @@ int ff_get_cpu_flags_riscv(void)
                 ret |= AV_CPU_FLAG_RV_MISALIGNED;
                 break;
             default:
+                ; /* do nothing */
         }
     }
-#elif HAVE_GETAUXVAL
+#elif HAVE_GETAUXVAL || HAVE_ELF_AUX_INFO
     {
         const unsigned long hwcap = ff_getauxval(AT_HWCAP);
 
