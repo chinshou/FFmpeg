@@ -441,7 +441,7 @@ CFStringRef av_map_videotoolbox_color_matrix_from_av(enum AVColorSpace space)
     case AVCOL_SPC_BT2020_CL:
     case AVCOL_SPC_BT2020_NCL:
 #if HAVE_KCVIMAGEBUFFERYCBCRMATRIX_ITU_R_2020
-        if (__builtin_available(macOS 10.11, iOS 9, *))
+        //if (__builtin_available(macOS 10.11, iOS 9, *))
             return kCVImageBufferYCbCrMatrix_ITU_R_2020;
 #endif
         return CFSTR("ITU_R_2020");
@@ -454,7 +454,7 @@ CFStringRef av_map_videotoolbox_color_matrix_from_av(enum AVColorSpace space)
         return kCVImageBufferYCbCrMatrix_SMPTE_240M_1995;
     default:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_ITU_R_2100_HLG
-        if (__builtin_available(macOS 10.13, iOS 11, tvOS 11, watchOS 4, *))
+        //if (__builtin_available(macOS 10.13, iOS 11, tvOS 11, watchOS 4, *))
             return CVYCbCrMatrixGetStringForIntegerCodePoint(space);
 #endif
     case AVCOL_SPC_UNSPECIFIED:
@@ -467,7 +467,7 @@ CFStringRef av_map_videotoolbox_color_primaries_from_av(enum AVColorPrimaries pr
     switch (pri) {
     case AVCOL_PRI_BT2020:
 #if HAVE_KCVIMAGEBUFFERCOLORPRIMARIES_ITU_R_2020
-        if (__builtin_available(macOS 10.11, iOS 9, *))
+        //if (__builtin_available(macOS 10.11, iOS 9, *))
             return kCVImageBufferColorPrimaries_ITU_R_2020;
 #endif
         return CFSTR("ITU_R_2020");
@@ -479,7 +479,7 @@ CFStringRef av_map_videotoolbox_color_primaries_from_av(enum AVColorPrimaries pr
         return kCVImageBufferColorPrimaries_EBU_3213;
     default:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_ITU_R_2100_HLG
-        if (__builtin_available(macOS 10.13, iOS 11, tvOS 11, watchOS 4, *))
+        //if (__builtin_available(macOS 10.13, iOS 11, tvOS 11, watchOS 4, *))
             return CVColorPrimariesGetStringForIntegerCodePoint(pri);
 #endif
     case AVCOL_PRI_UNSPECIFIED:
@@ -493,14 +493,14 @@ CFStringRef av_map_videotoolbox_color_trc_from_av(enum AVColorTransferCharacteri
     switch (trc) {
     case AVCOL_TRC_SMPTE2084:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_SMPTE_ST_2084_PQ
-        if (__builtin_available(macOS 10.13, iOS 11, *))
+        //if (__builtin_available(macOS 10.13, iOS 11, *))
             return kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ;
 #endif
         return CFSTR("SMPTE_ST_2084_PQ");
     case AVCOL_TRC_BT2020_10:
     case AVCOL_TRC_BT2020_12:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_ITU_R_2020
-        if (__builtin_available(macOS 10.11, iOS 9, *))
+        //if (__builtin_available(macOS 10.11, iOS 9, *))
             return kCVImageBufferTransferFunction_ITU_R_2020;
 #endif
         return CFSTR("ITU_R_2020");
@@ -510,13 +510,13 @@ CFStringRef av_map_videotoolbox_color_trc_from_av(enum AVColorTransferCharacteri
         return kCVImageBufferTransferFunction_SMPTE_240M_1995;
     case AVCOL_TRC_SMPTE428:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_SMPTE_ST_428_1
-        if (__builtin_available(macOS 10.12, iOS 10, *))
+        //if (__builtin_available(macOS 10.12, iOS 10, *))
             return kCVImageBufferTransferFunction_SMPTE_ST_428_1;
 #endif
         return CFSTR("SMPTE_ST_428_1");
     case AVCOL_TRC_ARIB_STD_B67:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_ITU_R_2100_HLG
-        if (__builtin_available(macOS 10.13, iOS 11, *))
+        //if (__builtin_available(macOS 10.13, iOS 11, *))
             return kCVImageBufferTransferFunction_ITU_R_2100_HLG;
 #endif
         return CFSTR("ITU_R_2100_HLG");
@@ -526,7 +526,7 @@ CFStringRef av_map_videotoolbox_color_trc_from_av(enum AVColorTransferCharacteri
         return kCVImageBufferTransferFunction_UseGamma;
     default:
 #if HAVE_KCVIMAGEBUFFERTRANSFERFUNCTION_ITU_R_2100_HLG
-        if (__builtin_available(macOS 10.13, iOS 11, tvOS 11, watchOS 4, *))
+        //if (__builtin_available(macOS 10.13, iOS 11, tvOS 11, watchOS 4, *))
             return CVTransferFunctionGetStringForIntegerCodePoint(trc);
 #endif
     case AVCOL_TRC_UNSPECIFIED:
@@ -540,14 +540,16 @@ CFStringRef av_map_videotoolbox_color_trc_from_av(enum AVColorTransferCharacteri
 static CFDictionaryRef vt_cv_buffer_copy_attachments(CVBufferRef buffer,
                                                      CVAttachmentMode attachment_mode)
 {
+    CFDictionaryRef dict;
+
     // Check that our SDK is at least macOS 12 / iOS 15 / tvOS 15
-    #if (TARGET_OS_OSX  && defined(__MAC_12_0)    && __MAC_OS_X_VERSION_MAX_ALLOWED  >= __MAC_12_0)     || \
-        (TARGET_OS_IOS  && defined(__IPHONE_15_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_15_0)  || \
-        (TARGET_OS_TV   && defined(__TVOS_15_0)   && __TV_OS_VERSION_MAX_ALLOWED     >= __TVOS_15_0)
-        // On recent enough versions, just use the respective API
-        if (__builtin_available(macOS 12.0, iOS 15.0, tvOS 15.0, *))
-            return CVBufferCopyAttachments(buffer, attachment_mode);
-    #endif
+    // #if (TARGET_OS_OSX  && defined(__MAC_12_0)    && __MAC_OS_X_VERSION_MAX_ALLOWED  >= __MAC_12_0)     || \
+    //     (TARGET_OS_IOS  && defined(__IPHONE_15_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_15_0)  || \
+    //     (TARGET_OS_TV   && defined(__TVOS_15_0)   && __TV_OS_VERSION_MAX_ALLOWED     >= __TVOS_15_0)
+    //     // On recent enough versions, just use the respective API
+    //     if (__builtin_available(macOS 12.0, iOS 15.0, tvOS 15.0, *))
+    //         return CVBufferCopyAttachments(buffer, attachment_mode);
+    // #endif
 
     // Check that the target is lower than macOS 12 / iOS 15 / tvOS 15
     // else this would generate a deprecation warning and anyway never run because
@@ -556,7 +558,7 @@ static CFDictionaryRef vt_cv_buffer_copy_attachments(CVBufferRef buffer,
         (TARGET_OS_IOS  && (!defined(__IPHONE_15_0) || __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_15_0))  || \
         (TARGET_OS_TV   && (!defined(__TVOS_15_0)   || __TV_OS_VERSION_MIN_REQUIRED     < __TVOS_15_0))
         // Fallback on SDKs or runtime versions < macOS 12 / iOS 15 / tvOS 15
-        CFDictionaryRef dict = CVBufferGetAttachments(buffer, attachment_mode);
+        dict = CVBufferGetAttachments(buffer, attachment_mode);
         return (dict) ? CFDictionaryCreateCopy(NULL, dict) : NULL;
     #else
         return NULL; // Impossible, just make the compiler happy
@@ -588,7 +590,7 @@ static int vt_pixbuf_set_colorspace(void *log_ctx,
             colorpri, kCVAttachmentMode_ShouldPropagate);
     else {
         CVBufferRemoveAttachment(pixbuf, kCVImageBufferColorPrimariesKey);
-        if (src->color_primaries != AVCOL_PRI_UNSPECIFIED)
+        if (src->color_primaries != AVCOL_SPC_UNSPECIFIED)
             av_log(log_ctx, AV_LOG_WARNING,
                 "Color primaries %s is not supported.\n",
                 av_color_primaries_name(src->color_primaries));
@@ -621,7 +623,8 @@ static int vt_pixbuf_set_colorspace(void *log_ctx,
 
 #if (TARGET_OS_OSX && __MAC_OS_X_VERSION_MAX_ALLOWED >= 100800) || \
     (TARGET_OS_IOS && __IPHONE_OS_VERSION_MAX_ALLOWED >= 100000)
-    if (__builtin_available(macOS 10.8, iOS 10, *)) {
+    //if (__builtin_available(macOS 10.8, iOS 10, *)) 
+    {
         CFDictionaryRef attachments =
             vt_cv_buffer_copy_attachments(pixbuf, kCVAttachmentMode_ShouldPropagate);
 
