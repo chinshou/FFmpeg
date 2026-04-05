@@ -10,15 +10,13 @@ libavdevice/riscv/cpu_common.c
 libavfilter/file_open.c
 libavfilter/log2_tab.c
 libavfilter/riscv/cpu_common.c
-libavformat/cbs.c
-libavformat/cbs_apv.c
-libavformat/cbs_av1.c
 libavformat/file_open.c
 libavformat/golomb_tab.c
 libavformat/log2_tab.c
 libavformat/rangecoder_dec.c
 libavformat/riscv/cpu_common.c
 libswresample/log2_tab.c
+libswscale/aarch64/ops_entries.c
 libswscale/log2_tab.c
 libswscale/riscv/cpu_common.c
 tools/uncoded_frame.c

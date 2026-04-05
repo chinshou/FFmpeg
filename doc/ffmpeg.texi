@@ -1569,6 +1569,27 @@ Set whether on display the image should be vertically flipped.
 
 See the @code{-display_rotation} option for more details.
 
+@item -mastering_display[:@var{stream_specifier}] @var{G(%u,%u)B(%u,%u)R(%u,%u)WP(%u,%u)L(%u,%u)} (@emph{input,per-stream})
+Set video mastering display metadata.
+
+@var{G(%u,%u)B(%u,%u)R(%u,%u)WP(%u,%u)L(%u,%u)} is a string specifying
+X,Y display primaries for GBR channels and white point (WP) in units of
+0.00002, and max-min luminance (L) values in units of 0.0001 candela per
+meter square. The values are unsigned integers representing the numerator
+of a rational with an implicit denominator of 50000 for GBR and (WP), and
+implicit denominator 10000 for (L).
+
+This option overrides the mastering display metadata stored in the file,
+if any.
+
+@item -content_light[:@var{stream_specifier}] @var{%u,%u} (@emph{input,per-stream})
+Set video content light metadata.
+
+@var{%u,%u} is a string specifying max content light level and maximum picture
+average light level.
+
+This option overrides the content light metadata stored in the file, if any.
+
 @item -vn (@emph{input/output})
 As an input option, blocks all video streams of a file from being filtered or
 being automatically selected or mapped for any output. See @code{-discard}
@@ -1665,6 +1686,7 @@ Force video tag/fourcc. This is an alias for @code{-tag:v}.
 @item -force_key_frames[:@var{stream_specifier}] @var{time}[,@var{time}...] (@emph{output,per-stream})
 @item -force_key_frames[:@var{stream_specifier}] expr:@var{expr} (@emph{output,per-stream})
 @item -force_key_frames[:@var{stream_specifier}] source (@emph{output,per-stream})
+@item -force_key_frames[:@var{stream_specifier}] scd_metadata (@emph{output,per-stream})
 
 @var{force_key_frames} can take arguments of the following form:
 
@@ -1727,6 +1749,14 @@ If the argument is @code{source}, ffmpeg will force a key frame if
 the current frame being encoded is marked as a key frame in its source.
 In cases where this particular source frame has to be dropped,
 enforce the next available frame to become a key frame instead.
+
+@item scd_metadata
+If the argument is @code{scd_metadata}, ffmpeg will force a key frame if
+the current frame contains a metadata entry with the key @code{lavfi.scd.time}.
+The metadata can be added by filters like @code{scdet} and @code{scdet_vulkan}.
+Avoid inserting filters that duplicate frames after @code{scdet}, as this can
+cause duplicate metadata for multiple frames and repeated insertion of key
+frames.
 
 @end table
 
