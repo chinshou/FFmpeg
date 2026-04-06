@@ -1702,7 +1702,7 @@ static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
         av_assert0(fg->nb_outputs == 1);
         av_log(mux, AV_LOG_VERBOSE, "Creating output stream from stream group derived complex filtergraph %d.\n", fg->index);
 
-        return ost_add(mux, o, AVMEDIA_TYPE_VIDEO, NULL, ofilter, NULL, NULL);
+        return ost_add(ctx,mux, o, AVMEDIA_TYPE_VIDEO, NULL, ofilter, NULL, NULL);
     }
     if (best_ist)
         return ost_add(ctx, mux, o, AVMEDIA_TYPE_VIDEO, best_ist, NULL, NULL, NULL);

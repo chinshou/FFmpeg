@@ -600,7 +600,7 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
 
         m->group_index = -1;
         file_idx = strtol(arg, &endptr, 0);
-        if (file_idx >= nb_input_files || file_idx < 0)
+        if (file_idx >= ctx->nb_input_files || file_idx < 0)
             goto end;
 
         arg = endptr;
@@ -1517,7 +1517,7 @@ int ffmpeg_parse_options(FfmpegContext* ctx,int argc, char **argv, Scheduler *sc
 
     /* create complex filtergraphs */
     for (int i = 0; i < go.nb_filtergraphs; i++) {
-        ret = fg_create(ctx, NULL, go.filtergraphs[i], sch);
+        ret = fg_create(ctx, NULL, &go.filtergraphs[i], sch, NULL);
         go.filtergraphs[i] = NULL;
         if (ret < 0)
             goto fail;

@@ -1786,7 +1786,7 @@ static DemuxStreamGroup *demux_stream_group_alloc(Demuxer *d, AVStreamGroup *stg
     return dsg;
 }
 
-static int istg_parse_tile_grid(const OptionsContext *o, Demuxer *d, InputStreamGroup *istg)
+static int istg_parse_tile_grid(FfmpegContext* ctx,const OptionsContext *o, Demuxer *d, InputStreamGroup *istg)
 {
     InputFile *f = &d->f;
     AVFormatContext *ic = d->f.ctx;
@@ -1850,7 +1850,7 @@ static int istg_parse_tile_grid(const OptionsContext *o, Demuxer *d, InputStream
             goto fail;
     }
 
-    ret = fg_create(NULL, &graph_str, d->sch, &opts);
+    ret = fg_create(ctx, NULL, &graph_str, d->sch, &opts);
     if (ret < 0)
         goto fail;
 
@@ -1865,7 +1865,7 @@ fail:
     return ret;
 }
 
-static int istg_add(const OptionsContext *o, Demuxer *d, AVStreamGroup *stg)
+static int istg_add(FfmpegContext* ctx,const OptionsContext *o, Demuxer *d, AVStreamGroup *stg)
 {
     DemuxStreamGroup *dsg;
     InputStreamGroup *istg;
@@ -1879,7 +1879,7 @@ static int istg_add(const OptionsContext *o, Demuxer *d, AVStreamGroup *stg)
 
     switch (stg->type) {
     case AV_STREAM_GROUP_PARAMS_TILE_GRID:
-        ret = istg_parse_tile_grid(o, d, istg);
+        ret = istg_parse_tile_grid(ctx, o, d, istg);
         if (ret < 0)
             return ret;
         break;
@@ -2318,7 +2318,7 @@ int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename
 
     /* Add all the stream groups from the given input file to the demuxer */
     for (int i = 0; i < ic->nb_stream_groups; i++) {
-        ret = istg_add(o, d, ic->stream_groups[i]);
+        ret = istg_add(ctx, o, d, ic->stream_groups[i]);
         if (ret < 0)
             return ret;
     }
