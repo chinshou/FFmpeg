@@ -1339,8 +1339,8 @@ static int fg_complex_bind_input(FfmpegContext* ctx,FilterGraph *fg, InputFilter
                    ifilter->linklabel, ist->file->index, ist->index);
     } else {
         // try finding an unbound filtergraph output
-        for (int i = 0; i < nb_filtergraphs; i++) {
-            FilterGraph *fg_src = filtergraphs[i];
+        for (int i = 0; i < ctx->nb_filtergraphs; i++) {
+            FilterGraph *fg_src = ctx->filtergraphs[i];
 
             if (fg == fg_src)
                 continue;
@@ -1443,12 +1443,12 @@ int fg_finalise_bindings(FfmpegContext* ctx)
                        output->name, j,
                        output->linklabel ? (const char *)output->linklabel : "unlabeled");
                 sch_remove_filtergraph(fgp->sch, fgp->sch_idx);
-                fg_free(&filtergraphs[i]);
-                nb_filtergraphs--;
-                if (nb_filtergraphs > 0)
-                    memmove(&filtergraphs[i],
-                            &filtergraphs[i + 1],
-                            (nb_filtergraphs - i) * sizeof(*filtergraphs));
+                fg_free(&ctx->filtergraphs[i]);
+                ctx->nb_filtergraphs--;
+                if (ctx->nb_filtergraphs > 0)
+                    memmove(&ctx->filtergraphs[i],
+                            &ctx->filtergraphs[i + 1],
+                            (ctx->nb_filtergraphs - i) * sizeof(*ctx->filtergraphs));
                 break;
             }
         }
