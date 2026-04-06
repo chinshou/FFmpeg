@@ -1854,7 +1854,7 @@ static int istg_parse_tile_grid(const OptionsContext *o, Demuxer *d, InputStream
     if (ret < 0)
         goto fail;
 
-    istg->fg = ctx->filtergraphs[nb_filtergraphs-1];
+    istg->fg = ctx->filtergraphs[ctx->nb_filtergraphs-1];
     istg->fg->is_internal = 1;
 
     ret = 0;
