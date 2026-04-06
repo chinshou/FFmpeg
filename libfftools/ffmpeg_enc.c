@@ -863,16 +863,37 @@ static int frame_encode(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame, A
                         if (ctx->enc_callback->flip)
                         {
                            //flip the bitmap
-                             //av_log(NULL, AV_LOG_ERROR, "bitmap flip");
-                             
-                             save_frame.data[0] += save_frame.linesize[0] * (ost->v_height - 1);
-			                 save_frame.linesize[0] *= -1;
+                           // 获取当前帧格式的描述信息
+                           const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
+                           if (!desc) {
+                              // 错误处理：无法识别的格式
+                              av_log(e, AV_LOG_ERROR,
+                                  "unknown video format \n");
+                              return 0; 
+                           }
+						   // 遍历所有存在的 Plane (最多4个)
+						   // av_pix_fmt_count_planes 也可以用来辅助判断，但检查 data[i] 是否非空最直接
+						   for (int i = 0; i < 4; i++) {
+							  if (save_frame.data[i] && save_frame.linesize[i] > 0) {
+									// 【修复2】计算当前 Plane 的实际高度
+									// 对于第0平面(Luma)，高度就是 frame->height
+									// 对于第1,2平面(Chroma)，高度根据 log2_chroma_h 进行位移
+									int plane_height = frame->height;
+									if (i == 1 || i == 2) {
+										// 使用 AV_CEIL_RSHIFT 处理奇数高度的对齐问题，这比简单的 >> 更安全
+										plane_height = AV_CEIL_RSHIFT(frame->height, desc->log2_chroma_h);
+									}
+									
+									// 只有当该平面是高度相关的才处理 (Alpha通道等通常也是全高)
+									// 注意：某些特殊格式可能需要额外判断，但对标准YUV足够了
 
-			                 save_frame.data[1] += save_frame.linesize[1] * ((ost->v_height >> ost->u_sub)  - 1);
-			                 save_frame.linesize[1] *= -1;
-
-			                 save_frame.data[2]+=save_frame.linesize[2] * ((ost->v_height >> ost->v_sub) - 1);
-			                 save_frame.linesize[2] *= -1;
+									// 【修复3】执行翻转逻辑
+									// 指向最后一行的起始位置
+									save_frame.data[i] += save_frame.linesize[i] * (plane_height - 1);
+									// 设置负 stride
+									save_frame.linesize[i] *= -1;
+							   }
+							 }                                                                                     
                         }
            	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
 	                  	ost->v_height, ost->frame_rgb->data, ost->frame_rgb->linesize);
