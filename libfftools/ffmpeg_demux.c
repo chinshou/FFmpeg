@@ -1940,7 +1940,7 @@ static int safe_filename(const char *f, int allow_subdir)
     return 1;
 }
 
-static int dump_attachment(InputStream *ist, const char *filename)
+static int dump_attachment(FfmpegContext* ctx, InputStream *ist, const char *filename)
 {
     AVStream *st = ist->st;
     int ret;
