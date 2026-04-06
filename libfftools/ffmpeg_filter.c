@@ -1455,7 +1455,7 @@ int fg_finalise_bindings(FfmpegContext* ctx)
     }
 
     for (int i = 0; i < ctx->nb_filtergraphs; i++) {
-        ret = bind_inputs(ctx->filtergraphs[i], 1);
+        ret = bind_inputs(ctx, ctx->filtergraphs[i], 1);
         if (ret < 0)
             return ret;
     }
