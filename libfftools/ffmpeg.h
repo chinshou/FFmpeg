@@ -139,6 +139,7 @@ typedef struct StreamMap {
     int disabled;           /* 1 is this mapping is disabled by a negative map */
     int file_index;
     int stream_index;
+    int group_index;
     char *linklabel;       /* name of an output link, for mapping lavfi outputs */
 
     ViewSpecifier vs;
@@ -220,6 +221,8 @@ typedef struct OptionsContext {
     SpecifierOptList display_rotations;
     SpecifierOptList display_hflips;
     SpecifierOptList display_vflips;
+    SpecifierOptList mastering_displays;
+    SpecifierOptList content_lights;
     SpecifierOptList rc_overrides;
     SpecifierOptList intra_matrices;
     SpecifierOptList inter_matrices;
@@ -260,6 +263,8 @@ typedef struct OptionsContext {
     SpecifierOptList enc_stats_pre_fmt;
     SpecifierOptList enc_stats_post_fmt;
     SpecifierOptList mux_stats_fmt;
+
+    int depth;
 } OptionsContext;
 
 enum IFilterFlags {
@@ -302,6 +307,8 @@ enum OFilterFlags {
     // produce 24-bit audio
     OFILTER_FLAG_AUDIO_24BIT        = (1 << 1),
     OFILTER_FLAG_AUTOSCALE          = (1 << 2),
+    OFILTER_FLAG_AUTOROTATE         = (1 << 3),
+    OFILTER_FLAG_CROP               = (1 << 4),
 };
 
 typedef struct OutputFilterOptions {
@@ -333,6 +340,12 @@ typedef struct OutputFilterOptions {
     int                 height;
     enum AVColorSpace   color_space;
     enum AVColorRange   color_range;
+    enum AVAlphaMode    alpha_mode;
+
+    unsigned            crop_top;
+    unsigned            crop_bottom;
+    unsigned            crop_left;
+    unsigned            crop_right;
 
     enum VideoSyncMethod vsync_method;
     AVRational           frame_rate;
@@ -341,12 +354,19 @@ typedef struct OutputFilterOptions {
     int                 sample_rate;
     AVChannelLayout     ch_layout;
 
-    const int                *formats;
+    union {
+        const enum AVPixelFormat *pix_fmts;
+        const enum AVSampleFormat *sample_fmts;
+    };
     const int                *sample_rates;
     const AVChannelLayout    *ch_layouts;
     const AVRational         *frame_rates;
     const enum AVColorSpace  *color_spaces;
     const enum AVColorRange  *color_ranges;
+    const enum AVAlphaMode   *alpha_modes;
+
+    AVFrameSideData   **side_data;
+    int                 nb_side_data;
 
     // for simple filtergraphs only, view specifier passed
     // along to the decoder
@@ -422,6 +442,8 @@ typedef struct OutputFilterPriv {
     void                   *log_parent;
     char                    log_name[32];
 
+    int                     needed;
+
     /* desired output stream properties */
     int                     format;
     int                     width, height;
@@ -429,6 +451,12 @@ typedef struct OutputFilterPriv {
     AVChannelLayout         ch_layout;
     enum AVColorSpace       color_space;
     enum AVColorRange       color_range;
+    enum AVAlphaMode        alpha_mode;
+
+    unsigned                crop_top;
+    unsigned                crop_bottom;
+    unsigned                crop_left;
+    unsigned                crop_right;
 
     AVFrameSideData       **side_data;
     int                     nb_side_data;
@@ -447,11 +475,17 @@ typedef struct OutputFilterPriv {
 
     // those are only set if no format is specified and the encoder gives us multiple options
     // They point directly to the relevant lists of the encoder.
-    const int              *formats;
+    union {
+        const enum AVPixelFormat *pix_fmts;
+        const enum AVSampleFormat *sample_fmts;
+    };
     const AVChannelLayout  *ch_layouts;
     const int              *sample_rates;
     const enum AVColorSpace *color_spaces;
     const enum AVColorRange *color_ranges;
+    const enum AVAlphaMode *alpha_modes;
+
+    int32_t                 displaymatrix[9];
 
     AVRational              enc_timebase;
     int64_t                 trim_start_us;
@@ -472,6 +506,11 @@ typedef struct FilterGraph {
     int          nb_inputs;
     OutputFilter **outputs;
     int         nb_outputs;
+
+    // true when the filtergraph is created internally for
+    // purposes like stream group merging. Meant to be freed
+    // if unbound.
+    int                 is_internal;
 
     const char      *graph_desc;
     struct AVBPrint graph_print_buf;
@@ -562,6 +601,18 @@ typedef struct InputStream {
     int                nb_filters;
 } InputStream;
 
+typedef struct InputStreamGroup {
+    const AVClass        *class;
+
+    /* parent source */
+    struct InputFile     *file;
+
+    int                   index;
+
+    FilterGraph          *fg;
+    AVStreamGroup        *stg;
+} InputStreamGroup;
+
 typedef struct InputFile {
     const AVClass   *class;
 
@@ -583,6 +634,10 @@ typedef struct InputFile {
      * if new streams appear dynamically during demuxing */
     InputStream    **streams;
     int           nb_streams;
+
+    /* stream groups that ffmpeg is aware of; */
+    InputStreamGroup **stream_groups;
+    int           nb_stream_groups;
 } InputFile;
 
 enum forced_keyframes_const {
@@ -653,6 +708,8 @@ enum {
 #if FFMPEG_OPT_FORCE_KF_SOURCE_NO_DROP
     KF_FORCE_SOURCE_NO_DROP = 2,
 #endif
+    // force keyframe if lavfi.scd.time metadata is set
+    KF_FORCE_SCD_METADATA = 3,
 };
 
 typedef struct KeyframeForceCtx {
@@ -791,6 +848,9 @@ typedef struct FrameData {
     int64_t wallclock[LATENCY_PROBE_NB];
 
     AVCodecParameters *par_enc;
+
+    AVFrameSideData   **side_data;
+    int                 nb_side_data;
 } FrameData;
 
 typedef struct FfmpegContext{
@@ -893,12 +953,12 @@ int check_avoptions_used(const AVDictionary *opts, const AVDictionary *opts_used
 int assert_file_overwrite(FfmpegContext* ctx, const char *filename);
 int find_codec(void *logctx, const char *name,
                enum AVMediaType type, int encoder, const AVCodec **codec);
-int parse_and_set_vsync(const char *arg, int *vsync_var, int file_idx, int st_idx, int is_global);
+int parse_and_set_vsync(const char *arg, enum VideoSyncMethod *vsync_var, int file_idx, int st_idx, int is_global);
 
 int filtergraph_is_simple(const FilterGraph *fg);
 int fg_create_simple(FfmpegContext* ctx, FilterGraph **pfg,
                      InputStream *ist,
-                     char *graph_desc,
+                     char **graph_desc,
                      Scheduler *sch, unsigned sched_idx_enc,
                      const OutputFilterOptions *opts);
 int fg_finalise_bindings(FfmpegContext* ctx);
@@ -924,7 +984,8 @@ int ofilter_bind_enc(OutputFilter *ofilter,
  * @param graph_desc Graph description; an av_malloc()ed string, filtergraph
  *                   takes ownership of it.
  */
-int fg_create(FfmpegContext* ctx, FilterGraph **pfg, char *graph_desc, Scheduler *sch);
+int fg_create(FfmpegContext* ctx, FilterGraph **pfg, char *graph_desc, Scheduler *sch,
+              const OutputFilterOptions *opts);
 
 void fg_free(FilterGraph **pfg);
 
@@ -1051,6 +1112,15 @@ void opt_match_per_stream_int64(void *logctx, const SpecifierOptList *sol,
                                 AVFormatContext *fc, AVStream *st, int64_t *out);
 void opt_match_per_stream_dbl(void *logctx, const SpecifierOptList *sol,
                               AVFormatContext *fc, AVStream *st, double *out);
+
+void opt_match_per_stream_group_str(void *logctx, const SpecifierOptList *sol,
+                                    AVFormatContext *fc, AVStreamGroup *stg, const char **out);
+void opt_match_per_stream_group_int(void *logctx, const SpecifierOptList *sol,
+                                    AVFormatContext *fc, AVStreamGroup *stg, int *out);
+void opt_match_per_stream_group_int64(void *logctx, const SpecifierOptList *sol,
+                                      AVFormatContext *fc, AVStreamGroup *stg, int64_t *out);
+void opt_match_per_stream_group_dbl(void *logctx, const SpecifierOptList *sol,
+                                    AVFormatContext *fc, AVStreamGroup *stg, double *out);
 
 int view_specifier_parse(const char **pspec, ViewSpecifier *vs);
 

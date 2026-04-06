@@ -253,6 +253,70 @@ OPT_MATCH_PER_STREAM(int,   int,          OPT_TYPE_INT,    i);
 OPT_MATCH_PER_STREAM(int64, int64_t,      OPT_TYPE_INT64,  i64);
 OPT_MATCH_PER_STREAM(dbl,   double,       OPT_TYPE_DOUBLE, dbl);
 
+static unsigned opt_match_per_stream_group(void *logctx, enum OptionType type,
+                                           const SpecifierOptList *sol,
+                                           AVFormatContext *fc, AVStreamGroup *stg)
+{
+    int matches = 0, match_idx = -1;
+
+    av_assert0((type == sol->type) || !sol->nb_opt);
+
+    for (int i = 0; i < sol->nb_opt; i++) {
+        const StreamSpecifier *ss = &sol->opt[i].stream_spec;
+
+        if (stream_group_specifier_match(ss, fc, stg, logctx)) {
+            match_idx = i;
+            matches++;
+        }
+    }
+
+    if (matches > 1 && sol->opt_canon) {
+        const SpecifierOpt *so = &sol->opt[match_idx];
+        const char *spec = so->specifier && so->specifier[0] ? so->specifier : "";
+
+        char namestr[128] = "";
+        char optval_buf[32];
+        const char *optval = optval_buf;
+
+        snprintf(namestr, sizeof(namestr), "-%s", sol->opt_canon->name);
+        if (sol->opt_canon->flags & OPT_HAS_ALT) {
+            const char * const *names_alt = sol->opt_canon->u1.names_alt;
+            for (int i = 0; names_alt[i]; i++)
+                av_strlcatf(namestr, sizeof(namestr), "/-%s", names_alt[i]);
+        }
+
+        switch (sol->type) {
+        case OPT_TYPE_STRING: optval = so->u.str;                                             break;
+        case OPT_TYPE_INT:    snprintf(optval_buf, sizeof(optval_buf), "%d", so->u.i);        break;
+        case OPT_TYPE_INT64:  snprintf(optval_buf, sizeof(optval_buf), "%"PRId64, so->u.i64); break;
+        case OPT_TYPE_FLOAT:  snprintf(optval_buf, sizeof(optval_buf), "%f", so->u.f);        break;
+        case OPT_TYPE_DOUBLE: snprintf(optval_buf, sizeof(optval_buf), "%f", so->u.dbl);      break;
+        default: av_assert0(0);
+        }
+
+        av_log(logctx, AV_LOG_WARNING, "Multiple %s options specified for "
+               "stream group %d, only the last option '-%s%s%s %s' will be used.\n",
+               namestr, stg->index, sol->opt_canon->name, spec[0] ? ":" : "",
+               spec, optval);
+    }
+
+    return match_idx + 1;
+}
+
+#define OPT_MATCH_PER_STREAM_GROUP(name, type, opt_type, m)                                  \
+void opt_match_per_stream_group_ ## name(void *logctx, const SpecifierOptList *sol,          \
+                                         AVFormatContext *fc, AVStreamGroup *stg, type *out) \
+{                                                                                            \
+    unsigned ret = opt_match_per_stream_group(logctx, opt_type, sol, fc, stg);               \
+    if (ret > 0)                                                                             \
+        *out = sol->opt[ret - 1].u.m;                                                        \
+}
+
+OPT_MATCH_PER_STREAM_GROUP(str,   const char *, OPT_TYPE_STRING, str);
+OPT_MATCH_PER_STREAM_GROUP(int,   int,          OPT_TYPE_INT,    i);
+OPT_MATCH_PER_STREAM_GROUP(int64, int64_t,      OPT_TYPE_INT64,  i64);
+OPT_MATCH_PER_STREAM_GROUP(dbl,   double,       OPT_TYPE_DOUBLE, dbl);
+
 int view_specifier_parse(const char **pspec, ViewSpecifier *vs)
 {
     const char *spec = *pspec;
@@ -306,7 +370,7 @@ int view_specifier_parse(const char **pspec, ViewSpecifier *vs)
     return 0;
 }
 
-int parse_and_set_vsync(const char *arg, int *vsync_var, int file_idx, int st_idx, int is_global)
+int parse_and_set_vsync(const char *arg, enum VideoSyncMethod *vsync_var, int file_idx, int st_idx, int is_global)
 {
     if      (!av_strcasecmp(arg, "cfr"))         *vsync_var = VSYNC_CFR;
     else if (!av_strcasecmp(arg, "vfr"))         *vsync_var = VSYNC_VFR;
@@ -515,8 +579,10 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
     }
 
     if (arg[0] == '[') {
+        ViewSpecifier vs;
         /* this mapping refers to lavfi output */
         const char *c = arg + 1;
+        char *endptr;
 
         ret = GROW_ARRAY(o->stream_maps, o->nb_stream_maps);
         if (ret < 0)
@@ -529,6 +595,27 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
             ret = AVERROR(EINVAL);
             goto fail;
         }
+
+        arg++;
+
+        m->group_index = -1;
+        file_idx = strtol(arg, &endptr, 0);
+        if (file_idx >= nb_input_files || file_idx < 0)
+            goto end;
+
+        arg = endptr;
+        ret = stream_specifier_parse(&ss, *arg == ':' ? arg + 1 : arg, 1, NULL);
+        if (ret < 0)
+            goto end;
+
+        arg = ss.remainder ? ss.remainder : "";
+        ret = view_specifier_parse(&arg, &vs);
+        if (ret < 0 || (*arg && strcmp(arg, "]")))
+            goto end;
+
+        m->file_index  = file_idx;
+        m->stream_index = ss.idx;
+        m->group_index = ss.stream_list == STREAM_LIST_GROUP_IDX ? ss.list_id : -1;
     } else {
         ViewSpecifier vs;
         char *endptr;
@@ -594,6 +681,7 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
 
                 m->file_index   = file_idx;
                 m->stream_index = i;
+                m->group_index  = ss.stream_list == STREAM_LIST_GROUP_IDX ? ss.list_id : -1;
                 m->vs           = vs;
             }
     }
@@ -613,6 +701,7 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
             goto fail;
         }
     }
+end:
     ret = 0;
 fail:
     stream_specifier_uninit(&ss);
@@ -1034,6 +1123,12 @@ static int opt_preset(FfmpegContext* ctx, void *optctx, const char *opt, const c
     char filename[1000], line[1000], tmp_line[1000];
     const char *codec_name = NULL;
     int ret = 0;
+    int depth = o->depth;
+
+    if (depth > 2) {
+        av_log(NULL, AV_LOG_ERROR, "too deep recursion\n");
+        return AVERROR(EINVAL);
+    }
 
     codec_name = opt_match_per_type_str(&o->codec_names, *opt);
 
@@ -1045,6 +1140,7 @@ static int opt_preset(FfmpegContext* ctx, void *optctx, const char *opt, const c
         return AVERROR(ENOENT);
     }
 
+    o->depth ++;
     while (fgets(line, sizeof(line), f)) {
         char *key = tmp_line, *value, *endptr;
 
@@ -1073,6 +1169,7 @@ static int opt_preset(FfmpegContext* ctx, void *optctx, const char *opt, const c
     }
 
 fail:
+    o->depth = depth;
     fclose(f);
 
     return ret;
@@ -1202,7 +1299,7 @@ static int opt_filter_complex_script(FfmpegContext* ctx, void *optctx, const cha
     char *graph_desc;
     int ret;
 
-    graph_desc = file_read(arg);
+    graph_desc = read_file_to_string(arg);
     if (!graph_desc)
         return AVERROR(EINVAL);
 
@@ -1858,6 +1955,12 @@ const OptionDef options[] = {
         { .off = OFFSET(display_vflips) },
         "set display vertical flip for stream(s) "
         "(overrides any display rotation if it is not set)"},
+    { "mastering_display",          OPT_TYPE_STRING, OPT_VIDEO | OPT_PERSTREAM | OPT_INPUT | OPT_EXPERT,
+        { .off = OFFSET(mastering_displays) },
+        "set SMPTE2084 mastering display color volume info" },
+    { "content_light",              OPT_TYPE_STRING, OPT_VIDEO | OPT_PERSTREAM | OPT_INPUT | OPT_EXPERT,
+        { .off = OFFSET(content_lights) },
+        "set SMPTE2084 Max CLL and Max FALL values" },
     { "vn",                         OPT_TYPE_BOOL,   OPT_VIDEO | OPT_OFFSET | OPT_INPUT | OPT_OUTPUT,
         { .off = OFFSET(video_disable) },
         "disable video" },
