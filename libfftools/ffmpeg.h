@@ -984,7 +984,7 @@ int ofilter_bind_enc(OutputFilter *ofilter,
  * @param graph_desc Graph description; an av_malloc()ed string, filtergraph
  *                   takes ownership of it.
  */
-int fg_create(FfmpegContext* ctx, FilterGraph **pfg, char *graph_desc, Scheduler *sch,
+int fg_create(FfmpegContext* ctx, FilterGraph **pfg, char **graph_desc, Scheduler *sch,
               const OutputFilterOptions *opts);
 
 void fg_free(FilterGraph **pfg);
