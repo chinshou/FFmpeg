@@ -1008,7 +1008,7 @@ static const AVClass fg_class = {
     .category   = AV_CLASS_CATEGORY_FILTER,
 };
 
-int fg_create(FfmpegContext* ctx,FilterGraph **pfg, char *graph_desc, Scheduler *sch,
+int fg_create(FfmpegContext* ctx,FilterGraph **pfg, char **graph_desc, Scheduler *sch,
               const OutputFilterOptions *opts)
 {
     FilterGraphPriv *fgp;
