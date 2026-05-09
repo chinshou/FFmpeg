@@ -41,6 +41,7 @@
 #include "vp9data.h"
 #include "vp9dec.h"
 #include "vpx_rac.h"
+#include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
@@ -176,10 +177,12 @@ static int update_size(AVCodecContext *avctx, int w, int h)
     uint8_t *p;
     int bytesperpixel = s->bytesperpixel, ret, cols, rows;
     int lflvl_len, i;
+    int changed = 0;
 
     av_assert0(w > 0 && h > 0);
 
     if (!(s->pix_fmt == s->gf_fmt && w == s->w && h == s->h)) {
+        changed = 1;
         if ((ret = ff_set_dimensions(avctx, w, h)) < 0)
             return ret;
 
@@ -265,7 +268,7 @@ static int update_size(AVCodecContext *avctx, int w, int h)
     rows = (h + 7) >> 3;
 
     if (s->intra_pred_data[0] && cols == s->cols && rows == s->rows && s->pix_fmt == s->last_fmt)
-        return 0;
+        return changed;
 
     s->last_fmt  = s->pix_fmt;
     s->sb_cols   = (w + 63) >> 6;
@@ -310,9 +313,10 @@ static int update_size(AVCodecContext *avctx, int w, int h)
         ff_vp9dsp_init(&s->dsp, s->s.h.bpp, avctx->flags & AV_CODEC_FLAG_BITEXACT);
         ff_videodsp_init(&s->vdsp, s->s.h.bpp);
         s->last_bpp = s->s.h.bpp;
+        changed = 1;
     }
 
-    return 0;
+    return changed;
 }
 
 static int update_block_buffers(AVCodecContext *avctx)
@@ -519,6 +523,7 @@ static int decode_frame_header(AVCodecContext *avctx,
     int c, i, j, k, l, m, n, w, h, max, size2, ret, sharp;
     int last_invisible;
     const uint8_t *data2;
+    int changed;
 
     /* general header */
     if ((ret = init_get_bits8(&s->gb, data, size)) < 0) {
@@ -788,10 +793,10 @@ FF_ENABLE_DEPRECATION_WARNINGS
     }
 
     /* tiling info */
-    if ((ret = update_size(avctx, w, h)) < 0) {
+    if ((changed = update_size(avctx, w, h)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to initialize decoder for %dx%d @ %d\n",
                w, h, s->pix_fmt);
-        return ret;
+        return changed;
     }
     for (s->s.h.tiling.log2_tile_cols = 0;
          s->sb_cols > (64 << s->s.h.tiling.log2_tile_cols);
@@ -806,7 +811,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     }
     s->s.h.tiling.log2_tile_rows = decode012(&s->gb);
     s->s.h.tiling.tile_rows = 1 << s->s.h.tiling.log2_tile_rows;
-    if (s->s.h.tiling.tile_cols != (1 << s->s.h.tiling.log2_tile_cols)) {
+    if (s->s.h.tiling.tile_cols != (1 << s->s.h.tiling.log2_tile_cols) || changed) {
         int n_range_coders;
         VPXRangeCoder *rc;
 
@@ -1602,10 +1607,12 @@ static int vp9_decode_frame(AVCodecContext *avctx, AVFrame *frame,
     s->frame_header = &rf->header;
 
     if ((ret = decode_frame_header(avctx, data, size, &ref)) < 0) {
+        ff_cbs_fragment_reset(&s->current_frag);
         return ret;
     } else if (ret == 0) {
         if (!s->s.refs[ref].f) {
             av_log(avctx, AV_LOG_ERROR, "Requested reference %d not available\n", ref);
+            ff_cbs_fragment_reset(&s->current_frag);
             return AVERROR_INVALIDDATA;
         }
         for (int i = 0; i < 8; i++)
@@ -1630,8 +1637,10 @@ static int vp9_decode_frame(AVCodecContext *avctx, AVFrame *frame,
         vp9_frame_replace(&s->s.frames[REF_FRAME_SEGMAP], src);
     vp9_frame_replace(&s->s.frames[REF_FRAME_MVPAIR], src);
     vp9_frame_unref(&s->s.frames[CUR_FRAME]);
-    if ((ret = vp9_frame_alloc(avctx, &s->s.frames[CUR_FRAME])) < 0)
+    if ((ret = vp9_frame_alloc(avctx, &s->s.frames[CUR_FRAME])) < 0) {
+        ff_cbs_fragment_reset(&s->current_frag);
         return ret;
+    }
 
     s->s.frames[CUR_FRAME].header_ref = av_refstruct_ref(s->header_ref);
     s->s.frames[CUR_FRAME].frame_header = s->frame_header;
@@ -1818,11 +1827,12 @@ finish:
 
     return pkt->size;
 fail:
+    ff_cbs_fragment_reset(&s->current_frag);
     ff_progress_frame_report(&s->s.frames[CUR_FRAME].tf, INT_MAX);
     return ret;
 }
 
-static void vp9_decode_flush(AVCodecContext *avctx)
+static av_cold void vp9_decode_flush(AVCodecContext *avctx)
 {
     VP9Context *s = avctx->priv_data;
     int i;

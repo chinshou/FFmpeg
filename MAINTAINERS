@@ -93,6 +93,7 @@ Other:
   hash                                  Reimar Doeffinger
   hwcontext_cuda*                       Timo Rothenpieler
   hwcontext_d3d12va*                    Wu Jianhua
+  hwcontext_oh*                         Zhao Zhili
   hwcontext_vulkan*                 [2] Lynne
   intfloat*                             Michael Niedermayer
   integer.c, integer.h                  Michael Niedermayer
@@ -152,13 +153,13 @@ Codecs:
   adpcm.c                               Zane van Iperen
   alacenc.c                             Jaikrishnan Menon
   alsdec.c                              Thilo Borgmann, Umair Khan
-  amfenc*                               Dmitrii Ovchinnikov
+  amfdec*,amfenc*                   [2] Dmitrii Ovchinnikov, Araz Iusubov
   aptx.c                                Aurelien Jacobs
   ass*                                  Aurelien Jacobs
   asv*                                  Michael Niedermayer
   atrac3plus*                           Maxim Poliakovski
   audiotoolbox*                         rcombs
-  avs2*                                 Huiwen Ren
+  avs2*                                 Huiwen Ren, Zhao Zhili
   bgmc.c, bgmc.h                        Thilo Borgmann
   binkaudio.c                           Peter Ross
   cavs*                                 Stefan Gehrer
@@ -211,7 +212,7 @@ Codecs:
   libkvazaar.c                          Arttu Ylä-Outinen
   libopenh264enc.c                      Martin Storsjo, Linjie Fu
   libopenjpegenc.c                      Michael Bradshaw
-  libtheoraenc.c                        David Conrad
+  libtheoraenc.c                    [0]
   libvorbis.c                           David Conrad
   libvpx*                               James Zern
   libxavs.c                             Stefan Gehrer
@@ -232,6 +233,7 @@ Codecs:
   msvideo1.c                            Mike Melanson
   nuv.c                                 Reimar Doeffinger
   nvdec*, nvenc*                        Timo Rothenpieler
+  oh*                                   Zhao Zhili
   omx.c                                 Martin Storsjo, Aman Gupta
   opus*                                 Rostislav Pehlivanov
   pcx.c                                 Ivo van Poorten
@@ -243,6 +245,7 @@ Codecs:
   qtrle.c                               Mike Melanson
   ra144.c, ra144.h, ra288.c, ra288.h    Roberto Togni
   resample2.c                           Michael Niedermayer
+  rkmppenc*                             Zhao Zhili
   rl2.c                                 Sascha Sommer
   rpza.c                                Roberto Togni
   rtjpeg.c, rtjpeg.h                    Reimar Doeffinger
@@ -278,6 +281,7 @@ Codecs:
   xface                                 Stefano Sabatini
 
 Hardware acceleration:
+  amf*                              [2] Dmitrii Ovchinnikov, Araz Iusubov
   dxva2*                                Hendrik Leppkes, Laurent Aimar, Steve Lhomme
   d3d11va*                              Steve Lhomme
   d3d12va*                              Wu Jianhua
@@ -347,7 +351,9 @@ Filters:
   vf_minterpolate.c                     Davinder Singh
   vf_readvitc.c                         Tobias Rapp (CC t.rapp at noa-archive dot com)
   vf_scale.c                        [2] Michael Niedermayer
+  vf_scale_vt.c                         Zhao Zhili
   vf_tonemap_opencl.c                   Ruiling Song
+  vf_transpose_vt.c                     Zhao Zhili
   vf_yadif.c                        [2] Michael Niedermayer
   vf_xfade_vulkan.c                 [2] Marvin Scholz (CC <epirat07@gmail.com>)
 
@@ -406,6 +412,7 @@ Muxers/Demuxers:
   gxf.c                                 Reimar Doeffinger
   gxfenc.c                              Baptiste Coudurier
   hlsenc.c                              Christian Suloway, Steven Liu
+  hxvs.c                                Zhao Zhili
   iamf*                             [2] James Almer
   idcin.c                               Mike Melanson
   idroqdec.c                            Mike Melanson
@@ -441,9 +448,9 @@ Muxers/Demuxers:
   nsvdec.c                              Francois Revol
   nut*                                  Michael Niedermayer
   nuv.c                                 Reimar Doeffinger
-  oggdec.c, oggdec.h                    David Conrad
-  oggenc.c                              Baptiste Coudurier
-  oggparse*.c                           David Conrad
+  oggdec.c, oggdec.h                    David Conrad, Romain Beauxis
+  oggenc.c                              Baptiste Coudurier, Romain Beauxis
+  oggparse*.c                           David Conrad, Romain Beauxis
   oma.c                                 Maxim Poliakovski
   pp_bnk.c                              Zane van Iperen
   psxstr.c                              Mike Melanson
@@ -482,6 +489,7 @@ Muxers/Demuxers:
   webm dash (matroskaenc.c)             Vignesh Venkatasubramanian
   webvtt*                               Matthew J Heaney
   westwood.c                            Mike Melanson
+  whip.c                            [2] Jack Lau
   wtv.c                                 Peter Ross
 
 Protocols:
@@ -521,7 +529,7 @@ LoongArch                           [2] Shiyou Yin
 Darwin (macOS, iOS)                 [2] Marvin Scholz
 Mac OS X / PowerPC                  [0]
 Amiga / PowerPC                         Colin Ward
-Linux / PowerPC                     [1] Lauri Kasanen
+Linux / PowerPC                     [2] Sean McGovern (CC <gseanmcg@gmail.com>), Lauri Kasanen
 RISC-V                              [2] Rémi Denis-Courmont
 Windows MinGW                           Alex Beregszaszi, Ramiro Polla
 Windows Cygwin                          Victor Paesa
@@ -617,6 +625,7 @@ Reinhard Tartler              9300 5DC2 7E87 6C37 ED7B CA9A 9808 3544 9453 48A4
 Reynaldo H. Verdejo Pinochet  6E27 CD34 170C C78E 4D4F 5F40 C18E 077F 3114 452A
 Robert Swain                  EE7A 56EA 4A81 A7B5 2001 A521 67FA 362D A2FC 3E71
 Sascha Sommer                 38A0 F88B 868E 9D3A 97D4 D6A0 E823 706F 1E07 0D3C
+Sean McGovern (Sean_McG)      6D03 BC60 3A33 E615 6E2E 06AD 8C06 8175 6F59 8684
 Stefano Sabatini              0D0B AD6B 5330 BBAD D3D6 6A0C 719C 2839 FC43 2D5F
 Steinar H. Gunderson          C2E9 004F F028 C18E 4EAD DB83 7F61 7561 7797 8F76
 Stephan Hilb                  4F38 0B3A 5F39 B99B F505 E562 8D5C 5554 4E17 8863

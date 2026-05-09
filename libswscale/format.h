@@ -78,6 +78,7 @@ typedef struct SwsFormat {
     int width, height;
     int interlaced;
     enum AVPixelFormat format;
+    enum AVPixelFormat hw_format;
     enum AVColorRange range;
     enum AVColorSpace csp;
     enum AVChromaLocation loc;
@@ -85,11 +86,30 @@ typedef struct SwsFormat {
     SwsColor color;
 } SwsFormat;
 
+static inline void ff_fmt_clear(SwsFormat *fmt)
+{
+    *fmt = (SwsFormat) {
+        .format     = AV_PIX_FMT_NONE,
+        .range      = AVCOL_RANGE_UNSPECIFIED,
+        .csp        = AVCOL_SPC_UNSPECIFIED,
+        .loc        = AVCHROMA_LOC_UNSPECIFIED,
+        .color = {
+            .prim = AVCOL_PRI_UNSPECIFIED,
+            .trc  = AVCOL_TRC_UNSPECIFIED,
+        },
+    };
+}
+
 /**
  * This function also sanitizes and strips the input data, removing irrelevant
  * fields for certain formats.
  */
 SwsFormat ff_fmt_from_frame(const AVFrame *frame, int field);
+
+/**
+ * Subset of ff_fmt_from_frame() that sets default metadata for the format.
+ */
+void ff_fmt_from_pixfmt(enum AVPixelFormat pixfmt, SwsFormat *fmt);
 
 static inline int ff_color_equal(const SwsColor *c1, const SwsColor *c2)
 {
@@ -133,5 +153,63 @@ int ff_test_fmt(const SwsFormat *fmt, int output);
 
 /* Returns true if the formats are incomplete, false otherwise */
 bool ff_infer_colors(SwsColor *src, SwsColor *dst);
+
+typedef struct SwsOpList SwsOpList;
+typedef enum SwsPixelType SwsPixelType;
+
+/**
+ * Append a set of operations for decoding/encoding raw pixels. This will
+ * handle input read/write, swizzling, shifting and byte swapping.
+ *
+ * Returns 0 on success, or a negative error code on failure.
+ */
+int ff_sws_decode_pixfmt(SwsOpList *ops, enum AVPixelFormat fmt);
+int ff_sws_encode_pixfmt(SwsOpList *ops, enum AVPixelFormat fmt);
+
+/**
+ * Append a set of operations for transforming decoded pixel values to/from
+ * normalized RGB in the specified gamut and pixel type.
+ *
+ * Returns 0 on success, or a negative error code on failure.
+ */
+int ff_sws_decode_colors(SwsContext *ctx, SwsPixelType type, SwsOpList *ops,
+                         const SwsFormat *fmt, bool *incomplete);
+int ff_sws_encode_colors(SwsContext *ctx, SwsPixelType type, SwsOpList *ops,
+                         const SwsFormat *src, const SwsFormat *dst,
+                         bool *incomplete);
+
+/**
+ * Represents a view into a single field of frame data.
+ *
+ * Ostensibly, this is a (non-compatible) subset of AVFrame, however, the
+ * semantics are VERY different.
+ *
+ * Unlike AVFrame, this struct does NOT own any data references. All buffers
+ * referenced by a SwsFrame are managed externally. This merely represents
+ * a view into data.
+ *
+ * This struct is not refcounted, and may be freely copied onto the stack.
+ */
+typedef struct SwsFrame {
+    /* Data buffers and line stride */
+    uint8_t *data[4];
+    int linesize[4];
+
+    /**
+     * Dimensions and format
+     */
+    int width, height;
+    enum AVPixelFormat format;
+
+    /**
+     * Pointer to the original AVFrame, if there is a 1:1 correspondence.
+     **/
+    const AVFrame *avframe;
+} SwsFrame;
+
+/**
+ * Initialize a SwsFrame from an AVFrame.
+ */
+void ff_sws_frame_from_avframe(SwsFrame *dst, const AVFrame *src);
 
 #endif /* SWSCALE_FORMAT_H */

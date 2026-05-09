@@ -152,7 +152,7 @@ int ff_videotoolbox_alloc_frame(AVCodecContext *avctx, AVFrame *frame)
     size_t      size = sizeof(VTHWFrame);
     uint8_t    *data = NULL;
     AVBufferRef *buf = NULL;
-    int ret = ff_attach_decode_data(frame);
+    int ret = ff_attach_decode_data(avctx, frame);
     FrameDecodeData *fdd;
     if (ret < 0)
         return ret;
@@ -168,7 +168,7 @@ int ff_videotoolbox_alloc_frame(AVCodecContext *avctx, AVFrame *frame)
     frame->buf[0] = buf;
 
     fdd = frame->private_ref;
-    fdd->post_process = videotoolbox_postproc_frame;
+    fdd->hwaccel_priv_post_process = videotoolbox_postproc_frame;
 
     frame->width  = avctx->width;
     frame->height = avctx->height;
@@ -1161,22 +1161,30 @@ static int videotoolbox_prores_start_frame(AVCodecContext *avctx,
                                            const uint8_t *buffer,
                                            uint32_t size)
 {
-    return 0;
+    VTContext *vtctx = avctx->internal->hwaccel_priv_data;
+    ProresContext *ctx = avctx->priv_data;
+
+    /* Videotoolbox decodes both fields simultaneously */
+    if (!ctx->first_field)
+        return 0;
+
+    return ff_videotoolbox_buffer_copy(vtctx, buffer, size);
 }
 
 static int videotoolbox_prores_decode_slice(AVCodecContext *avctx,
                                           const uint8_t *buffer,
                                           uint32_t size)
 {
-    VTContext *vtctx = avctx->internal->hwaccel_priv_data;
-
-    return ff_videotoolbox_buffer_copy(vtctx, buffer, size);
+    return 0;
 }
 
 static int videotoolbox_prores_end_frame(AVCodecContext *avctx)
 {
     ProresContext *ctx = avctx->priv_data;
     AVFrame *frame = ctx->frame;
+
+    if (!ctx->first_field)
+        return 0;
 
     return ff_videotoolbox_common_end_frame(avctx, frame);
 }

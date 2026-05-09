@@ -238,7 +238,6 @@ int ff_hevc_decode_short_term_rps(GetBitContext *gb, AVCodecContext *avctx,
 static int decode_profile_tier_level(GetBitContext *gb, AVCodecContext *avctx,
                                       PTLCommon *ptl)
 {
-    const char *profile_name = NULL;
     int i;
 
     if (get_bits_left(gb) < 2+1+5 + 32 + 4 + 43 + 1)
@@ -249,14 +248,15 @@ static int decode_profile_tier_level(GetBitContext *gb, AVCodecContext *avctx,
     ptl->profile_idc   = get_bits(gb, 5);
 
 #if !CONFIG_SMALL
+    const char *profile_name = NULL;
     for (int i = 0; ff_hevc_profiles[i].profile != AV_PROFILE_UNKNOWN; i++)
         if (ff_hevc_profiles[i].profile == ptl->profile_idc) {
             profile_name = ff_hevc_profiles[i].name;
             break;
         }
-#endif
     av_log(avctx, profile_name ? AV_LOG_DEBUG : AV_LOG_WARNING,
            "%s profile bitstream\n", profile_name ? profile_name : "Unknown");
+#endif
 
     for (i = 0; i < 32; i++) {
         ptl->profile_compatibility_flag[i] = get_bits1(gb);
@@ -610,8 +610,11 @@ static int decode_vps_ext(GetBitContext *gb, AVCodecContext *avctx, HEVCVPS *vps
         }
     }
     vps->num_output_layer_sets = vps->vps_num_layer_sets + vps->num_add_layer_sets;
-    if (vps->num_output_layer_sets != 2)
-        return AVERROR_INVALIDDATA;
+    if (vps->num_output_layer_sets != 2) {
+        av_log(avctx, AV_LOG_WARNING,
+               "Unsupported num_output_layer_sets: %d\n", vps->num_output_layer_sets);
+        return AVERROR_PATCHWELCOME;
+    }
 
     sub_layers_max_present = get_bits1(gb); // vps_sub_layers_max_minus1_present_flag
     if (sub_layers_max_present) {
@@ -666,6 +669,7 @@ static int decode_vps_ext(GetBitContext *gb, AVCodecContext *avctx, HEVCVPS *vps
     if (vps->vps_num_layer_sets == 1 || default_output_layer_idc == 2)
         skip_bits1(gb);
 
+    if (nb_ptl > 1)
     for (int j = 0; j < av_popcount64(vps->ols[1]); j++) {
         int ptl_idx = get_bits(gb, av_ceil_log2(nb_ptl));
         if (ptl_idx >= nb_ptl) {
@@ -676,7 +680,7 @@ static int decode_vps_ext(GetBitContext *gb, AVCodecContext *avctx, HEVCVPS *vps
 
     if (get_ue_golomb_31(gb) != 0 /* vps_num_rep_formats_minus1 */) {
         av_log(avctx, AV_LOG_ERROR, "Unexpected extra rep formats\n");
-        return AVERROR_INVALIDDATA;
+        return AVERROR_PATCHWELCOME;
     }
 
     vps->rep_format.pic_width_in_luma_samples  = get_bits(gb, 16);
@@ -894,8 +898,23 @@ int ff_hevc_decode_nal_vps(GetBitContext *gb, AVCodecContext *avctx,
     if (vps->vps_max_layers > 1 && get_bits1(gb)) { /* vps_extension_flag */
         int ret = decode_vps_ext(gb, avctx, vps, layer1_id_included);
         if (ret == AVERROR_PATCHWELCOME) {
-            vps->nb_layers = 1;
-            av_log(avctx, AV_LOG_WARNING, "Ignoring unsupported VPS extension\n");
+            /* If alpha layer info was already parsed, preserve it for alpha decoding */
+            if (!(avctx->err_recognition & (AV_EF_BITSTREAM | AV_EF_COMPLIANT)) &&
+                vps->nb_layers == 2 &&
+                vps->layer_id_in_nuh[1] &&
+                (vps->scalability_mask_flag & HEVC_SCALABILITY_AUXILIARY)) {
+                av_log(avctx, AV_LOG_WARNING,
+                       "Broken VPS extension, treating as alpha video\n");
+                /* If alpha layer has no direct dependency on base layer,
+                 * assume poc_lsb_not_present for the alpha layer, so that
+                 * IDR slices on that layer won't read pic_order_cnt_lsb.
+                 * This matches the behavior of Apple VideoToolbox encoders. */
+                if (!vps->num_direct_ref_layers[1])
+                    vps->poc_lsb_not_present |= 1 << 1;
+            } else {
+                vps->nb_layers = 1;
+                av_log(avctx, AV_LOG_WARNING, "Ignoring unsupported VPS extension\n");
+            }
             ret = 0;
         } else if (ret < 0)
             goto err;
@@ -1825,6 +1844,10 @@ static int colour_mapping_table(GetBitContext *gb, AVCodecContext *avctx, HEVCPP
     pps->luma_bit_depth_cm_output   = get_ue_golomb(gb) + 8;
     pps->chroma_bit_depth_cm_output = get_ue_golomb(gb) + 8;
 
+    if (   pps->  luma_bit_depth_cm_output < pps->  luma_bit_depth_cm_input
+        || pps->chroma_bit_depth_cm_output < pps->chroma_bit_depth_cm_input)
+            return AVERROR_INVALIDDATA;
+
     pps->cm_res_quant_bits = get_bits(gb, 2);
     pps->cm_delta_flc_bits = get_bits(gb, 2) + 1;
 
@@ -2443,9 +2466,9 @@ void ff_hevc_ps_uninit(HEVCParamSets *ps)
         av_refstruct_unref(&ps->pps_list[i]);
 }
 
-int ff_hevc_compute_poc(const HEVCSPS *sps, int pocTid0, int poc_lsb, int nal_unit_type)
+int ff_hevc_compute_poc2(unsigned log2_max_poc_lsb, int pocTid0, int poc_lsb, int nal_unit_type)
 {
-    int max_poc_lsb  = 1 << sps->log2_max_poc_lsb;
+    int max_poc_lsb  = 1 << log2_max_poc_lsb;
     int prev_poc_lsb = pocTid0 % max_poc_lsb;
     int prev_poc_msb = pocTid0 - prev_poc_lsb;
     int poc_msb;
