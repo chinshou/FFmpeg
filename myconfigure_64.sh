@@ -8,7 +8,6 @@ export PKG_CONFIG_LIBDIR=arm64/lib/pkgconfig/
 --disable-muxer=encx_audio \
 --disable-demuxer=encx \
 --disable-demuxer=encx_audio \
---disable-postproc \
 --disable-doc --disable-filter=nlmeans  --disable-filter=yadif_videotoolbox \
 --enable-cross-compile \
 --target-os=darwin --disable-outdev=audiotoolbox \
