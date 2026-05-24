@@ -4899,10 +4899,10 @@ const AVInputFormat ff_webm_dash_manifest_demuxer = {
 #endif
 
 const FFInputFormat ff_encx_demuxer = {
-    p.name           = "encx",
-    p.long_name      = NULL_IF_CONFIG_SMALL("Encx"),
-    p.extensions     = "encx",
-    p.mime_type      = "audio/webm,audio/x-matroska,video/webm,video/x-matroska"
+    .p.name           = "encx",
+    .p.long_name      = NULL_IF_CONFIG_SMALL("Encx"),
+    .p.extensions     = "encx",
+    .p.mime_type    = "audio/webm,audio/x-matroska,video/webm,video/x-matroska",
     .priv_data_size = sizeof(MatroskaDemuxContext),
     .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .read_probe     = xenc_probe,
