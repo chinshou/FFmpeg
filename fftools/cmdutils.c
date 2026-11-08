@@ -45,6 +45,7 @@
 #include "libavutil/eval.h"
 #include "libavutil/dict.h"
 #include "libavutil/opt.h"
+#include "ffmpeg.h"
 #include "cmdutils.h"
 #include "fopen_utf8.h"
 #include "opt_common.h"
@@ -53,18 +54,19 @@
 #include "compat/w32dlfcn.h"
 #endif
 
-AVDictionary *sws_dict;
-AVDictionary *swr_opts;
-AVDictionary *format_opts, *codec_opts;
+//AVDictionary *sws_dict;
+//AVDictionary *swr_opts;
+//AVDictionary *format_opts, *codec_opts;
 
 int hide_banner = 0;
 
-void uninit_opts(void)
+void uninit_opts(void* ctx)
 {
-    av_dict_free(&swr_opts);
-    av_dict_free(&sws_dict);
-    av_dict_free(&format_opts);
-    av_dict_free(&codec_opts);
+    FfmpegContext* fctx = (FfmpegContext*)ctx;
+    av_dict_free(&fctx->swr_opts);
+    av_dict_free(&fctx->sws_dict);
+    av_dict_free(&fctx->format_opts);
+    av_dict_free(&fctx->codec_opts);
 }
 
 void log_callback_help(void *ptr, int level, const char *fmt, va_list vl)
@@ -237,7 +239,7 @@ static int opt_has_arg(const OptionDef *o)
     return 1;
 }
 
-static int write_option(void *optctx, const OptionDef *po, const char *opt,
+static int write_option(FfmpegContext* ctx, void *optctx, const OptionDef *po, const char *opt,
                         const char *arg, const OptionDef *defs)
 {
     /* new-style options contain an offset into optctx, old-style address of
@@ -351,7 +353,7 @@ static int write_option(void *optctx, const OptionDef *po, const char *opt,
     } else {
         av_assert0(po->type == OPT_TYPE_FUNC && po->u.func_arg);
 
-        ret = po->u.func_arg(optctx, opt, arg);
+        ret = po->u.func_arg(ctx, optctx, opt, arg);
         if (ret < 0) {
             if ((strcmp(opt, "init_hw_device") != 0) || (strcmp(arg, "list") != 0)) {
                 av_log(NULL, AV_LOG_ERROR,
@@ -377,7 +379,7 @@ finish:
     return ret;
 }
 
-int parse_option(void *optctx, const char *opt, const char *arg,
+int parse_option(void* ctx, void *optctx, const char *opt, const char *arg,
                  const OptionDef *options)
 {
     static const OptionDef opt_avoptions = {
@@ -410,21 +412,21 @@ int parse_option(void *optctx, const char *opt, const char *arg,
         return AVERROR(EINVAL);
     }
 
-    ret = write_option(optctx, po, opt, arg, options);
+    ret = write_option(ctx, optctx, po, opt, arg, options);
     if (ret < 0)
         return ret;
 
     return opt_has_arg(po);
 }
 
-int parse_options(void *optctx, int argc, char **argv, const OptionDef *options,
+int parse_options(void* ctx, void *optctx, int argc, char **argv, const OptionDef *options,
                   int (*parse_arg_function)(void *, const char*))
 {
     const char *opt;
     int optindex, handleoptions = 1, ret;
 
     /* perform system-dependent conversions for arguments list */
-    prepare_app_arguments(&argc, &argv);
+    //prepare_app_arguments(&argc, &argv);
 
     /* parse options */
     optindex = 1;
@@ -438,7 +440,7 @@ int parse_options(void *optctx, int argc, char **argv, const OptionDef *options,
             }
             opt++;
 
-            if ((ret = parse_option(optctx, opt, argv[optindex], options)) < 0)
+            if ((ret = parse_option(ctx, optctx, opt, argv[optindex], options)) < 0)
                 return ret;
             optindex += ret;
         } else {
@@ -453,7 +455,7 @@ int parse_options(void *optctx, int argc, char **argv, const OptionDef *options,
     return 0;
 }
 
-int parse_optgroup(void *optctx, OptionGroup *g, const OptionDef *defs)
+int parse_optgroup(void* ctx, void *optctx, OptionGroup *g, const OptionDef *defs)
 {
     int i, ret;
 
@@ -476,7 +478,7 @@ int parse_optgroup(void *optctx, OptionGroup *g, const OptionDef *defs)
         av_log(NULL, AV_LOG_DEBUG, "Applying option %s (%s) with argument %s.\n",
                o->key, o->opt->help, o->val);
 
-        ret = write_option(optctx, o->opt, o->key, o->val, defs);
+        ret = write_option(ctx, optctx, o->opt, o->key, o->val, defs);
         if (ret < 0)
             return ret;
     }
@@ -596,7 +598,7 @@ static const AVOption *opt_find(void *obj, const char *name, const char *unit,
 }
 
 #define FLAGS ((o->type == AV_OPT_TYPE_FLAGS && (arg[0]=='-' || arg[0]=='+')) ? AV_DICT_APPEND : 0)
-int opt_default(void *optctx, const char *opt, const char *arg)
+int opt_default(void* ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVOption *o;
     int consumed = 0;
@@ -610,6 +612,8 @@ int opt_default(void *optctx, const char *opt, const char *arg)
     const AVClass *swr_class = swr_get_class();
 #endif
 
+    FfmpegContext* fctx = (FfmpegContext*)ctx;
+
     if (!strcmp(opt, "debug") || !strcmp(opt, "fdebug"))
         av_log_set_level(AV_LOG_DEBUG);
 
@@ -621,12 +625,12 @@ int opt_default(void *optctx, const char *opt, const char *arg)
                          AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ)) ||
         ((opt[0] == 'v' || opt[0] == 'a' || opt[0] == 's') &&
          (o = opt_find(&cc, opt + 1, NULL, 0, AV_OPT_SEARCH_FAKE_OBJ)))) {
-        av_dict_set(&codec_opts, opt, arg, FLAGS);
+        av_dict_set(&fctx->codec_opts, opt, arg, FLAGS);
         consumed = 1;
     }
     if ((o = opt_find(&fc, opt, NULL, 0,
                          AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ))) {
-        av_dict_set(&format_opts, opt, arg, FLAGS);
+        av_dict_set(&fctx->format_opts, opt, arg, FLAGS);
         if (consumed)
             av_log(NULL, AV_LOG_VERBOSE, "Routing option %s to both codec and muxer layer\n", opt);
         consumed = 1;
@@ -640,7 +644,7 @@ int opt_default(void *optctx, const char *opt, const char *arg)
             av_log(NULL, AV_LOG_ERROR, "Directly using swscale dimensions/format options is not supported, please use the -s or -pix_fmt options\n");
             return AVERROR(EINVAL);
         }
-        av_dict_set(&sws_dict, opt, arg, FLAGS);
+        av_dict_set(&fctx->sws_dict, opt, arg, FLAGS);
 
         consumed = 1;
     }
@@ -653,7 +657,7 @@ int opt_default(void *optctx, const char *opt, const char *arg)
 #if CONFIG_SWRESAMPLE
     if (!consumed && (o=opt_find(&swr_class, opt, NULL, 0,
                                     AV_OPT_SEARCH_CHILDREN | AV_OPT_SEARCH_FAKE_OBJ))) {
-        av_dict_set(&swr_opts, opt, arg, FLAGS);
+        av_dict_set(&fctx->swr_opts, opt, arg, FLAGS);
         consumed = 1;
     }
 #endif
@@ -688,7 +692,7 @@ static int match_group_separator(const OptionGroupDef *groups, int nb_groups,
  * @param group_idx which group definition should this group belong to
  * @param arg argument of the group delimiting option
  */
-static int finish_group(OptionParseContext *octx, int group_idx,
+static int finish_group(FfmpegContext* ctx, OptionParseContext *octx, int group_idx,
                         const char *arg)
 {
     OptionGroupList *l = &octx->groups[group_idx];
@@ -704,15 +708,15 @@ static int finish_group(OptionParseContext *octx, int group_idx,
     *g             = octx->cur_group;
     g->arg         = arg;
     g->group_def   = l->group_def;
-    g->sws_dict    = sws_dict;
-    g->swr_opts    = swr_opts;
-    g->codec_opts  = codec_opts;
-    g->format_opts = format_opts;
+    g->sws_dict    = ctx->sws_dict;
+    g->swr_opts    = ctx->swr_opts;
+    g->codec_opts  = ctx->codec_opts;
+    g->format_opts = ctx->format_opts;
 
-    codec_opts  = NULL;
-    format_opts = NULL;
-    sws_dict    = NULL;
-    swr_opts    = NULL;
+    ctx->codec_opts  = NULL;
+    ctx->format_opts = NULL;
+    ctx->sws_dict    = NULL;
+    ctx->swr_opts    = NULL;
 
     memset(&octx->cur_group, 0, sizeof(octx->cur_group));
 
@@ -762,7 +766,7 @@ static int init_parse_context(OptionParseContext *octx,
     return 0;
 }
 
-void uninit_parse_context(OptionParseContext *octx)
+void uninit_parse_context(void* ctx, OptionParseContext *octx)
 {
     int i, j;
 
@@ -784,10 +788,10 @@ void uninit_parse_context(OptionParseContext *octx)
     av_freep(&octx->cur_group.opts);
     av_freep(&octx->global_opts.opts);
 
-    uninit_opts();
+    uninit_opts(ctx);
 }
 
-int split_commandline(OptionParseContext *octx, int argc, char *argv[],
+int split_commandline(void* ctx, OptionParseContext *octx, int argc, char *argv[],
                       const OptionDef *options,
                       const OptionGroupDef *groups, int nb_groups)
 {
@@ -796,8 +800,9 @@ int split_commandline(OptionParseContext *octx, int argc, char *argv[],
     int dashdash = -2;
 
     /* perform system-dependent conversions for arguments list */
-    prepare_app_arguments(&argc, &argv);
+    //prepare_app_arguments(&argc, &argv);
 
+    FfmpegContext* fctx= (FfmpegContext*)ctx;
     ret = init_parse_context(octx, groups, nb_groups);
     if (ret < 0)
         return ret;
@@ -817,7 +822,7 @@ int split_commandline(OptionParseContext *octx, int argc, char *argv[],
         }
         /* unnamed group separators, e.g. output filename */
         if (opt[0] != '-' || !opt[1] || dashdash+1 == optindex) {
-            ret = finish_group(octx, 0, opt);
+            ret = finish_group(fctx, octx, 0, opt);
             if (ret < 0)
                 return ret;
 
@@ -839,7 +844,7 @@ do {                                                                           \
         group_idx = match_group_separator(groups, nb_groups, opt);
         if (group_idx >= 0) {
             GET_ARG(arg);
-            ret = finish_group(octx, group_idx, arg);
+            ret = finish_group(fctx, octx, group_idx, arg);
             if (ret < 0)
                 return ret;
 
@@ -871,7 +876,7 @@ do {                                                                           \
 
         /* AVOptions */
         if (argv[optindex]) {
-            ret = opt_default(NULL, opt, argv[optindex]);
+            ret = opt_default(fctx, NULL, opt, argv[optindex]);
             if (ret >= 0) {
                 av_log(NULL, AV_LOG_DEBUG, " matched as AVOption '%s' with "
                        "argument '%s'.\n", opt, argv[optindex]);
@@ -901,7 +906,7 @@ do {                                                                           \
         return AVERROR_OPTION_NOT_FOUND;
     }
 
-    if (octx->cur_group.nb_opts || codec_opts || format_opts)
+    if (octx->cur_group.nb_opts || fctx->codec_opts || fctx->format_opts)
         av_log(NULL, AV_LOG_WARNING, "Trailing option(s) found in the "
                "command: may be ignored.\n");
 
@@ -1267,7 +1272,7 @@ unsigned stream_specifier_match(const StreamSpecifier *ss,
                 break;
             }
         }
-        // fall-through
+        av_fallthrough;
     case STREAM_LIST_GROUP_IDX:
         if (ss->stream_list == STREAM_LIST_GROUP_IDX &&
             ss->list_id >= 0 && ss->list_id < s->nb_stream_groups)
@@ -1280,13 +1285,16 @@ unsigned stream_specifier_match(const StreamSpecifier *ss,
                    ss->list_id);
             return 0;
         }
-        nb_streams = g->nb_streams;
+        nb_streams = g->nb_entries;
         break;
     default: av_assert0(0);
     }
 
     for (int i = start_stream; i < nb_streams; i++) {
-        const AVStream *candidate = s->streams[g ? g->streams[i]->index :
+        if (g && g->entries[i]->type != AV_STREAM_GROUP_ENTRY_STREAM)
+            continue;
+
+        const AVStream *candidate = s->streams[g ? g->entries[i]->stream->index :
                                                p ? p->stream_index[i]   : i];
 
         if (ss->media_type != AVMEDIA_TYPE_UNKNOWN &&
@@ -1398,7 +1406,7 @@ unsigned stream_group_specifier_match(const StreamSpecifier *ss,
             case AV_STREAM_GROUP_PARAMS_TILE_GRID: {
                 const AVStreamGroupTileGrid *tg = candidate->params.tile_grid;
                 if (!tg->coded_width || !tg->coded_height || !tg->nb_tiles ||
-                    !tg->width       || !tg->height       || !tg->nb_tiles)
+                    !tg->width       || !tg->height       || !tg->offsets)
                     continue;
                 break;
             }
@@ -1488,12 +1496,14 @@ int filter_codec_opts(const AVDictionary *opts, enum AVCodecID codec_id,
     return 0;
 }
 
-int setup_find_stream_info_opts(AVFormatContext *s,
+int setup_find_stream_info_opts(void* ctx,
+				AVFormatContext *s,
                                 AVDictionary *local_codec_opts,
                                 AVDictionary ***dst)
 {
     int ret;
     AVDictionary **opts;
+    FfmpegContext* fctx=(FfmpegContext*)ctx;
 
     *dst = NULL;
 

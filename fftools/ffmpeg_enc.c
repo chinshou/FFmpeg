@@ -31,6 +31,7 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
 #include "libavutil/mem.h"
+#include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/rational.h"
 #include "libavutil/time.h"
@@ -49,6 +50,7 @@ typedef struct EncoderPriv {
 
     // number of packets received from the encoder
     uint64_t packets_encoded;
+    int got_first_packet;
 
     int opened;
     int attach_par;
@@ -78,6 +80,7 @@ void enc_free(Encoder **penc)
     if (enc->enc_ctx)
         av_freep(&enc->enc_ctx->stats_in);
     avcodec_free_context(&enc->enc_ctx);
+    av_dict_free(&enc->encoder_opts);
 
     av_freep(penc);
 }
@@ -95,6 +98,29 @@ static const AVClass enc_class = {
     .parent_log_context_offset = offsetof(EncoderPriv, log_parent),
     .item_name                 = enc_item_name,
 };
+
+static int enc_realloc(Encoder *enc, const AVCodec *codec)
+{
+    EncoderPriv *ep = ep_from_enc(enc);
+    char *stats_in = NULL;
+
+    if (enc->enc_ctx)
+        stats_in = enc->enc_ctx->stats_in;
+    avcodec_free_context(&enc->enc_ctx);
+
+    ep->opened = 0;
+    ep->got_first_packet = 0;
+
+    enc->enc_ctx = avcodec_alloc_context3(codec);
+    if (!enc->enc_ctx) {
+        av_freep(&stats_in);
+        return AVERROR(ENOMEM);
+    }
+
+    enc->enc_ctx->stats_in = stats_in;
+
+    return 0;
+}
 
 int enc_alloc(Encoder **penc, const AVCodec *codec,
               Scheduler *sch, unsigned sch_idx, void *log_parent)
@@ -181,22 +207,60 @@ static int hw_device_setup_for_encode(Encoder *e, AVCodecContext *enc_ctx,
     return 0;
 }
 
-int enc_open(void *opaque, const AVFrame *frame)
+static int apply_enc_options(Encoder *e, AVDictionary **opts)
+{
+    AVCodecContext *enc_ctx = e->enc_ctx;
+
+    int ret = av_opt_set_dict2(enc_ctx, opts, AV_OPT_SEARCH_CHILDREN);
+    if (ret < 0) {
+        av_log(e, AV_LOG_ERROR, "Error applying encoder options: %s\n",
+               av_err2str(ret));
+        return ret;
+    }
+
+    ret = check_avoptions(*opts);
+    if (ret < 0)
+        return ret;
+
+    return 0;
+}
+
+static int enc_reopen(void *opaque, const AVFrame *frame,
+                      AVDictionary **extra_encoder_opts)
 {
     OutputStream *ost = opaque;
+    FfmpegContext* ctx= ost->ctx;
     InputStream *ist = ost->ist;
     Encoder              *e = ost->enc;
     EncoderPriv         *ep = ep_from_enc(e);
     AVCodecContext *enc_ctx = e->enc_ctx;
     Decoder            *dec = NULL;
     const AVCodec      *enc = enc_ctx->codec;
-    OutputFile          *of = ost->file;
+    AVDictionary       *encoder_opts = NULL;
     FrameData *fd;
-    int frame_samples = 0;
+    int threads_manual;
     int ret;
 
-    if (ep->opened)
-        return 0;
+    ret = av_dict_copy(&encoder_opts, ost->enc->encoder_opts, 0);
+    if (ret < 0)
+        return ret;
+
+    threads_manual = !!av_dict_get(encoder_opts, "threads", NULL, 0);
+    ret = apply_enc_options(e, &encoder_opts);
+    av_dict_free(&encoder_opts);
+    if (ret < 0)
+        return ret;
+
+    if (extra_encoder_opts) {
+        threads_manual |= !!av_dict_get(*extra_encoder_opts, "threads", NULL, 0);
+        ret = apply_enc_options(e, extra_encoder_opts);
+        if (ret < 0)
+            return ret;
+    }
+
+    // default to automatic thread count
+    if (!threads_manual)
+        enc_ctx->thread_count = 0;
 
     // frame is always non-NULL for audio and video
     av_assert0(frame || (enc->type != AVMEDIA_TYPE_VIDEO && enc->type != AVMEDIA_TYPE_AUDIO));
@@ -214,6 +278,12 @@ int enc_open(void *opaque, const AVFrame *frame)
     if (ist)
         dec = ist->decoder;
 
+    if (ost->enc->codec_tag)
+        enc_ctx->codec_tag  = e->codec_tag;
+    enc_ctx->flags         |= e->flags;
+    enc_ctx->flags2        |= e->flags2;
+    enc_ctx->global_quality = e->global_quality;
+
     // the timebase is chosen by filtering code
     if (ost->type == AVMEDIA_TYPE_AUDIO || ost->type == AVMEDIA_TYPE_VIDEO) {
         enc_ctx->time_base      = frame->time_base;
@@ -227,6 +297,9 @@ int enc_open(void *opaque, const AVFrame *frame)
                    frame->ch_layout.nb_channels > 0);
         enc_ctx->sample_fmt     = frame->format;
         enc_ctx->sample_rate    = frame->sample_rate;
+        if (!enc_ctx->frame_size && (!(enc->capabilities & AV_CODEC_CAP_VARIABLE_FRAME_SIZE) ||
+                                      (enc_ctx->flags2 & AV_CODEC_FLAG2_FIXED_FRAME_SIZE)))
+            enc_ctx->frame_size = frame->nb_samples;
         ret = av_channel_layout_copy(&enc_ctx->ch_layout, &frame->ch_layout);
         if (ret < 0)
             return ret;
@@ -266,31 +339,11 @@ int enc_open(void *opaque, const AVFrame *frame)
         enc_ctx->color_trc              = frame->color_trc;
         enc_ctx->colorspace             = frame->colorspace;
         enc_ctx->alpha_mode             = frame->alpha_mode;
-
-        /* Video properties which are not part of filter graph negotiation */
-        if (enc_ctx->chroma_sample_location == AVCHROMA_LOC_UNSPECIFIED) {
-            enc_ctx->chroma_sample_location = frame->chroma_location;
-        } else if (enc_ctx->chroma_sample_location != frame->chroma_location &&
-                   frame->chroma_location != AVCHROMA_LOC_UNSPECIFIED) {
-            av_log(e, AV_LOG_WARNING,
-                   "Requested chroma sample location '%s' does not match the "
-                   "frame tagged sample location '%s'; result may be incorrect.\n",
-                   av_chroma_location_name(enc_ctx->chroma_sample_location),
-                   av_chroma_location_name(frame->chroma_location));
-        }
+        enc_ctx->chroma_sample_location = frame->chroma_location;
 
         if (enc_ctx->flags & (AV_CODEC_FLAG_INTERLACED_DCT | AV_CODEC_FLAG_INTERLACED_ME) ||
-            (frame->flags & AV_FRAME_FLAG_INTERLACED)
-#if FFMPEG_OPT_TOP
-            || ost->top_field_first >= 0
-#endif
-            ) {
-            int top_field_first =
-#if FFMPEG_OPT_TOP
-                ost->top_field_first >= 0 ?
-                ost->top_field_first :
-#endif
-                !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
+            (frame->flags & AV_FRAME_FLAG_INTERLACED)) {
+            int top_field_first = !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST);
 
             if (enc->id == AV_CODEC_ID_MJPEG)
                 enc_ctx->field_order = top_field_first ? AV_FIELD_TT : AV_FIELD_BB;
@@ -298,6 +351,24 @@ int enc_open(void *opaque, const AVFrame *frame)
                 enc_ctx->field_order = top_field_first ? AV_FIELD_TB : AV_FIELD_BT;
         } else
             enc_ctx->field_order = AV_FIELD_PROGRESSIVE;
+        int fmt=AV_PIX_FMT_RGB32;
+        if (ctx->enc_callback && !ctx->enc_callback->rgb)
+        	fmt=AV_PIX_FMT_BGR32;
+        ost->sws_ctx = sws_getContext(enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, enc_ctx->width, enc_ctx->height, fmt, SWS_BICUBIC, NULL, NULL, NULL);
+        ost->sws_ctx_chg = sws_getContext(enc_ctx->width, enc_ctx->height, fmt, enc_ctx->width, enc_ctx->height, enc_ctx->pix_fmt, SWS_BICUBIC, NULL, NULL, NULL);  
+        
+        av_pix_fmt_get_chroma_sub_sample(enc_ctx->pix_fmt, &ost->u_sub, &ost->v_sub);
+              
+        ost->frame_rgb = av_frame_alloc();       
+        int picture_size = av_image_get_buffer_size(fmt, enc_ctx->width, enc_ctx->height,1);
+        ost->frame_rgb->width= enc_ctx->width;
+        ost->frame_rgb->height= enc_ctx->height;
+        ost->v_height = 0;
+        
+                
+        ost->rgb_buf = av_malloc(picture_size);
+        av_image_fill_arrays(ost->frame_rgb->data,ost->frame_rgb->linesize, ost->rgb_buf, fmt, enc_ctx->width,enc_ctx->height, 1);
+
 
         break;
         }
@@ -350,15 +421,35 @@ int enc_open(void *opaque, const AVFrame *frame)
 
     ep->opened = 1;
 
-    if (enc_ctx->frame_size)
-        frame_samples = enc_ctx->frame_size;
-
     if (enc_ctx->bit_rate && enc_ctx->bit_rate < 1000 &&
         enc_ctx->codec_id != AV_CODEC_ID_CODEC2 /* don't complain about 700 bit/s modes */)
         av_log(e, AV_LOG_WARNING, "The bitrate parameter is set too low."
                                     " It takes bits/s as argument, not kbits/s\n");
 
-    ret = of_stream_init(of, ost, enc_ctx);
+    return 0;
+}
+
+int enc_open(void *opaque, const AVFrame *frame)
+{
+    OutputStream *ost = opaque;
+    Encoder              *e = ost->enc;
+    EncoderPriv         *ep = ep_from_enc(e);
+    AVCodecContext *enc_ctx = e->enc_ctx;
+    OutputFile          *of = ost->file;
+    int frame_samples = 0;
+    int ret;
+
+    if (ep->opened)
+        return 0;
+
+    ret = enc_reopen(opaque, frame, NULL);
+    if (ret < 0)
+        return ret;
+
+    if (enc_ctx->frame_size)
+        frame_samples = enc_ctx->frame_size;
+
+    ret = of_stream_init(ctx, of, ost, enc_ctx);
     if (ret < 0)
         return ret;
 
@@ -442,7 +533,7 @@ static int do_subtitle_out(OutputFile *of, OutputStream *ost, const AVSubtitle *
 
         av_shrink_packet(pkt, subtitle_out_size);
         pkt->time_base = AV_TIME_BASE_Q;
-        pkt->pts       = sub->pts;
+        pkt->pts       = pts;
         pkt->duration = av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, pkt->time_base);
         if (enc->codec_id == AV_CODEC_ID_DVB_SUBTITLE) {
             /* XXX: the pts correction is handled here. Maybe handling
@@ -543,7 +634,7 @@ static inline double psnr(double d)
     return -10.0 * log10(d);
 }
 
-static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_vstats)
+static int update_video_stats(FfmpegContext* ctx, OutputStream *ost, const AVPacket *pkt, int write_vstats)
 {
     Encoder        *e = ost->enc;
     EncoderPriv   *ep = ep_from_enc(e);
@@ -572,9 +663,9 @@ static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_
         return 0;
 
     /* this is executed just the first time update_video_stats is called */
-    if (!vstats_file) {
-        vstats_file = fopen(vstats_filename, "w");
-        if (!vstats_file) {
+    if (!ctx->vstats_file) {
+        ctx->vstats_file = fopen(ctx->vstats_filename, "w");
+        if (!ctx->vstats_file) {
             perror("fopen");
             return AVERROR(errno);
         }
@@ -582,18 +673,18 @@ static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_
 
     frame_number = ep->packets_encoded;
     if (vstats_version <= 1) {
-        fprintf(vstats_file, "frame= %5"PRId64" q= %2.1f ", frame_number,
+        fprintf(ctx->vstats_file, "frame= %5"PRId64" q= %2.1f ", frame_number,
                 quality / (float)FF_QP2LAMBDA);
     } else  {
-        fprintf(vstats_file, "out= %2d st= %2d frame= %5"PRId64" q= %2.1f ",
+        fprintf(ctx->vstats_file, "out= %2d st= %2d frame= %5"PRId64" q= %2.1f ",
                 ost->file->index, ost->index, frame_number,
                 quality / (float)FF_QP2LAMBDA);
     }
 
     if (psnr_val >= 0)
-        fprintf(vstats_file, "PSNR= %6.2f ", psnr_val);
+        fprintf(ctx->vstats_file, "PSNR= %6.2f ", psnr_val);
 
-    fprintf(vstats_file,"f_size= %6d ", pkt->size);
+    fprintf(ctx->vstats_file,"f_size= %6d ", pkt->size);
     /* compute pts value */
     ti1 = pkt->dts * av_q2d(pkt->time_base);
     if (ti1 < 0.01)
@@ -601,14 +692,14 @@ static int update_video_stats(OutputStream *ost, const AVPacket *pkt, int write_
 
     bitrate     = (pkt->size * 8) / av_q2d(enc->time_base) / 1000.0;
     avg_bitrate = (double)(ep->data_size * 8) / ti1 / 1000.0;
-    fprintf(vstats_file, "s_size= %8.0fKiB time= %0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s ",
+    fprintf(ctx->vstats_file, "s_size= %8.0fKiB time= %0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s ",
            (double)ep->data_size / 1024, ti1, bitrate, avg_bitrate);
-    fprintf(vstats_file, "type= %c\n", av_get_picture_type_char(pict_type));
+    fprintf(ctx->vstats_file, "type= %c\n", av_get_picture_type_char(pict_type));
 
     return 0;
 }
 
-static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame,
+static int encode_frame(FfmpegContext* ctx,OutputFile *of, OutputStream *ost, AVFrame *frame,
                         AVPacket *pkt)
 {
     Encoder            *e = ost->enc;
@@ -683,9 +774,19 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame,
             return AVERROR(ENOMEM);
         fd->wallclock[LATENCY_PROBE_ENC_POST] = av_gettime_relative();
 
+        // attach extradata to first packet if the encoder was reinitialized
+        if (!ep->got_first_packet && ep->packets_encoded && enc->extradata_size) {
+            uint8_t *extradata = av_packet_new_side_data(pkt, AV_PKT_DATA_NEW_EXTRADATA,
+                                                         enc->extradata_size);
+            if (!extradata)
+                return AVERROR(ENOMEM);
+            memcpy(extradata, enc->extradata, enc->extradata_size);
+            ep->got_first_packet = 1;
+        }
         // attach stream parameters to first packet if requested
         avcodec_parameters_free(&fd->par_enc);
-        if (ep->attach_par && !ep->packets_encoded) {
+        if (!ep->packets_encoded) {
+            if (ep->attach_par) {
             fd->par_enc = avcodec_parameters_alloc();
             if (!fd->par_enc)
                 return AVERROR(ENOMEM);
@@ -693,12 +794,14 @@ static int encode_frame(OutputFile *of, OutputStream *ost, AVFrame *frame,
             ret = avcodec_parameters_from_context(fd->par_enc, enc);
             if (ret < 0)
                 return ret;
+            }
+            ep->got_first_packet = 1;
         }
 
         pkt->flags |= AV_PKT_FLAG_TRUSTED;
 
         if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
-            ret = update_video_stats(ost, pkt, !!vstats_filename);
+            ret = update_video_stats(ctx, ost, pkt, !!ctx->vstats_filename);
             if (ret < 0)
                 return ret;
         }
@@ -780,7 +883,15 @@ force_keyframe:
     return AV_PICTURE_TYPE_I;
 }
 
-static int frame_encode(OutputStream *ost, AVFrame *frame, AVPacket *pkt)
+static double get_duration(AVFormatContext* ic){
+  if (ic->duration != AV_NOPTS_VALUE)
+    //seconds
+    return ic->duration / AV_TIME_BASE;
+  
+  return 0;
+}
+
+static int frame_encode(FfmpegContext* ctx, OutputStream *ost, AVFrame *frame, AVPacket *pkt)
 {
     Encoder *e = ost->enc;
     OutputFile *of = ost->file;
@@ -794,7 +905,15 @@ static int frame_encode(OutputStream *ost, AVFrame *frame, AVPacket *pkt)
         return subtitle && subtitle->num_rects ?
                do_subtitle_out(of, ost, subtitle, pkt) : 0;
     }
-
+    
+    //report encode progress
+    if (ctx->enc_callback && ctx->enc_callback->encode_progress){
+    	double current = get_current_pts(ost);
+    	double duration = get_duration(ost->ist->file->ctx);
+    	
+    	ctx->enc_callback->encode_progress(ctx->enc_callback->owner, current, duration);
+    }
+    
     if (frame) {
         if (!check_recording_time(ost, frame->pts, frame->time_base))
             return AVERROR_EOF;
@@ -809,7 +928,66 @@ static int frame_encode(OutputStream *ost, AVFrame *frame, AVPacket *pkt)
                 frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST * (!!ost->top_field_first);
             }
 #endif
+                if (ctx->enc_callback && ctx->enc_callback->video_buffer){
+                                                          
+                    if (ost->sws_ctx){
+                                       
+                       int modified = 0;
+                    
+                       AVFrame save_frame= *frame;
+                       OutputFilterPriv* flt= ofp_from_ofilter(ost->filter);
+                         if (ost->v_height==0)
+                           ost->v_height = flt->ofilter.filter->inputs[0]->h;
+                           
+                        if (ctx->enc_callback->flip)
+                        {
+                           //flip the bitmap
+                           // 获取当前帧格式的描述信息
+                           const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
+                           if (!desc) {
+                              // 错误处理：无法识别的格式
+                              av_log(e, AV_LOG_ERROR,
+                                  "unknown video format \n");
+                              return 0; 
+                           }
+						   // 遍历所有存在的 Plane (最多4个)
+						   // av_pix_fmt_count_planes 也可以用来辅助判断，但检查 data[i] 是否非空最直接
+						   for (int i = 0; i < 4; i++) {
+							  if (save_frame.data[i] && save_frame.linesize[i] > 0) {
+									// 【修复2】计算当前 Plane 的实际高度
+									// 对于第0平面(Luma)，高度就是 frame->height
+									// 对于第1,2平面(Chroma)，高度根据 log2_chroma_h 进行位移
+									int plane_height = frame->height;
+									if (i == 1 || i == 2) {
+										// 使用 AV_CEIL_RSHIFT 处理奇数高度的对齐问题，这比简单的 >> 更安全
+										plane_height = AV_CEIL_RSHIFT(frame->height, desc->log2_chroma_h);
+									}
+									
+									// 只有当该平面是高度相关的才处理 (Alpha通道等通常也是全高)
+									// 注意：某些特殊格式可能需要额外判断，但对标准YUV足够了
+
+									// 【修复3】执行翻转逻辑
+									// 指向最后一行的起始位置
+									save_frame.data[i] += save_frame.linesize[i] * (plane_height - 1);
+									// 设置负 stride
+									save_frame.linesize[i] *= -1;
+							   }
+							 }                                                                                     
+                        }
+           	         sws_scale(ost->sws_ctx, save_frame.data, save_frame.linesize, 0,
+	                  	ost->v_height, ost->frame_rgb->data, ost->frame_rgb->linesize);
+	                 ctx->enc_callback->video_buffer(ctx->enc_callback->owner, ost->frame_rgb, get_current_pts(ost),  &modified);
+	                 if (modified){
+	                   sws_scale(ost->sws_ctx_chg, ost->frame_rgb->data, ost->frame_rgb->linesize, 0, 
+	                       ost->v_height, save_frame.data, save_frame.linesize);
+	                 }
+                    }
+                }
+
         } else {
+	         if (ctx->enc_callback && ctx->enc_callback->audio_buffer){
+		          ctx->enc_callback->audio_buffer(ctx->enc_callback->owner, frame, get_current_pts(ost));
+	         }            
             if (!(e->enc_ctx->codec->capabilities & AV_CODEC_CAP_PARAM_CHANGE) &&
                 e->enc_ctx->ch_layout.nb_channels != frame->ch_layout.nb_channels) {
                 av_log(e, AV_LOG_ERROR,
@@ -819,7 +997,7 @@ static int frame_encode(OutputStream *ost, AVFrame *frame, AVPacket *pkt)
         }
     }
 
-    return encode_frame(of, ost, frame, pkt);
+    return encode_frame(ctx, of, ost, frame, pkt);
 }
 
 static void enc_thread_set_name(const OutputStream *ost)
@@ -857,12 +1035,76 @@ fail:
     return AVERROR(ENOMEM);
 }
 
+static int flush_encoder(OutputStream *ost, EncoderThread *et)
+{
+    Encoder *e = ost->enc;
+    int ret;
+
+    ret = frame_encode(ost, NULL, et->pkt);
+    if (ret < 0 && ret != AVERROR_EOF)
+        av_log(e, AV_LOG_ERROR, "Error flushing encoder: %s\n",
+            av_err2str(ret));
+
+    return ret;
+}
+
+static int reinit_encoder(OutputStream *ost, EncoderThread *et)
+{
+    Encoder     *e = ost->enc;
+    AVDictionary *copy = NULL;
+    const FrameData *fd = frame_data_c(et->frame);
+    int force_reinit, ret = AVERROR_BUG;
+
+    ret = av_dict_copy(&copy, fd->reinit_opts, 0);
+    if (ret < 0)
+        return ret;
+
+    force_reinit = !!av_dict_get(copy, "force_reinit", NULL, 0);
+    if (force_reinit)
+        av_dict_set(&copy, "force_reinit", NULL, 0);
+    // Lets try a graceful reconfiguration first
+    else if (e->enc_ctx->codec->capabilities & AV_CODEC_CAP_ENCODER_RECONF) {
+        ret = avcodec_encode_reconfigure(e->enc_ctx, &copy);
+        if (!ret)
+            goto end;
+
+        ret = av_dict_copy(&copy, fd->reinit_opts, AV_DICT_DONT_OVERWRITE);
+        if (ret < 0)
+            goto end;
+        av_dict_set(&copy, "force_reinit", NULL, 0);
+
+        av_log(e, AV_LOG_INFO, "Could not reconfigure the encoder."
+                               " Trying to restart it instead\n");
+    }
+
+    // Go ahead and do a full restart of the encoder
+    ret = flush_encoder(ost, et);
+    if (ret < 0 && ret != AVERROR_EOF)
+        goto end;
+
+    ret = enc_realloc(e, e->enc_ctx->codec);
+    if (ret < 0)
+        goto end;
+    av_log(e, AV_LOG_DEBUG, "Restarting encoder\n");
+    ret = enc_reopen(ost, et->frame, &copy);
+    if (ret < 0)
+        goto end;
+
+    ret = 0;
+end:
+    av_dict_free(&copy);
+    return ret;
+}
+
 int encoder_thread(void *arg)
 {
     OutputStream *ost = arg;
+    FfmpegContext* ctx = (FfmpegContext*)ost->ctx;
+    
     Encoder        *e = ost->enc;
     EncoderPriv   *ep = ep_from_enc(e);
     EncoderThread et;
+    const FrameData *fd;
     int ret = 0, input_status = 0;
     int name_set = 0;
 
@@ -878,7 +1120,7 @@ int encoder_thread(void *arg)
      * enc_ctx MUST NOT be accessed before sch_enc_receive() returns
      * for the first time for audio/video. */
     if (ost->type != AVMEDIA_TYPE_VIDEO && ost->type != AVMEDIA_TYPE_AUDIO) {
-        ret = enc_open(ost, NULL);
+        ret = enc_open(ctx, NULL);
         if (ret < 0)
             goto finish;
     }
@@ -906,7 +1148,17 @@ int encoder_thread(void *arg)
             name_set = 1;
         }
 
-        ret = frame_encode(ost, et.frame, et.pkt);
+        fd = frame_data_c(et.frame);
+        if (fd && fd->reinit_opts) {
+            ret = reinit_encoder(ost, &et);
+            if (ret < 0) {
+                av_log(e, AV_LOG_ERROR, "Error reconfiguring or restarting encoder: %s\n",
+                       av_err2str(ret));
+                goto finish;
+            }
+        }
+
+        ret = frame_encode(ctx, ost, et.frame, et.pkt);
 
         av_packet_unref(et.pkt);
         av_frame_unref(et.frame);
@@ -922,12 +1174,8 @@ int encoder_thread(void *arg)
     }
 
     // flush the encoder
-    if (ret == 0 || ret == AVERROR_EOF) {
-        ret = frame_encode(ost, NULL, et.pkt);
-        if (ret < 0 && ret != AVERROR_EOF)
-            av_log(e, AV_LOG_ERROR, "Error flushing encoder: %s\n",
-                   av_err2str(ret));
-    }
+    if (ret == 0 || ret == AVERROR_EOF)
+        ret = flush_encoder(ost, &et);
 
     // EOF is normal thread termination
     if (ret == AVERROR_EOF)

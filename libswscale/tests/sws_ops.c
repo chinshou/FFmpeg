@@ -18,12 +18,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "libavutil/avassert.h"
-#include "libavutil/avstring.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
-#include "libavutil/tree.h"
 #include "libswscale/ops.h"
+#include "libswscale/ops_dispatch.h"
+#include "libswscale/ops_internal.h"
+#include "libswscale/op_list_gen_template.c"
 #include "libswscale/format.h"
 
 #ifdef _WIN32
@@ -31,86 +31,75 @@
 #include <fcntl.h>
 #endif
 
-static int print_ops(SwsContext *const ctx, void *opaque, SwsOpList *ops)
+static int pass_idx;
+
+static int print_ops(SwsContext *ctx, const SwsOpList *ops, SwsCompiledOp *out)
 {
-    av_log(opaque, AV_LOG_INFO, "%s -> %s:\n",
-           av_get_pix_fmt_name(ops->src.format),
-           av_get_pix_fmt_name(ops->dst.format));
-
-    if (ff_sws_op_list_is_noop(ops))
-        av_log(opaque, AV_LOG_INFO, "  (no-op)\n");
-    else
-        ff_sws_op_list_print(opaque, AV_LOG_INFO, AV_LOG_INFO, ops);
-
-    return 0;
-}
-
-static int cmp_str(const void *a, const void *b)
-{
-    return strcmp(a, b);
-}
-
-static int register_op(SwsContext *ctx, void *opaque, SwsOp *op)
-{
-    struct AVTreeNode **root = opaque;
-    AVBPrint bp;
-    char *desc;
-
-    /* Strip irrelevant constant data from some operations */
-    switch (op->op) {
-    case SWS_OP_LINEAR:
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 5; j++)
-                op->lin.m[i][j] = (AVRational) { 0, 1 };
-        }
-        break;
-    case SWS_OP_SCALE:
-        op->scale.factor = (AVRational) { 0, 1 };
-        break;
-    case SWS_OP_MIN:
-    case SWS_OP_MAX:
-        for (int i = 0; i < 4; i++)
-            op->clamp.limit[i] = (AVRational) { 0, 1 };
-        break;
-    case SWS_OP_CLEAR:
-        for (int i = 0; i < 4; i++)
-            op->clear.value[i] = (AVRational) { 0, !!op->clear.value[i].den };
-        break;
-    case SWS_OP_DITHER:
-        /* Strip arbitrary offset */
-        for (int i = 0; i < 4; i++)
-            op->dither.y_offset[i] = op->dither.y_offset[i] >= 0 ? 0 : -1;
-        break;
-    }
-
-    av_bprint_init(&bp, 0, AV_BPRINT_SIZE_AUTOMATIC);
-    ff_sws_op_desc(&bp, op);
-    int ret = av_bprint_finalize(&bp, &desc);
-    if (ret < 0)
-        return ret;
-
-    struct AVTreeNode *node = av_tree_node_alloc();
-    if (!node) {
-        av_free(desc);
+    SwsUOpList *uops = ff_sws_uop_list_alloc();
+    if (!uops)
         return AVERROR(ENOMEM);
+
+    const SwsUOpFlags flags = SWS_UOP_FLAG_EXPAND_BIT
+                            | SWS_UOP_FLAG_READ_PALETTE
+                            | SWS_UOP_FLAG_ADD
+                            | SWS_UOP_FLAG_PUNNING;
+    int ret = ff_sws_ops_translate(ctx, ops, flags, uops);
+    if (ret == AVERROR(ENOTSUP))
+        goto fail;
+
+    if (pass_idx > 0)
+        av_log(NULL, AV_LOG_INFO, " Sub-pass #%d:\n", pass_idx);
+
+    ff_sws_op_list_print(NULL, AV_LOG_INFO, AV_LOG_INFO, ops);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Error translating ops: %s\n", av_err2str(ret));
+        goto fail;
     }
 
-    av_tree_insert(root, desc, cmp_str, &node);
-    if (node) {
-        av_free(node);
-        av_free(desc);
+    av_log(NULL, AV_LOG_INFO, " translated micro-ops:\n");
+    for (int i = 0; i < uops->num_ops; i++) {
+        char name[SWS_UOP_NAME_MAX];
+        ff_sws_uop_name(&uops->ops[i], name);
+        av_log(NULL, AV_LOG_INFO, "    %s\n", name);
     }
+
+    *out = (SwsCompiledOp) {0}; /* dummy value, will be immediately freed */
+    pass_idx++;
+    ret = 0;
+
+fail:
+    ff_sws_uop_list_free(&uops);
     return ret;
 }
 
-static int print_and_free_summary(void *opaque, void *key)
-{
-    char *desc = key;
-    av_log(opaque, AV_LOG_INFO, "%s\n", desc);
-    av_free(desc);
-    return 0;
-}
+/* Dummy backend that just prints all seen op lists */
+static const SwsOpBackend backend_print = {
+    .name    = "print_ops",
+    .compile = print_ops,
+};
 
+static int print_passes(SwsContext *ctx, void *graph, SwsOpList *ops)
+{
+    av_log(NULL, AV_LOG_INFO, "%s %dx%d -> %s %dx%d:\n",
+           av_get_pix_fmt_name(ops->src.format),
+           ops->src.width, ops->src.height,
+           av_get_pix_fmt_name(ops->dst.format),
+           ops->dst.width, ops->dst.height);
+
+    if (ff_sws_op_list_is_noop(ops)) {
+        av_log(NULL, AV_LOG_INFO, "  (no-op)\n");
+        return 0;
+    }
+
+    /* ff_sws_compile_pass() takes over ownership of `ops` */
+    SwsOpList *copy = ff_sws_op_list_duplicate(ops);
+    if (!copy)
+        return AVERROR(ENOMEM);
+
+    pass_idx = 0;
+    const int flags = SWS_OP_FLAG_DRY_RUN | SWS_OP_FLAG_SPLIT_MEMCPY;
+    return ff_sws_compile_pass(graph, &backend_print, &copy, flags, NULL, NULL);
+}
 static void log_stdout(void *avcl, int level, const char *fmt, va_list vl)
 {
     if (level != AV_LOG_INFO) {
@@ -124,7 +113,8 @@ int main(int argc, char **argv)
 {
     enum AVPixelFormat src_fmt = AV_PIX_FMT_NONE;
     enum AVPixelFormat dst_fmt = AV_PIX_FMT_NONE;
-    bool summarize = false;
+    SwsContext *ctx = NULL;
+    SwsGraph *graph = NULL;
     int ret = 1;
 
 #ifdef _WIN32
@@ -143,8 +133,6 @@ int main(int argc, char **argv)
                     "       Only test the specified source pixel format\n"
                     "   -v <level>\n"
                     "       Enable log verbosity at given level\n"
-                    "   -summarize\n"
-                    "       Summarize operation types, instead of printing op lists\n"
             );
             return 0;
         }
@@ -154,7 +142,7 @@ int main(int argc, char **argv)
             src_fmt = av_get_pix_fmt(argv[i + 1]);
             if (src_fmt == AV_PIX_FMT_NONE) {
                 fprintf(stderr, "invalid pixel format %s\n", argv[i + 1]);
-                goto error;
+                return AVERROR(EINVAL);
             }
             i++;
         } else if (!strcmp(argv[i], "-dst")) {
@@ -163,7 +151,7 @@ int main(int argc, char **argv)
             dst_fmt = av_get_pix_fmt(argv[i + 1]);
             if (dst_fmt == AV_PIX_FMT_NONE) {
                 fprintf(stderr, "invalid pixel format %s\n", argv[i + 1]);
-                goto error;
+                return AVERROR(EINVAL);
             }
             i++;
         } else if (!strcmp(argv[i], "-v")) {
@@ -171,39 +159,31 @@ int main(int argc, char **argv)
                 goto bad_option;
             av_log_set_level(atoi(argv[i + 1]));
             i++;
-        } else if (!strcmp(argv[i], "-summarize")) {
-            summarize = true;
         } else {
 bad_option:
             fprintf(stderr, "bad option or argument missing (%s) see -help\n", argv[i]);
-            goto error;
+            return AVERROR(EINVAL);
         }
     }
 
-    SwsContext *ctx = sws_alloc_context();
+    /* Allocate dummy graph and context for ff_sws_compile_pass() */
+    graph = ff_sws_graph_alloc();
+    if (!graph)
+        goto fail;
+    graph->ctx = ctx = sws_alloc_context();
     if (!ctx)
         goto fail;
+    ctx->scaler = SWS_SCALE_BILINEAR; /* reduce filter generation overhead */
 
     av_log_set_callback(log_stdout);
 
-    if (summarize) {
-        struct AVTreeNode *root = NULL;
-        ret = ff_sws_enum_ops(ctx, &root, src_fmt, dst_fmt, register_op);
-        if (ret < 0)
-            goto fail;
-        av_tree_enumerate(root, NULL, NULL, print_and_free_summary);
-        av_tree_destroy(root);
-    } else {
-        ret = ff_sws_enum_op_lists(ctx, NULL, src_fmt, dst_fmt, print_ops);
-        if (ret < 0)
-            goto fail;
-    }
+    ret = ff_sws_enum_op_lists(ctx, graph, NULL, src_fmt, dst_fmt, print_passes);
+    if (ret < 0)
+        goto fail;
 
     ret = 0;
 fail:
     sws_free_context(&ctx);
+    ff_sws_graph_free(&graph);
     return ret;
-
-error:
-    return AVERROR(EINVAL);
 }
