@@ -294,7 +294,7 @@ LCEVC_BLOCK_FUNC(encoded_data, (CodedBitstreamContext *ctx, RWContext *rw,
     int pos = get_bits_count(rw) - start;
     int len = state->payload_size;
 
-    current->header_size = pos / 8;
+    current->data_offset = get_bits_count(rw) / 8;
     current->data_size = len - pos / 8;
     skip_bits_long(rw, current->data_size * 8);
 #else
@@ -515,7 +515,10 @@ static int FUNC(process_block)(CodedBitstreamContext *ctx, RWContext *rw,
             if (trailing_bits == 0) {
                 // The trailing bits must contain a payload_bit_equal_to_one, so
                 // they can't all be zero.
-                return AVERROR_INVALIDDATA;
+                // Don't error out as encodings following a faulty specification
+                // syntax trigger this.
+                av_log(ctx->log_ctx, AV_LOG_DEBUG, "Missing alignment bits in Process Block\n");
+                return 0;
             }
             trailing_zero_bits = ff_ctz(trailing_bits);
             current->extension_bit_length =

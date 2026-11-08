@@ -102,6 +102,8 @@ typedef struct DecoderPriv {
         AVDictionary       *opts;
         const AVCodec      *codec;
     } standalone_init;
+    
+    void* ctx;
 } DecoderPriv;
 
 static DecoderPriv *dp_from_dec(Decoder *d)
@@ -136,6 +138,8 @@ void dec_free(Decoder **pdec)
         av_frame_free(&dp->sub_prev[i]);
     av_frame_free(&dp->sub_heartbeat);
 
+    av_freep(&dp->dec.subtitle_header);
+
     av_freep(&dp->parent_name);
 
     av_freep(&dp->views_requested);
@@ -160,7 +164,7 @@ static const AVClass dec_class = {
 
 static int decoder_thread(void *arg);
 
-static int dec_alloc(DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
+static int dec_alloc(FfmpegContext* ctx, DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
 {
     DecoderPriv *dp;
     int ret = 0;
@@ -186,6 +190,7 @@ static int dec_alloc(DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
     dp->last_frame_tb                = (AVRational){ 1, 1 };
     dp->hwaccel_pix_fmt              = AV_PIX_FMT_NONE;
 
+    dp->ctx = ctx;
     ret = sch_add_dec(sch, decoder_thread, dp, send_end_ts);
     if (ret < 0)
         goto fail;
@@ -385,13 +390,6 @@ fail:
 static int video_frame_process(DecoderPriv *dp, AVFrame *frame,
                                unsigned *outputs_mask)
 {
-#if FFMPEG_OPT_TOP
-    if (dp->flags & DECODER_FLAG_TOP_FIELD_FIRST) {
-        av_log(dp, AV_LOG_WARNING, "-top is deprecated, use the setfield filter instead\n");
-        frame->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
-    }
-#endif
-
     if (frame->format == dp->hwaccel_pix_fmt) {
         int err = hwaccel_retrieve_data(dp->dec_ctx, frame);
         if (err < 0)
@@ -913,7 +911,8 @@ fail:
 
 static int decoder_thread(void *arg)
 {
-    DecoderPriv  *dp = arg;
+    DecoderPriv  *dp = (DecoderPriv  *)arg;
+    FfmpegContext* ctx = dp->ctx;
     DecThreadContext dt;
     int ret = 0, input_status = 0;
 
@@ -1328,6 +1327,8 @@ static enum AVPixelFormat get_format(AVCodecContext *s, const enum AVPixelFormat
         return AV_PIX_FMT_NONE;
     }
 
+    dp->hwaccel_pix_fmt = AV_PIX_FMT_NONE;
+
     for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(*p);
         const AVCodecHWConfig  *config = NULL;
@@ -1350,8 +1351,30 @@ static enum AVPixelFormat get_format(AVCodecContext *s, const enum AVPixelFormat
         }
         if (config && config->device_type == dp->hwaccel_device_type) {
             dp->hwaccel_pix_fmt = *p;
-            break;
+            /* Stop at the first matching hardware format unless the user
+             * explicitly requested a different *hardware* output format
+             * (e.g. CUARRAY vs CUDA, which share a device type) - in that
+             * case keep scanning for the exact match. A software
+             * hwaccel_output_format requests a download and imposes no such
+             * preference, so it must not switch us off the default (first)
+             * hardware format. */
+            if (dp->hwaccel_output_format == AV_PIX_FMT_NONE ||
+                dp->hwaccel_output_format == *p ||
+                !(av_pix_fmt_desc_get(dp->hwaccel_output_format)->flags & AV_PIX_FMT_FLAG_HWACCEL))
+                break;
         }
+    }
+
+    if (dp->hwaccel_pix_fmt != AV_PIX_FMT_NONE) {
+        if (dp->hwaccel_output_format != AV_PIX_FMT_NONE &&
+            dp->hwaccel_output_format != dp->hwaccel_pix_fmt &&
+            (av_pix_fmt_desc_get(dp->hwaccel_output_format)->flags & AV_PIX_FMT_FLAG_HWACCEL))
+            av_log(dp, AV_LOG_WARNING,
+                   "Requested hwaccel output format '%s' not available, "
+                   "falling back to '%s'\n",
+                   av_get_pix_fmt_name(dp->hwaccel_output_format),
+                   av_get_pix_fmt_name(dp->hwaccel_pix_fmt));
+        return dp->hwaccel_pix_fmt;
     }
 
     return *p;
@@ -1621,8 +1644,15 @@ static int dec_open(DecoderPriv *dp, AVDictionary **dec_opts,
             dp->dec_ctx->extra_hw_frames = extra_frames;
     }
 
-    dp->dec.subtitle_header      = dp->dec_ctx->subtitle_header;
-    dp->dec.subtitle_header_size = dp->dec_ctx->subtitle_header_size;
+    if (dp->dec_ctx->subtitle_header) {
+        /* ASS code assumes this buffer is null terminated so add extra byte. */
+        dp->dec.subtitle_header = av_mallocz(dp->dec_ctx->subtitle_header_size + 1);
+        if (!dp->dec.subtitle_header)
+            return AVERROR(ENOMEM);
+        memcpy(dp->dec.subtitle_header, dp->dec_ctx->subtitle_header,
+               dp->dec_ctx->subtitle_header_size);
+        dp->dec.subtitle_header_size = dp->dec_ctx->subtitle_header_size;
+    }
 
     if (param_out) {
         if (dp->dec_ctx->codec_type == AVMEDIA_TYPE_AUDIO) {
@@ -1640,6 +1670,7 @@ static int dec_open(DecoderPriv *dp, AVDictionary **dec_opts,
             param_out->colorspace           = dp->dec_ctx->colorspace;
             param_out->color_range          = dp->dec_ctx->color_range;
             param_out->alpha_mode           = dp->dec_ctx->alpha_mode;
+            param_out->chroma_location      = dp->dec_ctx->chroma_sample_location;
         }
 
         av_frame_side_data_free(&param_out->side_data, &param_out->nb_side_data);
@@ -1653,7 +1684,7 @@ static int dec_open(DecoderPriv *dp, AVDictionary **dec_opts,
     return 0;
 }
 
-int dec_init(Decoder **pdec, Scheduler *sch,
+int dec_init(FfmpegContext* ctx, Decoder **pdec, Scheduler *sch,
              AVDictionary **dec_opts, const DecoderOpts *o,
              AVFrame *param_out)
 {
@@ -1662,7 +1693,7 @@ int dec_init(Decoder **pdec, Scheduler *sch,
 
     *pdec = NULL;
 
-    ret = dec_alloc(&dp, sch, !!(o->flags & DECODER_FLAG_SEND_END_TS));
+    ret = dec_alloc(ctx, &dp, sch, !!(o->flags & DECODER_FLAG_SEND_END_TS));
     if (ret < 0)
         return ret;
 
@@ -1680,7 +1711,7 @@ fail:
     return ret;
 }
 
-int dec_create(const OptionsContext *o, const char *arg, Scheduler *sch)
+int dec_create(FfmpegContext* ctx, const OptionsContext *o, const char *arg, Scheduler *sch)
 {
     DecoderPriv *dp;
 
@@ -1692,26 +1723,26 @@ int dec_create(const OptionsContext *o, const char *arg, Scheduler *sch)
     unsigned enc_idx;
     int ret;
 
-    ret = dec_alloc(&dp, sch, 0);
+    ret = dec_alloc(ctx, &dp, sch, 0);
     if (ret < 0)
         return ret;
 
-    dp->index = nb_decoders;
+    dp->index = ctx->nb_decoders;
 
-    ret = GROW_ARRAY(decoders, nb_decoders);
+    ret = GROW_ARRAY(ctx->decoders, ctx->nb_decoders);
     if (ret < 0) {
         dec_free((Decoder **)&dp);
         return ret;
     }
 
-    decoders[nb_decoders - 1] = (Decoder *)dp;
+    ctx->decoders[ctx->nb_decoders - 1] = (Decoder *)dp;
 
     of_index = strtol(arg, &p, 0);
-    if (of_index < 0 || of_index >= nb_output_files) {
+    if (of_index < 0 || of_index >= ctx->nb_output_files) {
         av_log(dp, AV_LOG_ERROR, "Invalid output file index '%d' in %s\n", of_index, arg);
         return AVERROR(EINVAL);
     }
-    of = output_files[of_index];
+    of = ctx->output_files[of_index];
 
     ost_index = strtol(p + 1, NULL, 0);
     if (ost_index < 0 || ost_index >= of->nb_streams) {

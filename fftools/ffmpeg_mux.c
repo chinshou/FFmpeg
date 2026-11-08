@@ -30,6 +30,7 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
 #include "libavutil/mem.h"
+#include "libavutil/stereo3d.h"
 #include "libavutil/time.h"
 #include "libavutil/timestamp.h"
 
@@ -139,11 +140,6 @@ static int mux_fixup_ts(Muxer *mux, MuxStream *ms, AVPacket *pkt)
 {
     OutputStream *ost = &ms->ost;
 
-#if FFMPEG_OPT_VSYNC_DROP
-    if (ost->type == AVMEDIA_TYPE_VIDEO && ms->ts_drop)
-        pkt->pts = pkt->dts = AV_NOPTS_VALUE;
-#endif
-
     // rescale timestamps to the stream timebase
     if (ost->type == AVMEDIA_TYPE_AUDIO && !ost->enc) {
         // use av_rescale_delta() for streamcopying audio, to preserve
@@ -170,9 +166,7 @@ static int mux_fixup_ts(Muxer *mux, MuxStream *ms, AVPacket *pkt)
             av_log(ost, AV_LOG_WARNING, "Invalid DTS: %"PRId64" PTS: %"PRId64", replacing by guess\n",
                    pkt->dts, pkt->pts);
             pkt->pts =
-            pkt->dts = pkt->pts + pkt->dts + ms->last_mux_dts + 1
-                     - FFMIN3(pkt->pts, pkt->dts, ms->last_mux_dts + 1)
-                     - FFMAX3(pkt->pts, pkt->dts, ms->last_mux_dts + 1);
+            pkt->dts = av_clip64(ms->last_mux_dts, pkt->pts - 1, pkt->dts - 1) + 1;
         }
         if ((ost->type == AVMEDIA_TYPE_AUDIO || ost->type == AVMEDIA_TYPE_VIDEO || ost->type == AVMEDIA_TYPE_SUBTITLE) &&
             pkt->dts != AV_NOPTS_VALUE &&
@@ -407,6 +401,7 @@ fail:
 int muxer_thread(void *arg)
 {
     Muxer     *mux = arg;
+    FfmpegContext* ctx= mux->ctx; 
     OutputFile *of = &mux->of;
 
     MuxThreadContext mt;
@@ -502,20 +497,20 @@ static int of_streamcopy(OutputFile *of, OutputStream *ost, AVPacket *pkt)
     return 0;
 }
 
-int print_sdp(const char *filename);
+int print_sdp(FfmpegContext* ctx,const char *filename);
 
-int print_sdp(const char *filename)
+int print_sdp(FfmpegContext* ctx, const char *filename)
 {
     char sdp[16384];
     int j = 0, ret;
     AVIOContext *sdp_pb;
     AVFormatContext **avc;
 
-    avc = av_malloc_array(nb_output_files, sizeof(*avc));
+    avc = av_malloc_array(ctx->nb_output_files, sizeof(*avc));
     if (!avc)
         return AVERROR(ENOMEM);
-    for (int i = 0; i < nb_output_files; i++) {
-        Muxer *mux = mux_from_of(output_files[i]);
+    for (int i = 0; i < ctx->nb_output_files; i++) {
+        Muxer *mux = mux_from_of(ctx->output_files[i]);
 
         if (!strcmp(mux->fc->oformat->name, "rtp")) {
             avc[j] = mux->fc;
@@ -555,6 +550,7 @@ fail:
 int mux_check_init(void *arg)
 {
     Muxer     *mux = arg;
+    FfmpegContext* ctx = mux->ctx;
     OutputFile *of = &mux->of;
     AVFormatContext *fc = mux->fc;
     int ret;
@@ -569,7 +565,7 @@ int mux_check_init(void *arg)
     mux->header_written = 1;
 
     av_dump_format(fc, of->index, fc->url, 1);
-    atomic_fetch_add(&nb_output_dumped, 1);
+    atomic_fetch_add(&ctx->nb_output_dumped, 1);
 
     return 0;
 }
@@ -608,7 +604,7 @@ static int bsf_init(MuxStream *ms)
     return 0;
 }
 
-int of_stream_init(OutputFile *of, OutputStream *ost,
+int of_stream_init(FfmpegContext* ctx,OutputFile *of, OutputStream *ost,
                    const AVCodecContext *enc_ctx)
 {
     Muxer *mux = mux_from_of(of);
@@ -637,6 +633,40 @@ int of_stream_init(OutputFile *of, OutputStream *ost,
     ret = bsf_init(ms);
     if (ret < 0)
         return ret;
+
+    if (ms->stereo3d_set) {
+        AVCodecParameters *par = ost->st->codecpar;
+        AVStereo3D *stereo;
+        size_t size;
+
+        stereo = av_stereo3d_alloc_size(&size);
+        if (!stereo)
+            return AVERROR(ENOMEM);
+        stereo->type = ms->stereo3d_type;
+
+        if (av_packet_side_data_get(par->coded_side_data, par->nb_coded_side_data,
+                                    AV_PKT_DATA_STEREO3D))
+            av_log(ost, AV_LOG_INFO, "Overriding existing stereoscopic 3D side data\n");
+
+        if (!av_packet_side_data_add(&par->coded_side_data, &par->nb_coded_side_data,
+                                     AV_PKT_DATA_STEREO3D, stereo, size, 0)) {
+            av_freep(&stereo);
+            return AVERROR(ENOMEM);
+        }
+
+        /* Keep Matroska/WebM metadata consistent with the explicit layout,
+         * as their muxer consults the tag before the side data. */
+        if (!strcmp(mux->fc->oformat->name, "matroska") ||
+            !strcmp(mux->fc->oformat->name, "webm")) {
+            const char *stereo_mode =
+                ms->stereo3d_type == AV_STEREO3D_2D         ? "mono" :
+                ms->stereo3d_type == AV_STEREO3D_SIDEBYSIDE ? "left_right" :
+                                                              "top_bottom";
+            ret = av_dict_set(&ost->st->metadata, "stereo_mode", stereo_mode, 0);
+            if (ret < 0)
+                return ret;
+        }
+    }
 
     if (ms->stream_duration) {
         ost->st->duration = av_rescale_q(ms->stream_duration, ms->stream_duration_tb,
@@ -837,6 +867,19 @@ static void ost_free(OutputStream **post)
 
     av_freep(&ost->attachment_filename);
 
+    if (ost->type == AVMEDIA_TYPE_VIDEO)
+    {
+                //av_log(NULL, AV_LOG_ERROR,"ost_free \n");
+		if (ost->sws_ctx)
+		  sws_freeContext(ost->sws_ctx);
+		if (ost->sws_ctx_chg)
+		  sws_freeContext(ost->sws_ctx_chg);
+		if (ost->rgb_buf)
+		  av_free(ost->rgb_buf);      
+		if (ost->frame_rgb)
+		  av_frame_free(&ost->frame_rgb);
+
+    }
     enc_stats_uninit(&ost->enc_stats_pre);
     enc_stats_uninit(&ost->enc_stats_post);
     enc_stats_uninit(&ms->stats);
