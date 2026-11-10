@@ -30,7 +30,6 @@
    references to libraries that are not being built. */
 
 #include "config.h"
-#include "compat/va_copy.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
 #include "libswscale/version.h"
@@ -43,7 +42,6 @@
 #include "libavutil/getenv_utf8.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/imgutils.h"
-#include "libavutil/libm.h"
 #include "libavutil/mem.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/eval.h"
@@ -570,7 +568,7 @@ void parse_loglevel(int argc, char **argv, const OptionDef *options)
     if (!idx)
         idx = locate_option(argc, argv, options, "v");
     if (idx && argv[idx + 1])
-        opt_loglevel(NULL, "loglevel", argv[idx + 1]);
+        opt_loglevel(NULL, NULL, "loglevel", argv[idx + 1]);
     idx = locate_option(argc, argv, options, "report");
     env = getenv_utf8("FFREPORT");
     if (env || idx) {
@@ -602,7 +600,7 @@ static const AVOption *opt_find(void *obj, const char *name, const char *unit,
 }
 
 #define FLAGS ((o->type == AV_OPT_TYPE_FLAGS && (arg[0]=='-' || arg[0]=='+')) ? AV_DICT_APPEND : 0)
-int opt_default(void* ctx, void *optctx, const char *opt, const char *arg)
+int opt_default(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVOption *o;
     int consumed = 0;

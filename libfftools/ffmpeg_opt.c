@@ -161,7 +161,7 @@ static void init_options(OptionsContext *o)
     o->shortest_buf_duration = 10.f;
 }
 
-static int show_hwaccels(void *optctx, const char *opt, const char *arg)
+static int show_hwaccels(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
 {
     enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
 
@@ -478,7 +478,7 @@ static int opt_filter_threads(FfmpegContext* ctx, void *optctx, const char *opt,
     return 0;
 }
 
-static int opt_filter_buffered_frames(void *optctx, const char *opt, const char *arg)
+static int opt_filter_buffered_frames(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
 {
     enum AVMediaType type;
     const char *suffix = strchr(opt, ':');
@@ -665,7 +665,7 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
                 if (file_idx == m->file_index &&
                     !m->linklabel &&
                     m->stream_index >= 0 &&
-                    m->stream_index < input_files[m->file_index]->nb_streams &&
+                    m->stream_index < ctx->input_files[m->file_index]->nb_streams &&
                     stream_specifier_match(&ss,
                                            ctx->input_files[m->file_index]->ctx,
                                            ctx->input_files[m->file_index]->ctx->streams[m->stream_index],
@@ -1564,7 +1564,7 @@ static int opt_progress(FfmpegContext* ctx, void *optctx, const char *opt, const
     return 0;
 }
 
-int opt_timelimit(void* ctx, void *optctx, const char *opt, const char *arg)
+int opt_timelimit(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
 {
 #if HAVE_SETRLIMIT
     int ret;

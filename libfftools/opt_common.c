@@ -76,7 +76,7 @@ enum show_codec {
 static FILE *report_file;
 static int report_file_level = AV_LOG_DEBUG;
 
-int show_license(void *optctx, const char *opt, const char *arg)
+int show_license(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if 0
 #if CONFIG_NONFREE
@@ -250,7 +250,7 @@ void show_banner(int argc, char **argv, const OptionDef *options)
     print_all_libs_info(INDENT|SHOW_VERSION, AV_LOG_INFO);
 }
 
-int show_version(void *optctx, const char *opt, const char *arg)
+int show_version(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if 0
     av_log_set_callback(log_callback_help);
@@ -261,7 +261,7 @@ int show_version(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_buildconf(void *optctx, const char *opt, const char *arg)
+int show_buildconf(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if 0
     av_log_set_callback(log_callback_help);
@@ -592,7 +592,7 @@ static void show_help_bsf(const char *name)
         show_help_children(bsf->priv_class, AV_OPT_FLAG_BSF_PARAM);
 }
 
-int show_help(void *optctx, const char *opt, const char *arg)
+int show_help(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     char *topic, *par;
     av_log_set_callback(log_callback_help);
@@ -683,7 +683,7 @@ static char get_media_type_char(enum AVMediaType type)
     }
 }
 
-int show_codecs(void *optctx, const char *opt, const char *arg)
+int show_codecs(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVCodecDescriptor **codecs;
     unsigned i;
@@ -788,17 +788,17 @@ static int print_codecs(int encoder)
     return 0;
 }
 
-int show_decoders(void *optctx, const char *opt, const char *arg)
+int show_decoders(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     return print_codecs(SHOW_DECODER);
 }
 
-int show_encoders(void *optctx, const char *opt, const char *arg)
+int show_encoders(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     return print_codecs(SHOW_ENCODER);
 }
 
-int show_bsfs(void *optctx, const char *opt, const char *arg)
+int show_bsfs(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVBitStreamFilter *bsf = NULL;
     void *opaque = NULL;
@@ -810,7 +810,7 @@ int show_bsfs(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_filters(void *optctx, const char *opt, const char *arg)
+int show_filters(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if CONFIG_AVFILTER
     const AVFilter *filter = NULL;
@@ -865,7 +865,7 @@ static int is_device(const AVClass *avclass)
     return AV_IS_INPUT_DEVICE(avclass->category) || AV_IS_OUTPUT_DEVICE(avclass->category);
 }
 
-static int show_formats_devices(void *optctx, const char *opt, const char *arg, int device_only, int muxdemuxers)
+static int show_formats_devices(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg, int device_only, int muxdemuxers)
 {
     void *ifmt_opaque = NULL;
     const AVInputFormat *ifmt  = NULL;
@@ -940,27 +940,27 @@ static int show_formats_devices(void *optctx, const char *opt, const char *arg, 
     return 0;
 }
 
-int show_formats(void *optctx, const char *opt, const char *arg)
+int show_formats(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 0, SHOW_DEFAULT);
+    return show_formats_devices(ctx, optctx, opt, arg, 0, SHOW_DEFAULT);
 }
 
-int show_muxers(void *optctx, const char *opt, const char *arg)
+int show_muxers(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 0, SHOW_MUXERS);
+    return show_formats_devices(ctx, optctx, opt, arg, 0, SHOW_MUXERS);
 }
 
-int show_demuxers(void *optctx, const char *opt, const char *arg)
+int show_demuxers(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 0, SHOW_DEMUXERS);
+    return show_formats_devices(ctx, optctx, opt, arg, 0, SHOW_DEMUXERS);
 }
 
-int show_devices(void *optctx, const char *opt, const char *arg)
+int show_devices(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 1, SHOW_DEFAULT);
+    return show_formats_devices(ctx, optctx, opt, arg, 1, SHOW_DEFAULT);
 }
 
-int show_protocols(void *optctx, const char *opt, const char *arg)
+int show_protocols(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     void *opaque = NULL;
     const char *name;
@@ -975,7 +975,7 @@ int show_protocols(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_colors(void *optctx, const char *opt, const char *arg)
+int show_colors(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const char *name;
     const uint8_t *rgb;
@@ -989,7 +989,7 @@ int show_colors(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_pix_fmts(void *optctx, const char *opt, const char *arg)
+int show_pix_fmts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVPixFmtDescriptor *pix_desc = NULL;
 
@@ -1027,7 +1027,7 @@ int show_pix_fmts(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_layouts(void *optctx, const char *opt, const char *arg)
+int show_layouts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVChannelLayout *ch_layout;
     void *iter = NULL;
@@ -1060,7 +1060,7 @@ int show_layouts(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_sample_fmts(void *optctx, const char *opt, const char *arg)
+int show_sample_fmts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     int i;
     char fmt_str[128];
@@ -1069,7 +1069,7 @@ int show_sample_fmts(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_dispositions(void *optctx, const char *opt, const char *arg)
+int show_dispositions(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     for (int i = 0; i < 32; i++) {
         const char *str = av_disposition_to_string(1U << i);
@@ -1079,7 +1079,7 @@ int show_dispositions(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int opt_cpuflags(void *optctx, const char *opt, const char *arg)
+int opt_cpuflags(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     int ret;
     unsigned flags = av_get_cpu_flags();
@@ -1091,7 +1091,7 @@ int opt_cpuflags(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int opt_cpucount(void *optctx, const char *opt, const char *arg)
+int opt_cpucount(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     int ret;
     int count;
@@ -1246,12 +1246,12 @@ int init_report(const char *env, FILE **file)
     return 0;
 }
 
-int opt_report(void *optctx, const char *opt, const char *arg)
+int opt_report(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     return init_report(NULL, NULL);
 }
 
-int opt_max_alloc(void *optctx, const char *opt, const char *arg)
+int opt_max_alloc(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     char *tail;
     size_t max;
@@ -1265,7 +1265,7 @@ int opt_max_alloc(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int opt_loglevel(void *optctx, const char *opt, const char *arg)
+int opt_loglevel(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const struct { const char *name; int level; } log_levels[] = {
         { "quiet"  , AV_LOG_QUIET   },
@@ -1445,7 +1445,7 @@ static int show_sinks_sources_parse_arg(const char *arg, char **dev, AVDictionar
     return 0;
 }
 
-int show_sources(void *optctx, const char *opt, const char *arg)
+int show_sources(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVInputFormat *fmt = NULL;
     char *dev = NULL;
@@ -1483,7 +1483,7 @@ int show_sources(void *optctx, const char *opt, const char *arg)
     return ret;
 }
 
-int show_sinks(void *optctx, const char *opt, const char *arg)
+int show_sinks(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVOutputFormat *fmt = NULL;
     char *dev = NULL;

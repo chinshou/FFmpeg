@@ -424,12 +424,19 @@ typedef struct FPSConvContext {
     int               framerate_clip;
 } FPSConvContext;
 
+typedef struct ReinitOpts {
+    int64_t pts;
+    AVDictionary *dict;
+} ReinitOpts;
+
 typedef struct OutputFilterPriv {
     OutputFilter            ofilter;
 
     void                   *log_parent;
     char                    log_name[32];
 
+#define NEEDED_EXPLICIT 1
+#define NEEDED_INTERNAL 2
     int                     needed;
 
     /* desired output stream properties */
@@ -440,6 +447,7 @@ typedef struct OutputFilterPriv {
     enum AVColorSpace       color_space;
     enum AVColorRange       color_range;
     enum AVAlphaMode        alpha_mode;
+    enum AVChromaLocation   chroma_location;
 
     unsigned                crop_top;
     unsigned                crop_bottom;
@@ -472,6 +480,7 @@ typedef struct OutputFilterPriv {
     const enum AVColorSpace *color_spaces;
     const enum AVColorRange *color_ranges;
     const enum AVAlphaMode *alpha_modes;
+    const enum AVChromaLocation *chroma_locations;
 
     int32_t                 displaymatrix[9];
 
@@ -482,6 +491,9 @@ typedef struct OutputFilterPriv {
     int64_t                 ts_offset;
     int64_t                 next_pts;
     FPSConvContext          fps;
+
+    AVFifo                 *reinit_opts_fifo;
+    ReinitOpts              reinit_opts;
 
     unsigned                flags;
 } OutputFilterPriv;

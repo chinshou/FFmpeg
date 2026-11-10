@@ -1519,7 +1519,7 @@ int fg_finalise_bindings(FfmpegContext* ctx)
 
 retry:
     for (int i = 0; i < ctx->nb_filtergraphs; i++) {
-        FilterGraph *fg = filtergraphs[i];
+        FilterGraph *fg = ctx->filtergraphs[i];
         for (int j = 0; j < fg->nb_outputs; j++) {
             OutputFilter *output = fg->outputs[j];
             ofp_from_ofilter(output)->needed &= ~NEEDED_INTERNAL;
@@ -3489,7 +3489,7 @@ static int filter_thread(void *arg)
                 ret = send_frame(ctx, fg, &fgt, ifilter, fgt.frame, ret);
         } else {
             av_assert1(o == FRAME_OPAQUE_EOF);
-            ret = send_eof(&fgt, ifilter, fgt.frame->pts, fgt.frame->time_base);
+            ret = send_eof(ctx, &fgt, ifilter, fgt.frame->pts, fgt.frame->time_base);
         }
         av_frame_unref(fgt.frame);
         if (ret == AVERROR_EOF) {

@@ -1942,7 +1942,7 @@ static DemuxStreamGroup *demux_stream_group_alloc(Demuxer *d, AVStreamGroup *stg
     return dsg;
 }
 
-static int istg_parse_alpha(const OptionsContext *o, Demuxer *d, InputStreamGroup *istg)
+static int istg_parse_alpha(FfmpegContext* ctx, const OptionsContext *o, Demuxer *d, InputStreamGroup *istg)
 {
     InputFile *f = &d->f;
     AVStreamGroup *stg = istg->stg;
@@ -1984,11 +1984,11 @@ static int istg_parse_alpha(const OptionsContext *o, Demuxer *d, InputStreamGrou
             goto fail;
     }
 
-    ret = fg_create(NULL, &graph_str, d->sch, &opts);
+    ret = fg_create(ctx, NULL, &graph_str, d->sch, &opts);
     if (ret < 0)
         goto fail;
 
-    istg->fg = filtergraphs[nb_filtergraphs-1];
+    istg->fg = ctx->filtergraphs[ctx->nb_filtergraphs-1];
     istg->fg->is_internal = 1;
 
     ret = 0;
@@ -2172,7 +2172,7 @@ static int istg_add(FfmpegContext* ctx,const OptionsContext *o, Demuxer *d, AVSt
 
     switch (stg->type) {
     case AV_STREAM_GROUP_PARAMS_ALPHA:
-        ret = istg_parse_alpha(o, d, istg);
+        ret = istg_parse_alpha(ctx, o, d, istg);
         if (ret < 0)
             return ret;
         break;

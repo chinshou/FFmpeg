@@ -37,6 +37,8 @@
 /**
  * program name, defined by the program for show_version().
  */
+struct FfmpegContext;
+
 extern const char program_name[];
 
 /**
@@ -70,12 +72,12 @@ void log_callback_help(void* ptr, int level, const char* fmt, va_list vl);
  * Fallback for options that are not explicitly handled, these will be
  * parsed through AVOptions.
  */
-int opt_default(void* ctx, void *optctx, const char *opt, const char *arg);
+int opt_default(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Limit the execution time.
  */
-int opt_timelimit(void* ctx, void *optctx, const char *opt, const char *arg);
+int opt_timelimit(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 enum OptionType {
     OPT_TYPE_FUNC,
@@ -249,7 +251,7 @@ typedef struct OptionDef {
 
      union {
         void *dst_ptr;
-        int (*func_arg)(void * , void *, const char *, const char *);
+        int (*func_arg)(struct FfmpegContext *, void *, const char *, const char *);
         size_t off;
     } u;
     const char *help;

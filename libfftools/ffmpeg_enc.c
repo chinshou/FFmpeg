@@ -436,6 +436,7 @@ static int enc_reopen(void *opaque, const AVFrame *frame,
 int enc_open(void *opaque, const AVFrame *frame)
 {
     OutputStream *ost = opaque;
+    FfmpegContext        *ctx = ost->ctx;
     Encoder              *e = ost->enc;
     EncoderPriv         *ep = ep_from_enc(e);
     AVCodecContext *enc_ctx = e->enc_ctx;
@@ -1039,12 +1040,12 @@ fail:
     return AVERROR(ENOMEM);
 }
 
-static int flush_encoder(OutputStream *ost, EncoderThread *et)
+static int flush_encoder(FfmpegContext *ctx, OutputStream *ost, EncoderThread *et)
 {
     Encoder *e = ost->enc;
     int ret;
 
-    ret = frame_encode(ost, NULL, et->pkt);
+    ret = frame_encode(ctx, ost, NULL, et->pkt);
     if (ret < 0 && ret != AVERROR_EOF)
         av_log(e, AV_LOG_ERROR, "Error flushing encoder: %s\n",
             av_err2str(ret));
@@ -1082,7 +1083,7 @@ static int reinit_encoder(OutputStream *ost, EncoderThread *et)
     }
 
     // Go ahead and do a full restart of the encoder
-    ret = flush_encoder(ost, et);
+    ret = flush_encoder(ost->ctx, ost, et);
     if (ret < 0 && ret != AVERROR_EOF)
         goto end;
 
@@ -1179,7 +1180,7 @@ int encoder_thread(void *arg)
 
     // flush the encoder
     if (ret == 0 || ret == AVERROR_EOF)
-        ret = flush_encoder(ost, &et);
+        ret = flush_encoder(ctx, ost, &et);
 
     // EOF is normal thread termination
     if (ret == AVERROR_EOF)

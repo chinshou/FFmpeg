@@ -30,6 +30,7 @@
 #include "libavformat/avio.h"
 
 #include "libavcodec/avcodec.h"
+#include "libavcodec/version.h"
 
 #include "libavfilter/avfilter.h"
 
@@ -1570,7 +1571,7 @@ static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum
 
             /* compute this stream's global index */
             for (int idx = 0; idx <= ost->file->index; idx++)
-                ost_idx += output_files[idx]->nb_streams;
+                ost_idx += ctx->output_files[idx]->nb_streams;
 
             snprintf(logfilename, sizeof(logfilename), "%s-%d.log",
                      ost->logfile_prefix ? ost->logfile_prefix :
@@ -1759,7 +1760,7 @@ static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
 
             if (ist->user_set_discard == AVDISCARD_ALL ||
                 ist->st->codecpar->codec_type != AVMEDIA_TYPE_VIDEO ||
-                (desc && (ifile->nb_streams > 1 || nb_input_files > 1) &&
+                (desc && (ifile->nb_streams > 1 || ctx->nb_input_files > 1) &&
                  (desc->props & AV_CODEC_PROP_ENHANCEMENT)))
                 continue;
 
