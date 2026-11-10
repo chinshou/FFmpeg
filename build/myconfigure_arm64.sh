@@ -2,7 +2,7 @@
 export PKG_CONFIG_LIBDIR=/usr/local/arm64/lib/pkgconfig/
 export PKG_CONFIG_PATH=/usr/local/arm64/lib/pkgconfig/
 LDFLAGS=" -L/usr/lib -L/usr/local/arm64/lib " CPPFLAGS=" -I/usr/local/arm64/include " CFLAGS=" -I/usr/local/arm64/include -I/Users/hubdog/Documents/Projects/FFMPEG/BlackmagicDeckLinkSDK11.0/Mac/include" ../configure --disable-outdev=sdl --arch=arm64  \
---target-os=darwin --prefix=/usr/local/arm64 --enable-gpl --disable-postproc --enable-shared  \
+--target-os=darwin --prefix=/usr/local/arm64 --enable-gpl --enable-shared  \
 --cc="cc -arch arm64 " \
 --enable-cross-compile  \
 --enable-gpl --enable-version3  --enable-avfilter \
@@ -10,8 +10,8 @@ LDFLAGS=" -L/usr/lib -L/usr/local/arm64/lib " CPPFLAGS=" -I/usr/local/arm64/incl
 --enable-libmp3lame  --enable-libtheora  \
 --enable-libopencore-amrnb --enable-libopencore-amrwb \
 --enable-libass --enable-libx264  --enable-libvo-amrwbenc \
---enable-openssl  --disable-ffplay  \
---enable-libwebp --enable-libxml2 \
+--enable-openssl  --disable-ffplay --disable-ffprobe --disable-ffmpeg \
+--enable-libwebp --enable-libxml2 --enable-libdav1d \
 --enable-libx265 \
 --disable-demuxer=encx   \
 --disable-demuxer=encx_audio   \
@@ -21,7 +21,8 @@ LDFLAGS=" -L/usr/lib -L/usr/local/arm64/lib " CPPFLAGS=" -I/usr/local/arm64/incl
 --disable-outdev=sdl2 \
 --disable-filter=coreimagesrc --disable-filter=yadif_videotoolbox \
 --extra-ldflags=" -lcurl -liconv -lbz2 -lz -framework OpenAL -framework CoreFoundation -framework CoreServices -framework ApplicationServices" \
---extra-cflags=" -mmacosx-version-min=10.9 " \
+--extra-cflags=" -mmacosx-version-min=11.0 " \
+--extra-ldflags=" -arch arm64 -mmacosx-version-min=11.0 " \
 --extra-cxxflags=" -std=c++11 -stdlib=libc++" \
 --extra-libs="-lstdc++  -lsharpyuv "  
 #--enable-libass 

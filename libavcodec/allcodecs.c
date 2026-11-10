@@ -951,46 +951,6 @@ const FFCodec * codec_list[] = {
 static int codec_count = 0;
 static FFCodec * codec_list2[100] = {NULL}; 
 
-static AVOnce av_codec_static_init = AV_ONCE_INIT;
-static void av_codec_init_static(void)
-{
-    int dummy;
-    for (int i = 0; codec_list[i]; i++) {
-        /* Backward compatibility with deprecated public fields */
-        const FFCodec *codec = codec_list[i];
-        if (!codec->get_supported_config)
-            continue;
-
-FF_DISABLE_DEPRECATION_WARNINGS
-        switch (codec->p.type) {
-        case AVMEDIA_TYPE_VIDEO:
-            if (!codec->p.pix_fmts)
-                codec->get_supported_config(NULL, &codec->p,
-                                            AV_CODEC_CONFIG_PIX_FORMAT, 0,
-                                            (const void **) &codec->p.pix_fmts,
-                                            &dummy);
-            break;
-        case AVMEDIA_TYPE_AUDIO:
-            codec->get_supported_config(NULL, &codec->p,
-                                        AV_CODEC_CONFIG_SAMPLE_FORMAT, 0,
-                                        (const void **) &codec->p.sample_fmts,
-                                        &dummy);
-            codec->get_supported_config(NULL, &codec->p,
-                                        AV_CODEC_CONFIG_SAMPLE_RATE, 0,
-                                        (const void **) &codec->p.supported_samplerates,
-                                        &dummy);
-            codec->get_supported_config(NULL, &codec->p,
-                                        AV_CODEC_CONFIG_CHANNEL_LAYOUT, 0,
-                                        (const void **) &codec->p.ch_layouts,
-                                        &dummy);
-            break;
-        default:
-            break;
-        }
-FF_ENABLE_DEPRECATION_WARNINGS
-    }
-}
-
 const AVCodec *av_codec_iterate(void **opaque)
 {
     uintptr_t i = (uintptr_t)*opaque;
@@ -999,8 +959,6 @@ const AVCodec *av_codec_iterate(void **opaque)
        //av_log(NULL, AV_LOG_ERROR,"iterate codec %d ", i);	
 	if (i<size){
 	    const FFCodec *c = codec_list[i];
-
-    ff_thread_once(&av_codec_static_init, av_codec_init_static);
 
 	    if (c) {
 	        *opaque = (void*)(i + 1);
