@@ -73,11 +73,12 @@ static const AVOption options[] = {
     { "latency",        "enables low latency mode", OFFSET(latency), AV_OPT_TYPE_BOOL, {.i64 = -1 },  -1, 1, VE },
 
     /// Quality Preset
-    { "quality",        "Set the encoding quality preset",  OFFSET(quality),    AV_OPT_TYPE_INT,   { .i64 = -1 }, -1, AMF_VIDEO_ENCODER_QUALITY_PRESET_QUALITY, VE, .unit = "quality" },
-    { "preset",         "Set the encoding quality preset",  OFFSET(quality),    AV_OPT_TYPE_INT,   { .i64 = -1 }, -1, AMF_VIDEO_ENCODER_QUALITY_PRESET_QUALITY, VE, .unit = "quality" },
+    { "quality",        "Set the encoding quality preset",  OFFSET(quality),    AV_OPT_TYPE_INT,   { .i64 = -1 }, -1, AMF_VIDEO_ENCODER_QUALITY_PRESET_HIGH_QUALITY, VE, .unit = "quality" },
+    { "preset",         "Set the encoding quality preset",  OFFSET(quality),    AV_OPT_TYPE_INT,   { .i64 = -1 }, -1, AMF_VIDEO_ENCODER_QUALITY_PRESET_HIGH_QUALITY, VE, .unit = "quality" },
     { "balanced",       "Balanced",                         0,                  AV_OPT_TYPE_CONST, { .i64 = AMF_VIDEO_ENCODER_QUALITY_PRESET_BALANCED },    0, 0, VE, .unit = "quality" },
     { "speed",          "Prefer Speed",                     0,                  AV_OPT_TYPE_CONST, { .i64 = AMF_VIDEO_ENCODER_QUALITY_PRESET_SPEED    },    0, 0, VE, .unit = "quality" },
     { "quality",        "Prefer Quality",                   0,                  AV_OPT_TYPE_CONST, { .i64 = AMF_VIDEO_ENCODER_QUALITY_PRESET_QUALITY  },    0, 0, VE, .unit = "quality" },
+    { "high_quality",   "Prefer High Quality",              0,                  AV_OPT_TYPE_CONST, { .i64 = AMF_VIDEO_ENCODER_QUALITY_PRESET_HIGH_QUALITY  },    0, 0, VE, .unit = "quality" },
 
     // Dynamic
     /// Rate Control Method
@@ -139,6 +140,7 @@ static const AVOption options[] = {
     { "me_quarter_pel", "Enable ME Quarter Pixel",              OFFSET(me_quarter_pel),AV_OPT_TYPE_BOOL,  { .i64 = -1 }, -1, 1, VE },
 
     { "forced_idr",     "Force I frames to be IDR frames",      OFFSET(forced_idr)   , AV_OPT_TYPE_BOOL,  { .i64 = 0  }, 0, 1, VE },
+    { "qp_stats",       "Report average QP per frame as packet side data (reduces throughput)", OFFSET(qp_stats), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VE },
     { "aud",            "Inserts AU Delimiter NAL unit",        OFFSET(aud)          , AV_OPT_TYPE_BOOL,  { .i64 = -1 }, -1, 1, VE },
 
     { "smart_access_video",     "Enable Smart Access Video to enhance  performance by utilizing both APU and dGPU memory access",    OFFSET(smart_access_video), AV_OPT_TYPE_BOOL, {.i64 = -1  }, -1, 1, VE},

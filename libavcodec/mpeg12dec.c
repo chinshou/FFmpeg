@@ -32,10 +32,10 @@
 #include <stdatomic.h>
 
 #include "libavutil/attributes.h"
-#include "libavutil/emms.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem_internal.h"
+#include "libavutil/pixdesc.h"
 #include "libavutil/reverse.h"
 #include "libavutil/stereo3d.h"
 #include "libavutil/timecode.h"
@@ -792,6 +792,9 @@ static const enum AVPixelFormat mpeg1_hwaccel_pixfmt_list_420[] = {
 #if CONFIG_MPEG1_NVDEC_HWACCEL
     AV_PIX_FMT_CUDA,
 #endif
+#if CONFIG_MPEG1_NVDEC_CUARRAY_HWACCEL
+    AV_PIX_FMT_CUARRAY,
+#endif
 #if CONFIG_MPEG1_VDPAU_HWACCEL
     AV_PIX_FMT_VDPAU,
 #endif
@@ -802,6 +805,9 @@ static const enum AVPixelFormat mpeg1_hwaccel_pixfmt_list_420[] = {
 static const enum AVPixelFormat mpeg2_hwaccel_pixfmt_list_420[] = {
 #if CONFIG_MPEG2_NVDEC_HWACCEL
     AV_PIX_FMT_CUDA,
+#endif
+#if CONFIG_MPEG2_NVDEC_CUARRAY_HWACCEL
+    AV_PIX_FMT_CUARRAY,
 #endif
 #if CONFIG_MPEG2_VDPAU_HWACCEL
     AV_PIX_FMT_VDPAU,
@@ -1076,6 +1082,19 @@ static void mpeg_decode_sequence_display_extension(Mpeg1Context *const s1,
         s->avctx->color_primaries = get_bits(gb, 8);
         s->avctx->color_trc       = get_bits(gb, 8);
         s->avctx->colorspace      = get_bits(gb, 8);
+
+        // Reserved and unassigned values carry no colour information
+        if (s->avctx->color_primaries == AVCOL_PRI_RESERVED0 ||
+            s->avctx->color_primaries == AVCOL_PRI_RESERVED  ||
+            !av_color_primaries_name(s->avctx->color_primaries))
+            s->avctx->color_primaries = AVCOL_PRI_UNSPECIFIED;
+        if (s->avctx->color_trc == AVCOL_TRC_RESERVED0 ||
+            s->avctx->color_trc == AVCOL_TRC_RESERVED  ||
+            !av_color_transfer_name(s->avctx->color_trc))
+            s->avctx->color_trc = AVCOL_TRC_UNSPECIFIED;
+        if (s->avctx->colorspace == AVCOL_SPC_RESERVED ||
+            !av_color_space_name(s->avctx->colorspace))
+            s->avctx->colorspace = AVCOL_SPC_UNSPECIFIED;
     }
     w = get_bits(gb, 14);
     skip_bits(gb, 1); // marker
@@ -1651,7 +1670,6 @@ static int slice_decode_thread(AVCodecContext *c, void *arg)
         int ret;
 
         ret = mpeg_decode_slice(s, mb_y, &buf, end - buf);
-        emms_c();
         ff_dlog(c, "ret:%d resync:%d/%d mb:%d/%d ts:%d/%d ec:%d\n",
                 ret, s->c.resync_mb_x, s->c.resync_mb_y, s->c.mb_x, s->c.mb_y,
                 s->c.start_mb_y, s->c.end_mb_y, s->c.er.error_count);
@@ -1892,12 +1910,6 @@ static void mpeg_set_cc_format(AVCodecContext *avctx, enum Mpeg2ClosedCaptionsFo
 
         av_log(avctx, AV_LOG_DEBUG, "CC: first seen substream is %s format\n", label);
     }
-
-#if FF_API_CODEC_PROPS
-FF_DISABLE_DEPRECATION_WARNINGS
-    avctx->properties |= FF_CODEC_PROPERTY_CLOSED_CAPTIONS;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
 }
 
 static int mpeg_decode_a53_cc(AVCodecContext *avctx,
@@ -2300,6 +2312,8 @@ static int decode_chunks(AVCodecContext *avctx, AVFrame *picture,
                 av_log(avctx, AV_LOG_WARNING, "ignoring picture start code in AVmp extradata\n");
                 break;
             }
+            if (buf == avctx->extradata)
+                return AVERROR_INVALIDDATA;
 
             if (s2->width <= 0 || s2->height <= 0) {
                 av_log(avctx, AV_LOG_ERROR, "Invalid frame dimensions %dx%d.\n",
@@ -2532,7 +2546,6 @@ static int decode_chunks(AVCodecContext *avctx, AVFrame *picture,
                     buf_ptr += 2; // FIXME add minimum number of bytes per slice
                 } else {
                     ret = mpeg_decode_slice(&s->slice, mb_y, &buf_ptr, input_size);
-                    emms_c();
 
                     if (ret < 0) {
                         if (avctx->err_recognition & AV_EF_EXPLODE)
@@ -2657,6 +2670,9 @@ const FFCodec ff_mpeg1video_decoder = {
 #if CONFIG_MPEG1_NVDEC_HWACCEL
                                HWACCEL_NVDEC(mpeg1),
 #endif
+#if CONFIG_MPEG1_NVDEC_CUARRAY_HWACCEL
+                               HWACCEL_NVDEC_CUARRAY(mpeg1),
+#endif
 #if CONFIG_MPEG1_VDPAU_HWACCEL
                                HWACCEL_VDPAU(mpeg1),
 #endif
@@ -2727,6 +2743,9 @@ const FFCodec ff_mpeg2video_decoder = {
 #endif
 #if CONFIG_MPEG2_NVDEC_HWACCEL
                         HWACCEL_NVDEC(mpeg2),
+#endif
+#if CONFIG_MPEG2_NVDEC_CUARRAY_HWACCEL
+                        HWACCEL_NVDEC_CUARRAY(mpeg2),
 #endif
 #if CONFIG_MPEG2_VAAPI_HWACCEL
                         HWACCEL_VAAPI(mpeg2),

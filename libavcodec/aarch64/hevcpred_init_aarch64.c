@@ -49,6 +49,32 @@ void ff_hevc_pred_planar_16x16_8_neon(uint8_t *src, const uint8_t *top,
 void ff_hevc_pred_planar_32x32_8_neon(uint8_t *src, const uint8_t *top,
                                     const uint8_t *left, ptrdiff_t stride);
 
+// 3-tap reference sample filter
+void ff_hevc_ref_filter_3tap_8x8_8_neon(uint8_t *filtered_left,
+                                        uint8_t *filtered_top,
+                                        const uint8_t *left,
+                                        const uint8_t *top, int size);
+void ff_hevc_ref_filter_3tap_16x16_8_neon(uint8_t *filtered_left,
+                                          uint8_t *filtered_top,
+                                          const uint8_t *left,
+                                          const uint8_t *top, int size);
+void ff_hevc_ref_filter_3tap_32x32_8_neon(uint8_t *filtered_left,
+                                          uint8_t *filtered_top,
+                                          const uint8_t *left,
+                                          const uint8_t *top, int size);
+
+// Strong intra smoothing
+void ff_hevc_ref_filter_strong_8_neon(uint8_t *filtered_top, uint8_t *left,
+                                      const uint8_t *top);
+
+// Mode 10 and 26
+void ff_hevc_pred_angular_mode_10_8_neon(uint8_t *src, const uint8_t *top,
+                                        const uint8_t *left, ptrdiff_t stride,
+                                        int c_idx, int log2_size);
+void ff_hevc_pred_angular_mode_26_8_neon(uint8_t *src, const uint8_t *top,
+                                        const uint8_t *left, ptrdiff_t stride,
+                                        int c_idx, int log2_size);
+
 static void pred_dc_neon(uint8_t *src, const uint8_t *top,
                          const uint8_t *left, ptrdiff_t stride,
                          int log2_size, int c_idx)
@@ -71,6 +97,28 @@ static void pred_dc_neon(uint8_t *src, const uint8_t *top,
     }
 }
 
+#define PRED_ANGULAR_NEON(IDX, LOG2)                                          \
+static void pred_angular_##IDX##_neon(uint8_t *src, const uint8_t *top,       \
+                                      const uint8_t *left, ptrdiff_t stride,  \
+                                      int c_idx, int mode)                    \
+{                                                                             \
+    if (mode == 10)                                                           \
+        ff_hevc_pred_angular_mode_10_8_neon(src, top, left, stride,           \
+                                           c_idx, LOG2);                      \
+    else if (mode == 26)                                                      \
+        ff_hevc_pred_angular_mode_26_8_neon(src, top, left, stride,           \
+                                           c_idx, LOG2);                      \
+    else                                                                      \
+        ff_hevc_pred_angular_##IDX##_8(src, top, left, stride, c_idx, mode);  \
+}
+
+PRED_ANGULAR_NEON(0, 2)
+PRED_ANGULAR_NEON(1, 3)
+PRED_ANGULAR_NEON(2, 4)
+PRED_ANGULAR_NEON(3, 5)
+
+#undef PRED_ANGULAR_NEON
+
 av_cold void ff_hevc_pred_init_aarch64(HEVCPredContext *hpc, int bit_depth)
 {
     int cpu_flags = av_get_cpu_flags();
@@ -84,5 +132,15 @@ av_cold void ff_hevc_pred_init_aarch64(HEVCPredContext *hpc, int bit_depth)
         hpc->pred_planar[1] = ff_hevc_pred_planar_8x8_8_neon;
         hpc->pred_planar[2] = ff_hevc_pred_planar_16x16_8_neon;
         hpc->pred_planar[3] = ff_hevc_pred_planar_32x32_8_neon;
+
+        hpc->ref_filter_3tap[0] = ff_hevc_ref_filter_3tap_8x8_8_neon;
+        hpc->ref_filter_3tap[1] = ff_hevc_ref_filter_3tap_16x16_8_neon;
+        hpc->ref_filter_3tap[2] = ff_hevc_ref_filter_3tap_32x32_8_neon;
+        hpc->ref_filter_strong  = ff_hevc_ref_filter_strong_8_neon;
+
+        hpc->pred_angular[0] = pred_angular_0_neon;
+        hpc->pred_angular[1] = pred_angular_1_neon;
+        hpc->pred_angular[2] = pred_angular_2_neon;
+        hpc->pred_angular[3] = pred_angular_3_neon;
     }
 }

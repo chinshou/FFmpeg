@@ -28,6 +28,7 @@
 
 #include "swscale.h"
 #include "format.h"
+#include "lut3d.h"
 
 static av_always_inline av_const int ff_fmt_vshift(enum AVPixelFormat fmt, int plane)
 {
@@ -61,6 +62,19 @@ typedef struct SwsPassBuffer {
 
     int width, height; /* dimensions of this buffer */
     AVFrame *avframe;  /* backing storage for `frame` */
+
+    /* Optional allocation hints for optimal performance */
+    int width_align;   /* Align width to multiple of this */
+    int width_pad;     /* Extra padding pixels */
+
+    /**
+     * Map of planes which are directly copied from the pass input. These
+     * may be promoted from a memcpy to a refcopy.
+     *
+     * Each entry maps the output index to the corresponding input plane
+     * index, or -1 for no copythrough.
+     */
+    int plane_copy[4];
 } SwsPassBuffer;
 
 /**
@@ -77,8 +91,9 @@ struct SwsPass {
      * are always equal to (or smaller than, for the last slice) `slice_h`.
      */
     SwsPassFunc run;
+    SwsBackend backend; /* backend this pass is using, or 0 */
     enum AVPixelFormat format; /* new pixel format */
-    int width, height; /* new output size */
+    int lines;         /* pass dispatch size */
     int slice_h;       /* filter granularity */
     int num_slices;
 
@@ -107,6 +122,11 @@ struct SwsPass {
 };
 
 /**
+ * Align `width` to the optimal size for `pass`.
+ */
+int ff_sws_pass_aligned_width(const SwsPass *pass, int width);
+
+/**
  * Filter graph, which represents a 'baked' pixel format conversion.
  */
 typedef struct SwsGraph {
@@ -115,8 +135,19 @@ typedef struct SwsGraph {
     int num_threads; /* resolved at init() time */
     bool incomplete; /* set during init() if formats had to be inferred */
     bool noop;       /* set during init() if the graph is a no-op */
+    SwsBackend backend; /* backends this graph is using, set during init() */
 
     AVBufferRef *hw_frames_ref;
+
+    /**
+     * Map of planes which directly copied from the input. These may be
+     * promoted from a memcpy to a refcopy. This requires special handling
+     * by the caller.
+     *
+     * Each entry maps the output index to the corresponding input plane
+     * index, or -1 for no copythrough.
+     */
+    int plane_copy[4];
 
     /** Sorted sequence of filter passes to apply */
     SwsPass **passes;
@@ -132,7 +163,11 @@ typedef struct SwsGraph {
      * Currently active format and processing parameters.
      */
     SwsFormat src, dst;
-    int field;
+
+    /**
+     * 3DLUT state used for gamut/tone mapping. (Optional)
+     */
+    SwsLut3D *lut3d; /* refstruct */
 
     /**
      * Temporary execution state inside ff_sws_graph_run(); used to pass
@@ -146,10 +181,16 @@ typedef struct SwsGraph {
 } SwsGraph;
 
 /**
- * Allocate and initialize the filter graph. Returns 0 or a negative error.
+ * Allocate an empty SwsGraph. Returns NULL on failure.
  */
-int ff_sws_graph_create(SwsContext *ctx, const SwsFormat *dst, const SwsFormat *src,
-                        int field, SwsGraph **out_graph);
+SwsGraph *ff_sws_graph_alloc(void);
+
+/**
+ * Initialize the filter graph for a given pair of formats. Returns 0 or a
+ * negative error.
+ */
+int ff_sws_graph_init(SwsGraph *graph, SwsContext *ctx, const SwsFormat *dst,
+                      const SwsFormat *src);
 
 
 /**
@@ -161,6 +202,7 @@ int ff_sws_graph_create(SwsContext *ctx, const SwsFormat *dst, const SwsFormat *
  * @param w      Width of the output image.
  * @param h      Height of the output image.
  * @param input  Previous pass to read from, or NULL for the input image.
+ * @param lines  Override the number of lines processed for this pass. (Optional)
  * @param align  Minimum slice alignment for this pass, or 0 for no threading.
  * @param run    Filter function to run.
  * @param setup  Optional setup function to run from the main thread.
@@ -171,9 +213,20 @@ int ff_sws_graph_create(SwsContext *ctx, const SwsFormat *dst, const SwsFormat *
  */
 int ff_sws_graph_add_pass(SwsGraph *graph, enum AVPixelFormat fmt,
                           int width, int height, SwsPass *input,
-                          int align, SwsPassFunc run, SwsPassSetup setup,
+                          int lines, int align,
+                          SwsPassFunc run, SwsPassSetup setup,
                           void *priv, void (*free)(void *priv),
                           SwsPass **out_pass);
+
+/**
+ * Link the output buffers to a different pass, rather than allocating
+ * new image buffers. This allows reusing the same buffer for multiple passes,
+ * e.g. in the case of in-place passes or partial passes that modify different
+ * planes.
+ *
+ * Any existing buffer on `dst` will be ignored/unref'd.
+ **/
+void ff_sws_pass_link_output(SwsPass *dst, const SwsPass *src);
 
 /**
  * Remove all passes added since the given index.
@@ -191,13 +244,14 @@ void ff_sws_graph_free(SwsGraph **graph);
 void ff_sws_graph_update_metadata(SwsGraph *graph, const SwsColor *color);
 
 /**
- * Wrapper around ff_sws_graph_create() that reuses the existing graph if the
+ * Wrapper around ff_sws_graph_init() that reuses the existing graph if the
  * format is compatible. This will also update dynamic per-frame metadata.
- * Must be called after changing any of the fields in `ctx`, or else they will
- * have no effect.
+ *
+ * Must also be called after changing any of the fields in `ctx`, or else they
+ * will have no effect.
  */
-int ff_sws_graph_reinit(SwsContext *ctx, const SwsFormat *dst, const SwsFormat *src,
-                        int field, SwsGraph **graph);
+int ff_sws_graph_reinit(SwsGraph *graph, SwsContext *ctx, const SwsFormat *dst,
+                        const SwsFormat *src);
 
 /**
  * Dispatch the filter graph on a single field of the given frames. Internally

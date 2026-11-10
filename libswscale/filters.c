@@ -75,7 +75,7 @@ static void compute_row(SwsFilterWeights *f, const SwsFilterFunction *fun,
      * the entire square from (0,0) to (1,1). When normalizing between different
      * image sizes, we therefore need to add/subtract off these 0.5 offsets.
      */
-    const double src_pos = (dst_pos + 0.5) * ratio_inv - 0.5;
+    const double src_pos = (dst_pos + 0.5) * ratio_inv - 0.5 + f->offset;
     if (f->filter_size == 1) {
         *pos = fmin(fmax(round(src_pos), 0.0), f->src_size - 1);
         *out = SWS_FILTER_SCALE;
@@ -154,7 +154,11 @@ static bool validate_params(const SwsFilterFunction *fun, SwsScaler scaler)
     }
 }
 
-static double filter_radius(const SwsFilterFunction *fun)
+/**
+ * Numerically estimate the last intersection between the function value
+ * and the cutoff domain [-SWS_MAX_REDUCE_CUTOFF, SWS_MAX_REDUCE_CUTOFF].
+ */
+static double est_filter_radius(const SwsFilterFunction *fun)
 {
     const double bound = fun->radius;
     const double step  = 1e-2;
@@ -190,7 +194,11 @@ int ff_sws_filter_generate(void *log, const SwsFilterParams *params,
     if (scaler == SWS_SCALE_AUTO)
         scaler = SWS_SCALE_BICUBIC;
 
-    const double ratio = (double) params->dst_size / params->src_size;
+    double virtual_size = params->virtual_size;
+    if (!virtual_size)
+        virtual_size = params->dst_size;
+
+    const double ratio = virtual_size / params->src_size;
     double stretch = 1.0;
     if (ratio < 1.0 && scaler != SWS_SCALE_POINT) {
         /* Widen filter for downscaling (anti-aliasing) */
@@ -225,7 +233,21 @@ int ff_sws_filter_generate(void *log, const SwsFilterParams *params,
     if (fun.radius < 0.0) /* tunable width kernels like lanczos */
         fun.radius = fun.params[0];
 
-    const double radius = filter_radius(&fun) * stretch;
+    double radius;
+    switch (scaler) {
+    case SWS_SCALE_POINT:
+        radius = 0.5;
+        break;
+    case SWS_SCALE_BILINEAR:
+        radius = 1.0 - SWS_MAX_REDUCE_CUTOFF;
+        break;
+    default:
+        /* Numerically estimate radius of nontrivial or parametric kernels */
+        radius = est_filter_radius(&fun);
+        break;
+    }
+    radius *= stretch;
+
     int filter_size = ceil(radius * 2.0);
     filter_size = FFMIN(filter_size, params->src_size);
     av_assert0(filter_size >= 1);
@@ -239,6 +261,8 @@ int ff_sws_filter_generate(void *log, const SwsFilterParams *params,
     memcpy(filter->name, fun.name, sizeof(filter->name));
     filter->src_size = params->src_size;
     filter->dst_size = params->dst_size;
+    filter->virtual_size = virtual_size;
+    filter->offset = params->offset;
     filter->filter_size = filter_size;
     if (filter->filter_size == 1)
         filter->sum_positive = SWS_FILTER_SCALE;

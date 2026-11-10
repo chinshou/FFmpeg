@@ -26,6 +26,7 @@
 
 #include "libavutil/avassert.h"
 #include "libavutil/internal.h"
+#include "libavutil/pixdesc.h"
 #include "libavutil/opt.h"
 #include "libavutil/thread.h"
 #include "codec_internal.h"
@@ -2462,6 +2463,19 @@ static int mpeg4_decode_visual_object(MpegEncContext *s, GetBitContext *gb)
                 s->avctx->color_primaries = get_bits(gb, 8);
                 s->avctx->color_trc       = get_bits(gb, 8);
                 s->avctx->colorspace      = get_bits(gb, 8);
+
+                // Reserved and unassigned values carry no colour information
+                if (s->avctx->color_primaries == AVCOL_PRI_RESERVED0 ||
+                    s->avctx->color_primaries == AVCOL_PRI_RESERVED  ||
+                    !av_color_primaries_name(s->avctx->color_primaries))
+                    s->avctx->color_primaries = AVCOL_PRI_UNSPECIFIED;
+                if (s->avctx->color_trc == AVCOL_TRC_RESERVED0 ||
+                    s->avctx->color_trc == AVCOL_TRC_RESERVED  ||
+                    !av_color_transfer_name(s->avctx->color_trc))
+                    s->avctx->color_trc = AVCOL_TRC_UNSPECIFIED;
+                if (s->avctx->colorspace == AVCOL_SPC_RESERVED ||
+                    !av_color_space_name(s->avctx->colorspace))
+                    s->avctx->colorspace = AVCOL_SPC_UNSPECIFIED;
             }
         }
     }
@@ -3923,6 +3937,7 @@ static int mpeg4_update_thread_context(AVCodecContext *dst,
     s->cplx_estimation_trash_p   = s1->cplx_estimation_trash_p;
     s->cplx_estimation_trash_b   = s1->cplx_estimation_trash_b;
     s->rgb                       = s1->rgb;
+    s->h.c.studio_profile        = s1->h.c.studio_profile;
 
     s->h.skipped_last_frame      = s1->h.skipped_last_frame;
     s->h.padding_bug_score       = s1->h.padding_bug_score; // FIXME: racy
@@ -4100,6 +4115,9 @@ const FFCodec ff_mpeg4_decoder = {
     .hw_configs            = (const AVCodecHWConfigInternal *const []) {
 #if CONFIG_MPEG4_NVDEC_HWACCEL
                                HWACCEL_NVDEC(mpeg4),
+#endif
+#if CONFIG_MPEG4_NVDEC_CUARRAY_HWACCEL
+                               HWACCEL_NVDEC_CUARRAY(mpeg4),
 #endif
 #if CONFIG_MPEG4_VAAPI_HWACCEL
                                HWACCEL_VAAPI(mpeg4),
