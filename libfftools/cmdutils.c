@@ -1276,7 +1276,7 @@ unsigned stream_specifier_match(const StreamSpecifier *ss,
                 break;
             }
         }
-        // fall-through
+        av_fallthrough;
     case STREAM_LIST_GROUP_IDX:
         if (ss->stream_list == STREAM_LIST_GROUP_IDX &&
             ss->list_id >= 0 && ss->list_id < s->nb_stream_groups)
@@ -1289,13 +1289,16 @@ unsigned stream_specifier_match(const StreamSpecifier *ss,
                    ss->list_id);
             return 0;
         }
-        nb_streams = g->nb_streams;
+        nb_streams = g->nb_entries;
         break;
     default: av_assert0(0);
     }
 
     for (int i = start_stream; i < nb_streams; i++) {
-        const AVStream *candidate = s->streams[g ? g->streams[i]->index :
+        if (g && g->entries[i]->type != AV_STREAM_GROUP_ENTRY_STREAM)
+            continue;
+
+        const AVStream *candidate = s->streams[g ? g->entries[i]->stream->index :
                                                p ? p->stream_index[i]   : i];
 
         if (ss->media_type != AVMEDIA_TYPE_UNKNOWN &&
@@ -1407,7 +1410,7 @@ unsigned stream_group_specifier_match(const StreamSpecifier *ss,
             case AV_STREAM_GROUP_PARAMS_TILE_GRID: {
                 const AVStreamGroupTileGrid *tg = candidate->params.tile_grid;
                 if (!tg->coded_width || !tg->coded_height || !tg->nb_tiles ||
-                    !tg->width       || !tg->height       || !tg->nb_tiles)
+                    !tg->width       || !tg->height       || !tg->offsets)
                     continue;
                 break;
             }
