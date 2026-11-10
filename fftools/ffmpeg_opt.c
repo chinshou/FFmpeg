@@ -70,21 +70,18 @@ int abort_on_flags    = 0;
 int print_stats       = -1;
 int stdin_interaction = 1;
 float max_error_rate  = 2.0/3;
-//char *filter_nbthreads;
+char *filter_nbthreads;
 int filter_complex_nbthreads = 0;
 int filter_buffered_frames[AVMEDIA_TYPE_NB] = {0};
 int vstats_version = 2;
 int print_graphs = 0;
-#if 0
 char *print_graphs_file = NULL;
 char *print_graphs_format = NULL;
-#endif
-
 int auto_conversion_filters = 1;
 int64_t stats_period = 500000;
 
 
-static int file_overwrite     = 1;
+static int file_overwrite     = 0;
 static int no_file_overwrite  = 0;
 int ignore_unknown_streams = 0;
 int copy_unknown_streams = 0;
@@ -374,10 +371,10 @@ int parse_and_set_vsync(const char *arg, enum VideoSyncMethod *vsync_var, int fi
 }
 
 /* Correct input file start times based on enabled streams */
-static void correct_input_start_times(FfmpegContext* ctx)
+static void correct_input_start_times(void)
 {
-    for (int i = 0; i < ctx->nb_input_files; i++) {
-        InputFile       *ifile = ctx->input_files[i];
+    for (int i = 0; i < nb_input_files; i++) {
+        InputFile       *ifile = input_files[i];
         AVFormatContext    *is = ifile->ctx;
         int64_t new_start_time = INT64_MAX, diff, abs_start_seek;
 
@@ -411,16 +408,16 @@ static void correct_input_start_times(FfmpegContext* ctx)
     }
 }
 
-static int apply_sync_offsets(FfmpegContext* ctx)
+static int apply_sync_offsets(void)
 {
-    for (int i = 0; i < ctx->nb_input_files; i++) {
-        InputFile *ref, *self = ctx->input_files[i];
+    for (int i = 0; i < nb_input_files; i++) {
+        InputFile *ref, *self = input_files[i];
         int64_t adjustment;
         int64_t self_start_time, ref_start_time, self_seek_start, ref_seek_start;
         int start_times_set = 1;
 
         if (self->input_sync_ref == -1 || self->input_sync_ref == i) continue;
-        if (self->input_sync_ref >= ctx->nb_input_files || self->input_sync_ref < -1) {
+        if (self->input_sync_ref >= nb_input_files || self->input_sync_ref < -1) {
             av_log(NULL, AV_LOG_FATAL, "-isync for input %d references non-existent input %d.\n", i, self->input_sync_ref);
             return AVERROR(EINVAL);
         }
@@ -430,7 +427,7 @@ static int apply_sync_offsets(FfmpegContext* ctx)
             return AVERROR(EINVAL);
         }
 
-        ref = ctx->input_files[self->input_sync_ref];
+        ref = input_files[self->input_sync_ref];
         if (ref->input_sync_ref != -1 && ref->input_sync_ref != self->input_sync_ref) {
             av_log(NULL, AV_LOG_ERROR, "-isync for input %d references a resynced input %d. Sync not set.\n", i, self->input_sync_ref);
             continue;
@@ -463,10 +460,10 @@ static int apply_sync_offsets(FfmpegContext* ctx)
     return 0;
 }
 
-static int opt_filter_threads(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_filter_threads(void *optctx, const char *opt, const char *arg)
 {
-    av_free(ctx->filter_nbthreads);
-    ctx->filter_nbthreads = av_strdup(arg);
+    av_free(filter_nbthreads);
+    filter_nbthreads = av_strdup(arg);
     return 0;
 }
 
@@ -501,7 +498,7 @@ static int opt_filter_buffered_frames(void *optctx, const char *opt, const char 
     return 0;
 }
 
-static int opt_abort_on(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_abort_on(void *optctx, const char *opt, const char *arg)
 {
     static const AVOption opts[] = {
         { "abort_on"           , NULL, 0, AV_OPT_TYPE_FLAGS, { .i64 = 0 }, INT64_MIN, (double)INT64_MAX,   .unit = "flags" },
@@ -520,7 +517,7 @@ static int opt_abort_on(FfmpegContext* ctx, void *optctx, const char *opt, const
     return av_opt_eval_flags(&pclass, &opts[0], arg, &abort_on_flags);
 }
 
-static int opt_stats_period(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_stats_period(void *optctx, const char *opt, const char *arg)
 {
     int64_t user_stats_period;
     int ret = av_parse_time(&user_stats_period, arg, 1);
@@ -538,31 +535,31 @@ static int opt_stats_period(FfmpegContext* ctx, void *optctx, const char *opt, c
     return 0;
 }
 
-static int opt_audio_codec(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_audio_codec(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "codec:a", arg, options);
+    return parse_option(o, "codec:a", arg, options);
 }
 
-static int opt_video_codec(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_video_codec(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "codec:v", arg, options);
+    return parse_option(o, "codec:v", arg, options);
 }
 
-static int opt_subtitle_codec(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_subtitle_codec(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "codec:s", arg, options);
+    return parse_option(o, "codec:s", arg, options);
 }
 
-static int opt_data_codec(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_data_codec(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "codec:d", arg, options);
+    return parse_option(o, "codec:d", arg, options);
 }
 
-static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_map(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     StreamMap *m = NULL;
@@ -599,7 +596,7 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
 
         m->group_index = -1;
         file_idx = strtol(arg, &endptr, 0);
-        if (file_idx >= ctx->nb_input_files || file_idx < 0)
+        if (file_idx >= nb_input_files || file_idx < 0)
             goto end;
 
         arg = endptr;
@@ -620,7 +617,7 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
         char *endptr;
 
         file_idx = strtol(arg, &endptr, 0);
-        if (file_idx >= ctx->nb_input_files || file_idx < 0) {
+        if (file_idx >= nb_input_files || file_idx < 0) {
             av_log(NULL, AV_LOG_FATAL, "Invalid input file index: %d.\n", file_idx);
             ret = AVERROR(EINVAL);
             goto fail;
@@ -659,19 +656,19 @@ static int opt_map(FfmpegContext* ctx, void *optctx, const char *opt, const char
                     m->stream_index >= 0 &&
                     m->stream_index < input_files[m->file_index]->nb_streams &&
                     stream_specifier_match(&ss,
-                                           ctx->input_files[m->file_index]->ctx,
-                                           ctx->input_files[m->file_index]->ctx->streams[m->stream_index],
+                                           input_files[m->file_index]->ctx,
+                                           input_files[m->file_index]->ctx->streams[m->stream_index],
                                            NULL))
                     m->disabled = 1;
             }
         else
-            for (i = 0; i < ctx->input_files[file_idx]->nb_streams; i++) {
+            for (i = 0; i < input_files[file_idx]->nb_streams; i++) {
                 if (!stream_specifier_match(&ss,
-                                            ctx->input_files[file_idx]->ctx,
-                                            ctx->input_files[file_idx]->ctx->streams[i],
+                                            input_files[file_idx]->ctx,
+                                            input_files[file_idx]->ctx->streams[i],
                                             NULL))
                     continue;
-                if (ctx->input_files[file_idx]->streams[i]->user_set_discard == AVDISCARD_ALL) {
+                if (input_files[file_idx]->streams[i]->user_set_discard == AVDISCARD_ALL) {
                     disabled = 1;
                     continue;
                 }
@@ -710,7 +707,7 @@ fail:
     return ret;
 }
 
-static int opt_attach(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_attach(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     int ret = GROW_ARRAY(o->attachments, o->nb_attachments);
@@ -724,14 +721,14 @@ static int opt_attach(FfmpegContext* ctx, void *optctx, const char *opt, const c
     return 0;
 }
 
-static int opt_sdp_file(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_sdp_file(void *optctx, const char *opt, const char *arg)
 {
     GlobalOptionsContext *go = optctx;
     return sch_sdp_filename(go->sch, arg);
 }
 
 #if CONFIG_VAAPI
-static int opt_vaapi_device(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_vaapi_device(void *optctx, const char *opt, const char *arg)
 {
     const char *prefix = "vaapi:";
     char *tmp;
@@ -746,7 +743,7 @@ static int opt_vaapi_device(FfmpegContext* ctx, void *optctx, const char *opt, c
 #endif
 
 #if CONFIG_QSV
-static int opt_qsv_device(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_qsv_device(void *optctx, const char *opt, const char *arg)
 {
     const char *prefix = "qsv=__qsv_device:hw_any,child_device=";
     int err;
@@ -762,7 +759,7 @@ static int opt_qsv_device(FfmpegContext* ctx, void *optctx, const char *opt, con
 }
 #endif
 
-static int opt_init_hw_device(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_init_hw_device(void *optctx, const char *opt, const char *arg)
 {
     if (!strcmp(arg, "list")) {
         enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
@@ -777,7 +774,7 @@ static int opt_init_hw_device(FfmpegContext* ctx, void *optctx, const char *opt,
     }
 }
 
-static int opt_filter_hw_device(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_filter_hw_device(void *optctx, const char *opt, const char *arg)
 {
     if (filter_hw_device) {
         av_log(NULL, AV_LOG_ERROR, "Only one filter device can be used.\n");
@@ -791,7 +788,7 @@ static int opt_filter_hw_device(FfmpegContext* ctx, void *optctx, const char *op
     return 0;
 }
 
-static int opt_recording_timestamp(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_recording_timestamp(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     char buf[128];
@@ -807,7 +804,7 @@ static int opt_recording_timestamp(FfmpegContext* ctx, void *optctx, const char 
     time = *gmtime((time_t*)&recording_timestamp);
     if (!strftime(buf, sizeof(buf), "creation_time=%Y-%m-%dT%H:%M:%S%z", &time))
         return -1;
-    parse_option(ctx, o, "metadata", buf, options);
+    parse_option(o, "metadata", buf, options);
 
     av_log(NULL, AV_LOG_WARNING, "%s is deprecated, set the 'creation_time' metadata "
                                  "tag instead.\n", opt);
@@ -847,11 +844,10 @@ int find_codec(void *logctx, const char *name,
     return 0;;
 }
 
-int assert_file_overwrite(FfmpegContext* ctx, const char *filename)
+int assert_file_overwrite(const char *filename)
 {
     const char *proto_name = avio_find_protocol_name(filename);
 
-#if 0
     if (file_overwrite && no_file_overwrite) {
         fprintf(stderr, "Error, both -y and -n supplied. Exiting.\n");
         return AVERROR(EINVAL);
@@ -876,11 +872,10 @@ int assert_file_overwrite(FfmpegContext* ctx, const char *filename)
             }
         }
     }
-#endif    
 
     if (proto_name && !strcmp(proto_name, "file")) {
-        for (int i = 0; i < ctx->nb_input_files; i++) {
-             InputFile *file = ctx->input_files[i];
+        for (int i = 0; i < nb_input_files; i++) {
+             InputFile *file = input_files[i];
              if (file->ctx->iformat->flags & AVFMT_NOFILE)
                  continue;
              if (!strcmp(filename, file->ctx->url)) {
@@ -895,7 +890,7 @@ int assert_file_overwrite(FfmpegContext* ctx, const char *filename)
 }
 
 /* arg format is "output-stream-index:streamid-value". */
-static int opt_streamid(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_streamid(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     char *p;
@@ -914,7 +909,7 @@ static int opt_streamid(FfmpegContext* ctx, void *optctx, const char *opt, const
     return av_dict_set(&o->streamid, idx_str, p, 0);
 }
 
-static int opt_target(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_target(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     enum { PAL, NTSC, FILM, UNKNOWN } norm = UNKNOWN;
@@ -931,11 +926,11 @@ static int opt_target(FfmpegContext* ctx, void *optctx, const char *opt, const c
         arg += 5;
     } else {
         /* Try to determine PAL/NTSC by peeking in the input files */
-        if (ctx->nb_input_files) {
+        if (nb_input_files) {
             int i, j;
-            for (j = 0; j < ctx->nb_input_files; j++) {
-                for (i = 0; i < ctx->input_files[j]->nb_streams; i++) {
-                    AVStream *st = ctx->input_files[j]->ctx->streams[i];
+            for (j = 0; j < nb_input_files; j++) {
+                for (i = 0; i < input_files[j]->nb_streams; i++) {
+                    AVStream *st = input_files[j]->ctx->streams[i];
                     int64_t fr;
                     if (st->codecpar->codec_type != AVMEDIA_TYPE_VIDEO)
                         continue;
@@ -964,25 +959,25 @@ static int opt_target(FfmpegContext* ctx, void *optctx, const char *opt, const c
     }
 
     if (!strcmp(arg, "vcd")) {
-        opt_video_codec(ctx, o, "c:v", "mpeg1video");
-        opt_audio_codec(ctx, o, "c:a", "mp2");
-        parse_option(ctx, o, "f", "vcd", options);
+        opt_video_codec(o, "c:v", "mpeg1video");
+        opt_audio_codec(o, "c:a", "mp2");
+        parse_option(o, "f", "vcd", options);
 
-        parse_option(ctx, o, "s", norm == PAL ? "352x288" : "352x240", options);
-        parse_option(ctx, o, "r", frame_rates[norm], options);
-        opt_default(ctx, NULL, "g", norm == PAL ? "15" : "18");
+        parse_option(o, "s", norm == PAL ? "352x288" : "352x240", options);
+        parse_option(o, "r", frame_rates[norm], options);
+        opt_default(NULL, "g", norm == PAL ? "15" : "18");
 
-        opt_default(ctx, NULL, "b:v", "1150000");
-        opt_default(ctx, NULL, "maxrate:v", "1150000");
-        opt_default(ctx, NULL, "minrate:v", "1150000");
-        opt_default(ctx, NULL, "bufsize:v", "327680"); // 40*1024*8;
+        opt_default(NULL, "b:v", "1150000");
+        opt_default(NULL, "maxrate:v", "1150000");
+        opt_default(NULL, "minrate:v", "1150000");
+        opt_default(NULL, "bufsize:v", "327680"); // 40*1024*8;
 
-        opt_default(ctx, NULL, "b:a", "224000");
-        parse_option(ctx, o, "ar", "44100", options);
-        parse_option(ctx, o, "ac", "2", options);
+        opt_default(NULL, "b:a", "224000");
+        parse_option(o, "ar", "44100", options);
+        parse_option(o, "ac", "2", options);
 
-        opt_default(ctx, NULL, "packetsize", "2324");
-        opt_default(ctx, NULL, "muxrate", "1411200"); // 2352 * 75 * 8;
+        opt_default(NULL, "packetsize", "2324");
+        opt_default(NULL, "muxrate", "1411200"); // 2352 * 75 * 8;
 
         /* We have to offset the PTS, so that it is consistent with the SCR.
            SCR starts at 36000, but the first two packs contain only padding
@@ -992,79 +987,79 @@ static int opt_target(FfmpegContext* ctx, void *optctx, const char *opt, const c
         o->mux_preload = (36000 + 3 * 1200) / 90000.0; // 0.44
     } else if (!strcmp(arg, "svcd")) {
 
-        opt_video_codec(ctx, o, "c:v", "mpeg2video");
-        opt_audio_codec(ctx, o, "c:a", "mp2");
-        parse_option(ctx, o, "f", "svcd", options);
+        opt_video_codec(o, "c:v", "mpeg2video");
+        opt_audio_codec(o, "c:a", "mp2");
+        parse_option(o, "f", "svcd", options);
 
-        parse_option(ctx, o, "s", norm == PAL ? "480x576" : "480x480", options);
-        parse_option(ctx, o, "r", frame_rates[norm], options);
-        parse_option(ctx, o, "pix_fmt", "yuv420p", options);
-        opt_default(ctx, NULL, "g", norm == PAL ? "15" : "18");
+        parse_option(o, "s", norm == PAL ? "480x576" : "480x480", options);
+        parse_option(o, "r", frame_rates[norm], options);
+        parse_option(o, "pix_fmt", "yuv420p", options);
+        opt_default(NULL, "g", norm == PAL ? "15" : "18");
 
-        opt_default(ctx, NULL, "b:v", "2040000");
-        opt_default(ctx, NULL, "maxrate:v", "2516000");
-        opt_default(ctx, NULL, "minrate:v", "0"); // 1145000;
-        opt_default(ctx, NULL, "bufsize:v", "1835008"); // 224*1024*8;
-        opt_default(ctx, NULL, "scan_offset", "1");
+        opt_default(NULL, "b:v", "2040000");
+        opt_default(NULL, "maxrate:v", "2516000");
+        opt_default(NULL, "minrate:v", "0"); // 1145000;
+        opt_default(NULL, "bufsize:v", "1835008"); // 224*1024*8;
+        opt_default(NULL, "scan_offset", "1");
 
-        opt_default(ctx, NULL, "b:a", "224000");
-        parse_option(ctx, o, "ar", "44100", options);
+        opt_default(NULL, "b:a", "224000");
+        parse_option(o, "ar", "44100", options);
 
-        opt_default(ctx, NULL, "packetsize", "2324");
+        opt_default(NULL, "packetsize", "2324");
 
     } else if (!strcmp(arg, "dvd")) {
 
-        opt_video_codec(ctx, o, "c:v", "mpeg2video");
-        opt_audio_codec(ctx, o, "c:a", "ac3");
-        parse_option(ctx, o, "f", "dvd", options);
+        opt_video_codec(o, "c:v", "mpeg2video");
+        opt_audio_codec(o, "c:a", "ac3");
+        parse_option(o, "f", "dvd", options);
 
-        parse_option(ctx, o, "s", norm == PAL ? "720x576" : "720x480", options);
-        parse_option(ctx, o, "r", frame_rates[norm], options);
-        parse_option(ctx, o, "pix_fmt", "yuv420p", options);
-        opt_default(ctx, NULL, "g", norm == PAL ? "15" : "18");
+        parse_option(o, "s", norm == PAL ? "720x576" : "720x480", options);
+        parse_option(o, "r", frame_rates[norm], options);
+        parse_option(o, "pix_fmt", "yuv420p", options);
+        opt_default(NULL, "g", norm == PAL ? "15" : "18");
 
-        opt_default(ctx, NULL, "b:v", "6000000");
-        opt_default(ctx, NULL, "maxrate:v", "9000000");
-        opt_default(ctx, NULL, "minrate:v", "0"); // 1500000;
-        opt_default(ctx, NULL, "bufsize:v", "1835008"); // 224*1024*8;
+        opt_default(NULL, "b:v", "6000000");
+        opt_default(NULL, "maxrate:v", "9000000");
+        opt_default(NULL, "minrate:v", "0"); // 1500000;
+        opt_default(NULL, "bufsize:v", "1835008"); // 224*1024*8;
 
-        opt_default(ctx, NULL, "packetsize", "2048");  // from www.mpucoder.com: DVD sectors contain 2048 bytes of data, this is also the size of one pack.
-        opt_default(ctx, NULL, "muxrate", "10080000"); // from mplex project: data_rate = 1260000. mux_rate = data_rate * 8
+        opt_default(NULL, "packetsize", "2048");  // from www.mpucoder.com: DVD sectors contain 2048 bytes of data, this is also the size of one pack.
+        opt_default(NULL, "muxrate", "10080000"); // from mplex project: data_rate = 1260000. mux_rate = data_rate * 8
 
-        opt_default(ctx, NULL, "b:a", "448000");
-        parse_option(ctx, o, "ar", "48000", options);
+        opt_default(NULL, "b:a", "448000");
+        parse_option(o, "ar", "48000", options);
 
     } else if (!strncmp(arg, "dv", 2)) {
 
-        parse_option(ctx, o, "f", "dv", options);
+        parse_option(o, "f", "dv", options);
 
-        parse_option(ctx, o, "s", norm == PAL ? "720x576" : "720x480", options);
-        parse_option(ctx, o, "pix_fmt", !strncmp(arg, "dv50", 4) ? "yuv422p" :
+        parse_option(o, "s", norm == PAL ? "720x576" : "720x480", options);
+        parse_option(o, "pix_fmt", !strncmp(arg, "dv50", 4) ? "yuv422p" :
                           norm == PAL ? "yuv420p" : "yuv411p", options);
-        parse_option(ctx, o, "r", frame_rates[norm], options);
+        parse_option(o, "r", frame_rates[norm], options);
 
-        parse_option(ctx, o, "ar", "48000", options);
-        parse_option(ctx, o, "ac", "2", options);
+        parse_option(o, "ar", "48000", options);
+        parse_option(o, "ac", "2", options);
 
     } else {
         av_log(NULL, AV_LOG_ERROR, "Unknown target: %s\n", arg);
         return AVERROR(EINVAL);
     }
 
-    av_dict_copy(&o->g->codec_opts,  ctx->codec_opts, AV_DICT_DONT_OVERWRITE);
-    av_dict_copy(&o->g->format_opts, ctx->format_opts, AV_DICT_DONT_OVERWRITE);
+    av_dict_copy(&o->g->codec_opts,  codec_opts, AV_DICT_DONT_OVERWRITE);
+    av_dict_copy(&o->g->format_opts, format_opts, AV_DICT_DONT_OVERWRITE);
 
     return 0;
 }
 
-static int opt_vstats_file(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_vstats_file(void *optctx, const char *opt, const char *arg)
 {
     av_free (vstats_filename);
     vstats_filename = av_strdup (arg);
     return 0;
 }
 
-static int opt_vstats(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_vstats(void *optctx, const char *opt, const char *arg)
 {
     char filename[40];
     time_t today2 = time(NULL);
@@ -1077,48 +1072,48 @@ static int opt_vstats(FfmpegContext* ctx, void *optctx, const char *opt, const c
 
     snprintf(filename, sizeof(filename), "vstats_%02d%02d%02d.log", today->tm_hour, today->tm_min,
              today->tm_sec);
-    return opt_vstats_file(ctx, NULL, opt, filename);
+    return opt_vstats_file(NULL, opt, filename);
 }
 
-static int opt_video_frames(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_video_frames(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "frames:v", arg, options);
+    return parse_option(o, "frames:v", arg, options);
 }
 
-static int opt_audio_frames(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_audio_frames(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "frames:a", arg, options);
+    return parse_option(o, "frames:a", arg, options);
 }
 
-static int opt_data_frames(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_data_frames(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "frames:d", arg, options);
+    return parse_option(o, "frames:d", arg, options);
 }
 
-static int opt_default_new(FfmpegContext* ctx, OptionsContext *o, const char *opt, const char *arg)
+static int opt_default_new(OptionsContext *o, const char *opt, const char *arg)
 {
     int ret;
-    AVDictionary *cbak = ctx->codec_opts;
-    AVDictionary *fbak = ctx->format_opts;
-    ctx->codec_opts = NULL;
-    ctx->format_opts = NULL;
+    AVDictionary *cbak = codec_opts;
+    AVDictionary *fbak = format_opts;
+    codec_opts = NULL;
+    format_opts = NULL;
 
-    ret = opt_default(ctx, NULL, opt, arg);
+    ret = opt_default(NULL, opt, arg);
 
-    av_dict_copy(&o->g->codec_opts , ctx->codec_opts, 0);
-    av_dict_copy(&o->g->format_opts, ctx->format_opts, 0);
-    av_dict_free(&ctx->codec_opts);
-    av_dict_free(&ctx->format_opts);
-    ctx->codec_opts = cbak;
-    ctx->format_opts = fbak;
+    av_dict_copy(&o->g->codec_opts , codec_opts, 0);
+    av_dict_copy(&o->g->format_opts, format_opts, 0);
+    av_dict_free(&codec_opts);
+    av_dict_free(&format_opts);
+    codec_opts = cbak;
+    format_opts = fbak;
 
     return ret;
 }
 
-static int opt_preset(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_preset(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     FILE *f=NULL;
@@ -1157,12 +1152,12 @@ static int opt_preset(FfmpegContext* ctx, void *optctx, const char *opt, const c
         }
         av_log(NULL, AV_LOG_DEBUG, "ffpreset[%s]: set '%s' = '%s'\n", filename, key, value);
 
-        if      (!strcmp(key, "acodec")) opt_audio_codec   (ctx, o, key, value);
-        else if (!strcmp(key, "vcodec")) opt_video_codec   (ctx, o, key, value);
-        else if (!strcmp(key, "scodec")) opt_subtitle_codec(ctx, o, key, value);
-        else if (!strcmp(key, "dcodec")) opt_data_codec    (ctx, o, key, value);
-        else if ((parse_option(ctx, o, key, value, options) < 0) &&
-                 (opt_default_new(ctx, o, key, value) < 0)) {
+        if      (!strcmp(key, "acodec")) opt_audio_codec   (o, key, value);
+        else if (!strcmp(key, "vcodec")) opt_video_codec   (o, key, value);
+        else if (!strcmp(key, "scodec")) opt_subtitle_codec(o, key, value);
+        else if (!strcmp(key, "dcodec")) opt_data_codec    (o, key, value);
+        else if ((parse_option(o, key, value, options) < 0) &&
+                 (opt_default_new(o, key, value) < 0)) {
             av_log(NULL, AV_LOG_FATAL, "%s: Invalid option or argument: '%s', parsed as '%s' = '%s'\n",
                    filename, line, key, value);
             ret = AVERROR(EINVAL);
@@ -1177,19 +1172,19 @@ fail:
     return ret;
 }
 
-static int opt_old2new(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_old2new(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     int ret;
     char *s = av_asprintf("%s:%c", opt + 1, *opt);
     if (!s)
         return AVERROR(ENOMEM);
-    ret = parse_option(ctx, o, s, arg, options);
+    ret = parse_option(o, s, arg, options);
     av_free(s);
     return ret;
 }
 
-static int opt_bitrate(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_bitrate(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
 
@@ -1205,24 +1200,24 @@ static int opt_bitrate(FfmpegContext* ctx, void *optctx, const char *opt, const 
     return 0;
 }
 
-static int opt_qscale(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_qscale(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     char *s;
     int ret;
     if(!strcmp(opt, "qscale")){
         av_log(NULL, AV_LOG_WARNING, "Please use -q:a or -q:v, -qscale is ambiguous\n");
-        return parse_option(ctx, o, "q:v", arg, options);
+        return parse_option(o, "q:v", arg, options);
     }
     s = av_asprintf("q%s", opt + 6);
     if (!s)
         return AVERROR(ENOMEM);
-    ret = parse_option(ctx, o, s, arg, options);
+    ret = parse_option(o, s, arg, options);
     av_free(s);
     return ret;
 }
 
-static int opt_profile(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_profile(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     if(!strcmp(opt, "profile")){
@@ -1234,39 +1229,39 @@ static int opt_profile(FfmpegContext* ctx, void *optctx, const char *opt, const 
     return 0;
 }
 
-static int opt_video_filters(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_video_filters(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "filter:v", arg, options);
+    return parse_option(o, "filter:v", arg, options);
 }
 
-static int opt_audio_filters(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_audio_filters(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "filter:a", arg, options);
+    return parse_option(o, "filter:a", arg, options);
 }
 
-static int opt_timecode(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_timecode(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
     int ret;
     char *tcr = av_asprintf("timecode=%s", arg);
     if (!tcr)
         return AVERROR(ENOMEM);
-    ret = parse_option(ctx, o, "metadata:g", tcr, options);
+    ret = parse_option(o, "metadata:g", tcr, options);
     if (ret >= 0)
         ret = av_dict_set(&o->g->codec_opts, "gop_timecode", arg, 0);
     av_free(tcr);
     return ret;
 }
 
-static int opt_audio_qscale(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_audio_qscale(void *optctx, const char *opt, const char *arg)
 {
     OptionsContext *o = optctx;
-    return parse_option(ctx, o, "q:a", arg, options);
+    return parse_option(o, "q:a", arg, options);
 }
 
-static int opt_filter_complex(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_filter_complex(void *optctx, const char *opt, const char *arg)
 {
     GlobalOptionsContext *go = optctx;
     char *graph_desc;
@@ -1422,8 +1417,8 @@ static const OptionGroupDef groups[] = {
     [GROUP_DECODER] = { "loopback decoder", "dec", OPT_DECODER },
 };
 
-static int open_files(FfmpegContext* ctx,OptionGroupList *l, const char *inout, Scheduler *sch,
-                      int (*open_file)(FfmpegContext* ctx, const OptionsContext*, const char*,
+static int open_files(OptionGroupList *l, const char *inout, Scheduler *sch,
+                      int (*open_file)(const OptionsContext*, const char*,
                                        Scheduler*))
 {
     int i, ret;
@@ -1435,7 +1430,7 @@ static int open_files(FfmpegContext* ctx,OptionGroupList *l, const char *inout, 
         init_options(&o);
         o.g = g;
 
-        ret = parse_optgroup(ctx, &o, g, options);
+        ret = parse_optgroup(&o, g, options);
         if (ret < 0) {
             av_log(NULL, AV_LOG_ERROR, "Error parsing options for %s file "
                    "%s.\n", inout, g->arg);
@@ -1444,7 +1439,7 @@ static int open_files(FfmpegContext* ctx,OptionGroupList *l, const char *inout, 
         }
 
         av_log(NULL, AV_LOG_DEBUG, "Opening an %s file: %s.\n", inout, g->arg);
-        ret = open_file(ctx, &o, g->arg, sch);
+        ret = open_file(&o, g->arg, sch);
         uninit_options(&o);
         if (ret < 0) {
             av_log(NULL, AV_LOG_ERROR, "Error opening %s file %s.\n",
@@ -1457,7 +1452,7 @@ static int open_files(FfmpegContext* ctx,OptionGroupList *l, const char *inout, 
     return 0;
 }
 
-int ffmpeg_parse_options(FfmpegContext* ctx,int argc, char **argv, Scheduler *sch)
+int ffmpeg_parse_options(int argc, char **argv, Scheduler *sch)
 {
     GlobalOptionsContext go = { .sch = sch };
     OptionParseContext octx;
@@ -1467,7 +1462,7 @@ int ffmpeg_parse_options(FfmpegContext* ctx,int argc, char **argv, Scheduler *sc
     memset(&octx, 0, sizeof(octx));
 
     /* split the commandline into an internal representation */
-    ret = split_commandline(ctx, &octx, argc, argv, options, groups,
+    ret = split_commandline(&octx, argc, argv, options, groups,
                             FF_ARRAY_ELEMS(groups));
     if (ret < 0) {
         errmsg = "splitting the argument list";
@@ -1475,7 +1470,7 @@ int ffmpeg_parse_options(FfmpegContext* ctx,int argc, char **argv, Scheduler *sc
     }
 
     /* apply global options */
-    ret = parse_optgroup(ctx, &go, &octx.global_opts, options);
+    ret = parse_optgroup(&go, &octx.global_opts, options);
     if (ret < 0) {
         errmsg = "parsing global options";
         goto fail;
@@ -1486,43 +1481,43 @@ int ffmpeg_parse_options(FfmpegContext* ctx,int argc, char **argv, Scheduler *sc
 
     /* create complex filtergraphs */
     for (int i = 0; i < go.nb_filtergraphs; i++) {
-        ret = fg_create(ctx, NULL, &go.filtergraphs[i], sch, NULL);
+        ret = fg_create(NULL, &go.filtergraphs[i], sch, NULL);
         go.filtergraphs[i] = NULL;
         if (ret < 0)
             goto fail;
     }
 
     /* open input files */
-    ret = open_files(ctx, &octx.groups[GROUP_INFILE], "input", sch, ifile_open);
+    ret = open_files(&octx.groups[GROUP_INFILE], "input", sch, ifile_open);
     if (ret < 0) {
         errmsg = "opening input files";
         goto fail;
     }
 
     /* open output files */
-    ret = open_files(ctx,&octx.groups[GROUP_OUTFILE], "output", sch, of_open);
+    ret = open_files(&octx.groups[GROUP_OUTFILE], "output", sch, of_open);
     if (ret < 0) {
         errmsg = "opening output files";
         goto fail;
     }
 
     /* create loopback decoders */
-    ret = open_files(ctx,&octx.groups[GROUP_DECODER], "decoder", sch, dec_create);
+    ret = open_files(&octx.groups[GROUP_DECODER], "decoder", sch, dec_create);
     if (ret < 0) {
         errmsg = "creating loopback decoders";
         goto fail;
     }
 
     // bind unbound filtegraph inputs/outputs and check consistency
-    ret = fg_finalise_bindings(ctx);
+    ret = fg_finalise_bindings();
     if (ret < 0) {
         errmsg = "binding filtergraph inputs/outputs";
         goto fail;
     }
 
-    correct_input_start_times(ctx);
+    correct_input_start_times();
 
-    ret = apply_sync_offsets(ctx);
+    ret = apply_sync_offsets();
     if (ret < 0)
         goto fail;
 
@@ -1531,7 +1526,7 @@ fail:
         av_freep(&go.filtergraphs[i]);
     av_freep(&go.filtergraphs);
 
-    uninit_parse_context(ctx, &octx);
+    uninit_parse_context(&octx);
     if (ret < 0 && ret != AVERROR_EXIT) {
         av_log(NULL, AV_LOG_FATAL, "Error %s: %s\n",
                errmsg ? errmsg : "", av_err2str(ret));
@@ -1539,7 +1534,7 @@ fail:
     return ret;
 }
 
-static int opt_progress(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
+static int opt_progress(void *optctx, const char *opt, const char *arg)
 {
     AVIOContext *avio = NULL;
     int ret;
@@ -1552,11 +1547,11 @@ static int opt_progress(FfmpegContext* ctx, void *optctx, const char *opt, const
                arg, av_err2str(ret));
         return ret;
     }
-    ctx->progress_avio = avio;
+    progress_avio = avio;
     return 0;
 }
 
-int opt_timelimit(void* ctx, void *optctx, const char *opt, const char *arg)
+int opt_timelimit(void *optctx, const char *opt, const char *arg)
 {
 #if HAVE_SETRLIMIT
     int ret;
@@ -1800,7 +1795,6 @@ const OptionDef options[] = {
     { "lavfi",               OPT_TYPE_FUNC, OPT_FUNC_ARG | OPT_EXPERT,
         { .func_arg = opt_filter_complex },
         "create a complex filtergraph", "graph_description" },
-#if 0
     { "print_graphs",   OPT_TYPE_BOOL, 0,
         { &print_graphs },
         "print execution graph data to stderr" },
@@ -1810,7 +1804,6 @@ const OptionDef options[] = {
     { "print_graphs_format", OPT_TYPE_STRING, 0,
         { &print_graphs_format },
       "set the output printing format (available formats are: default, compact, csv, flat, ini, json, xml, mermaid, mermaidhtml)", "format" },
-#endif
     { "auto_conversion_filters", OPT_TYPE_BOOL, OPT_EXPERT,
         { &auto_conversion_filters },
         "enable automatic conversion filters globally" },

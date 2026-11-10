@@ -806,7 +806,7 @@ static int new_stream_video(Muxer *mux, const OptionsContext *o,
     return 0;
 }
 
-static int new_stream_audio(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o,
+static int new_stream_audio(Muxer *mux, const OptionsContext *o,
                             OutputStream *ost)
 {
     MuxStream *ms = ms_from_ost(ost);
@@ -845,7 +845,7 @@ static int new_stream_audio(FfmpegContext* ctx, Muxer *mux, const OptionsContext
     return 0;
 }
 
-static int new_stream_subtitle(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o,
+static int new_stream_subtitle(Muxer *mux, const OptionsContext *o,
                                OutputStream *ost)
 {
     AVStream *st;
@@ -887,7 +887,7 @@ static int new_stream_subtitle(FfmpegContext* ctx, Muxer *mux, const OptionsCont
 }
 
 static int
-ost_bind_filter(FfmpegContext* ctx, const Muxer *mux, MuxStream *ms, OutputFilter *ofilter,
+ost_bind_filter(const Muxer *mux, MuxStream *ms, OutputFilter *ofilter,
                 const OptionsContext *o,
                 AVRational enc_tb, enum VideoSyncMethod vsync_method,
                 int keep_pix_fmt, int autoscale, int threads_manual,
@@ -1002,7 +1002,7 @@ ost_bind_filter(FfmpegContext* ctx, const Muxer *mux, MuxStream *ms, OutputFilte
         ost->filter = ofilter;
         ret = ofilter_bind_enc(ofilter, ms->sch_idx_enc, &opts);
     } else {
-        ret = fg_create_simple(ctx, &ost->fg_simple, ost->ist, &filters,
+        ret = fg_create_simple(&ost->fg_simple, ost->ist, &filters,
                                mux->sch, ms->sch_idx_enc, &opts);
         if (ret >= 0)
             ost->filter = ost->fg_simple->outputs[0];
@@ -1016,7 +1016,7 @@ ost_bind_filter(FfmpegContext* ctx, const Muxer *mux, MuxStream *ms, OutputFilte
     return 0;
 }
 
-static int streamcopy_init(FfmpegContext* ctx,const OptionsContext *o, const Muxer *mux,
+static int streamcopy_init(const OptionsContext *o, const Muxer *mux,
                            OutputStream *ost, AVDictionary **encoder_opts)
 {
     MuxStream           *ms         = ms_from_ost(ost);
@@ -1166,7 +1166,7 @@ static int set_encoder_id(OutputStream *ost, const AVCodec *codec)
     return 0;
 }
 
-static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum AVMediaType type,
+static int ost_add(Muxer *mux, const OptionsContext *o, enum AVMediaType type,
                    InputStream *ist, OutputFilter *ofilter, const ViewSpecifier *vs,
                    OutputStream **post)
 {
@@ -1259,7 +1259,6 @@ static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum
     }
 
     if (enc) {
-        ost->ctx = ctx;
         ret = sch_add_enc(mux->sch, encoder_thread, ost,
                           ost->type == AVMEDIA_TYPE_SUBTITLE ? NULL : enc_open);
         if (ret < 0)
@@ -1537,9 +1536,9 @@ static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum
     opt_match_per_stream_int(ost, &o->copy_initial_nonkeyframes,
                              oc, st, &ms->copy_initial_nonkeyframes);
     switch (type) {
-    case AVMEDIA_TYPE_VIDEO:      ret = new_stream_video     (ctx,mux, o, ost, &keep_pix_fmt, &vsync_method); break;
-    case AVMEDIA_TYPE_AUDIO:      ret = new_stream_audio     (ctx,mux, o, ost); break;
-    case AVMEDIA_TYPE_SUBTITLE:   ret = new_stream_subtitle  (ctx,mux, o, ost); break;
+    case AVMEDIA_TYPE_VIDEO:      ret = new_stream_video     (mux, o, ost, &keep_pix_fmt, &vsync_method); break;
+    case AVMEDIA_TYPE_AUDIO:      ret = new_stream_audio     (mux, o, ost); break;
+    case AVMEDIA_TYPE_SUBTITLE:   ret = new_stream_subtitle  (mux, o, ost); break;
     }
     if (ret < 0)
         goto fail;
@@ -1613,12 +1612,12 @@ static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum
 
     if (ost->enc &&
         (type == AVMEDIA_TYPE_VIDEO || type == AVMEDIA_TYPE_AUDIO)) {
-        ret = ost_bind_filter(ctx, mux, ms, ofilter, o, enc_tb, vsync_method,
+        ret = ost_bind_filter(mux, ms, ofilter, o, enc_tb, vsync_method,
                               keep_pix_fmt, autoscale, threads_manual, vs, &src);
         if (ret < 0)
             goto fail;
     } else if (ost->ist) {
-        ret = ist_use(ctx, ost->ist, !!ost->enc, NULL, &src);
+        ret = ist_use(ost->ist, !!ost->enc, NULL, &src);
         if (ret < 0) {
             av_log(ost, AV_LOG_ERROR,
                    "Error binding an input stream\n");
@@ -1653,7 +1652,7 @@ static int ost_add(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, enum
     }
 
     if (ost->ist && !ost->enc) {
-        ret = streamcopy_init(ctx,o, mux, ost, &encoder_opts);
+        ret = streamcopy_init(o, mux, ost, &encoder_opts);
         if (ret < 0)
             goto fail;
     }
@@ -1694,7 +1693,7 @@ static int64_t score_new_packets_event_flag(const AVStreamGroup *stg)
     return score;
 }
 
-static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int map_auto_video(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     InputStreamGroup *best_istg = NULL;
@@ -1707,8 +1706,8 @@ static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
         return 0;
 
     qcr = avformat_query_codec(oc->oformat, oc->oformat->video_codec, 0);
-    for (int j = 0; j < ctx->nb_input_files; j++) {
-        InputFile *ifile = ctx->input_files[j];
+    for (int j = 0; j < nb_input_files; j++) {
+        InputFile *ifile = input_files[j];
         InputStreamGroup *file_best_istg = NULL;
         InputStream *file_best_ist = NULL;
         int64_t file_best_score = 0;
@@ -1803,15 +1802,15 @@ static int map_auto_video(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
         av_assert0(fg->nb_outputs == 1);
         av_log(mux, AV_LOG_VERBOSE, "Creating output stream from stream group derived complex filtergraph %d.\n", fg->index);
 
-        return ost_add(ctx,mux, o, AVMEDIA_TYPE_VIDEO, NULL, ofilter, NULL, NULL);
+        return ost_add(mux, o, AVMEDIA_TYPE_VIDEO, NULL, ofilter, NULL, NULL);
     }
     if (best_ist)
-        return ost_add(ctx, mux, o, AVMEDIA_TYPE_VIDEO, best_ist, NULL, NULL, NULL);
+        return ost_add(mux, o, AVMEDIA_TYPE_VIDEO, best_ist, NULL, NULL, NULL);
 
     return 0;
 }
 
-static int map_auto_audio(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int map_auto_audio(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     InputStream *best_ist = NULL;
@@ -1821,8 +1820,8 @@ static int map_auto_audio(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
     if (av_guess_codec(oc->oformat, NULL, oc->url, NULL, AVMEDIA_TYPE_AUDIO) == AV_CODEC_ID_NONE)
         return 0;
 
-    for (int j = 0; j < ctx->nb_input_files; j++) {
-        InputFile *ifile = ctx->input_files[j];
+    for (int j = 0; j < nb_input_files; j++) {
+        InputFile *ifile = input_files[j];
         InputStream *file_best_ist = NULL;
         int file_best_score = 0;
         for (int i = 0; i < ifile->nb_streams; i++) {
@@ -1850,12 +1849,12 @@ static int map_auto_audio(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
        }
     }
     if (best_ist)
-        return ost_add(ctx,mux, o, AVMEDIA_TYPE_AUDIO, best_ist, NULL, NULL, NULL);
+        return ost_add(mux, o, AVMEDIA_TYPE_AUDIO, best_ist, NULL, NULL, NULL);
 
     return 0;
 }
 
-static int map_auto_subtitle(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int map_auto_subtitle(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     const char *subtitle_codec_name = NULL;
@@ -1865,7 +1864,7 @@ static int map_auto_subtitle(FfmpegContext* ctx, Muxer *mux, const OptionsContex
     if (!avcodec_find_encoder(oc->oformat->subtitle_codec) && !subtitle_codec_name)
         return 0;
 
-    for (InputStream *ist = ist_iter(ctx, NULL); ist; ist = ist_iter(ctx, ist))
+    for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist))
         if (ist->st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) {
             AVCodecDescriptor const *input_descriptor =
                 avcodec_descriptor_get(ist->st->codecpar->codec_id);
@@ -1887,14 +1886,14 @@ static int map_auto_subtitle(FfmpegContext* ctx, Muxer *mux, const OptionsContex
                 input_descriptor && output_descriptor &&
                 (!input_descriptor->props ||
                  !output_descriptor->props)) {
-                return ost_add(ctx,mux, o, AVMEDIA_TYPE_SUBTITLE, ist, NULL, NULL, NULL);
+                return ost_add(mux, o, AVMEDIA_TYPE_SUBTITLE, ist, NULL, NULL, NULL);
             }
         }
 
     return 0;
 }
 
-static int map_auto_data(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int map_auto_data(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     /* Data only if codec id match */
@@ -1903,12 +1902,12 @@ static int map_auto_data(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o
     if (codec_id == AV_CODEC_ID_NONE)
         return 0;
 
-    for (InputStream *ist = ist_iter(ctx, NULL); ist; ist = ist_iter(ctx, ist)) {
+    for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
         if (ist->user_set_discard == AVDISCARD_ALL)
             continue;
         if (ist->st->codecpar->codec_type == AVMEDIA_TYPE_DATA &&
             ist->st->codecpar->codec_id == codec_id) {
-            int ret = ost_add(ctx, mux, o, AVMEDIA_TYPE_DATA, ist, NULL, NULL, NULL);
+            int ret = ost_add(mux, o, AVMEDIA_TYPE_DATA, ist, NULL, NULL, NULL);
             if (ret < 0)
                 return ret;
         }
@@ -1917,7 +1916,7 @@ static int map_auto_data(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o
     return 0;
 }
 
-static int map_manual(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, const StreamMap *map)
+static int map_manual(Muxer *mux, const OptionsContext *o, const StreamMap *map)
 {
     InputStream *ist;
     int ret;
@@ -1930,8 +1929,8 @@ static int map_manual(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o, c
         OutputFilter *ofilter = NULL;
         int j, k;
 
-        for (j = 0; j < ctx->nb_filtergraphs; j++) {
-            fg = ctx->filtergraphs[j];
+        for (j = 0; j < nb_filtergraphs; j++) {
+            fg = filtergraphs[j];
             for (k = 0; k < fg->nb_outputs; k++) {
                 const char *linklabel = fg->outputs[k]->linklabel;
                 if (linklabel && !strcmp(linklabel, map->linklabel)) {
@@ -1950,14 +1949,14 @@ loop_end:
         av_log(mux, AV_LOG_VERBOSE, "Creating output stream from an explicitly "
                "mapped complex filtergraph %d, output [%s]\n", fg->index, map->linklabel);
 
-        ret = ost_add(ctx,mux, o, ofilter->type, NULL, ofilter, NULL, NULL);
+        ret = ost_add(mux, o, ofilter->type, NULL, ofilter, NULL, NULL);
         if (ret < 0)
             return ret;
     } else {
         const ViewSpecifier *vs = map->vs.type == VIEW_SPECIFIER_TYPE_NONE ?
                                   NULL : &map->vs;
 
-        ist = ctx->input_files[map->file_index]->streams[map->stream_index];
+        ist = input_files[map->file_index]->streams[map->stream_index];
         if (ist->user_set_discard == AVDISCARD_ALL) {
             av_log(mux, AV_LOG_FATAL, "Stream #%d:%d is disabled and cannot be mapped.\n",
                    map->file_index, map->stream_index);
@@ -1994,7 +1993,7 @@ loop_end:
             return AVERROR(EINVAL);
         }
 
-        ret = ost_add(ctx,mux, o, ist->st->codecpar->codec_type, ist, NULL, vs, NULL);
+        ret = ost_add(mux, o, ist->st->codecpar->codec_type, ist, NULL, vs, NULL);
         if (ret < 0)
             return ret;
     }
@@ -2002,7 +2001,7 @@ loop_end:
     return 0;
 }
 
-static int of_add_attachments(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int of_add_attachments(Muxer *mux, const OptionsContext *o)
 {
     MuxStream *ms;
     OutputStream *ost;
@@ -2065,7 +2064,7 @@ read_fail:
             return AVERROR(ENOMEM);
         }
 
-        err = ost_add(ctx,mux, o, AVMEDIA_TYPE_ATTACHMENT, NULL, NULL, NULL, &ost);
+        err = ost_add(mux, o, AVMEDIA_TYPE_ATTACHMENT, NULL, NULL, NULL, &ost);
         if (err < 0) {
             av_free(attachment_filename);
             av_freep(&attachment);
@@ -2085,9 +2084,9 @@ read_fail:
     return 0;
 }
 
-static int create_streams(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int create_streams(Muxer *mux, const OptionsContext *o)
 {
-    static int (* const map_func[])(FfmpegContext*, Muxer *mux, const OptionsContext *o) = {
+    static int (* const map_func[])(Muxer *mux, const OptionsContext *o) = {
         [AVMEDIA_TYPE_VIDEO]    = map_auto_video,
         [AVMEDIA_TYPE_AUDIO]    = map_auto_audio,
         [AVMEDIA_TYPE_SUBTITLE] = map_auto_subtitle,
@@ -2105,8 +2104,8 @@ static int create_streams(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
     int ret;
 
     /* create streams for all unlabeled output pads */
-    for (int i = 0; i < ctx->nb_filtergraphs; i++) {
-        FilterGraph *fg = ctx->filtergraphs[i];
+    for (int i = 0; i < nb_filtergraphs; i++) {
+        FilterGraph *fg = filtergraphs[i];
         for (int j = 0; j < fg->nb_outputs; j++) {
             OutputFilter *ofilter = fg->outputs[j];
 
@@ -2122,7 +2121,7 @@ static int create_streams(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
                        av_get_media_type_string(ofilter->type));
             av_log(mux, AV_LOG_VERBOSE, "\n");
 
-            ret = ost_add(ctx,mux, o, ofilter->type, NULL, ofilter, NULL, NULL);
+            ret = ost_add(mux, o, ofilter->type, NULL, ofilter, NULL, NULL);
             if (ret < 0)
                 return ret;
         }
@@ -2135,7 +2134,7 @@ static int create_streams(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
         for (int i = 0; i < FF_ARRAY_ELEMS(map_func); i++) {
             if (!map_func[i] || auto_disable & (1 << i))
                 continue;
-            ret = map_func[i](ctx, mux, o);
+            ret = map_func[i](mux, o);
             if (ret < 0)
                 return ret;
         }
@@ -2143,13 +2142,13 @@ static int create_streams(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
         av_log(mux, AV_LOG_VERBOSE, "Adding streams from explicit maps...\n");
 
         for (int i = 0; i < o->nb_stream_maps; i++) {
-            ret = map_manual(ctx, mux, o, &o->stream_maps[i]);
+            ret = map_manual(mux, o, &o->stream_maps[i]);
             if (ret < 0)
                 return ret;
         }
     }
 
-    ret = of_add_attachments(ctx, mux, o);
+    ret = of_add_attachments(mux, o);
     if (ret < 0)
         return ret;
 
@@ -2201,7 +2200,7 @@ static int create_streams(FfmpegContext* ctx, Muxer *mux, const OptionsContext *
     }
 
     if (!oc->nb_streams && !(oc->oformat->flags & AVFMT_NOSTREAMS)) {
-        av_dump_format(oc, ctx->nb_output_files - 1, oc->url, 1);
+        av_dump_format(oc, nb_output_files - 1, oc->url, 1);
         av_log(mux, AV_LOG_ERROR, "Output file does not contain any stream\n");
         return AVERROR(EINVAL);
     }
@@ -2571,25 +2570,25 @@ static int64_t get_stream_group_index_from_id(Muxer *mux, int64_t id)
     return AVERROR(EINVAL);
 }
 
-static int of_map_group(FfmpegContext* ctx, Muxer *mux, AVDictionary **dict, AVBPrint *bp, const char *map)
+static int of_map_group(Muxer *mux, AVDictionary **dict, AVBPrint *bp, const char *map)
 {
     AVStreamGroup *stg;
     int ret, file_idx, stream_idx;
     char *ptr;
 
     file_idx = strtol(map, &ptr, 0);
-    if (file_idx >= ctx->nb_input_files || file_idx < 0 || map == ptr) {
+    if (file_idx >= nb_input_files || file_idx < 0 || map == ptr) {
         av_log(mux, AV_LOG_ERROR, "Invalid input file index: %d.\n", file_idx);
         return AVERROR(EINVAL);
     }
 
     stream_idx = strtol(*ptr == '=' ? ptr + 1 : ptr, &ptr, 0);
-    if (*ptr || stream_idx >= ctx->input_files[file_idx]->ctx->nb_stream_groups || stream_idx < 0) {
+    if (*ptr || stream_idx >= input_files[file_idx]->ctx->nb_stream_groups || stream_idx < 0) {
         av_log(mux, AV_LOG_ERROR, "Invalid input stream group index: %d.\n", stream_idx);
         return AVERROR(EINVAL);
     }
 
-    stg = ctx->input_files[file_idx]->ctx->stream_groups[stream_idx];
+    stg = input_files[file_idx]->ctx->stream_groups[stream_idx];
     ret = of_serialize_options(mux, stg, bp);
     if (ret < 0)
        return ret;
@@ -2672,7 +2671,7 @@ static int of_map_group(FfmpegContext* ctx, Muxer *mux, AVDictionary **dict, AVB
     return 0;
 }
 
-static int of_parse_group_token(FfmpegContext* ctx, Muxer *mux, const char *token, char *ptr)
+static int of_parse_group_token(Muxer *mux, const char *token, char *ptr)
 {
     AVFormatContext *oc = mux->fc;
     AVStreamGroup *stg;
@@ -2722,7 +2721,7 @@ static int of_parse_group_token(FfmpegContext* ctx, Muxer *mux, const char *toke
         }
 
         av_bprint_init(&bp, 0, AV_BPRINT_SIZE_AUTOMATIC);
-        ret = of_map_group(ctx, mux, &tmp, &bp, e->value);
+        ret = of_map_group(mux, &tmp, &bp, e->value);
         if (ret < 0) {
             av_bprint_finalize(&bp, NULL);
             goto end;
@@ -2822,7 +2821,7 @@ end:
     return ret;
 }
 
-static int of_add_groups(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o)
+static int of_add_groups(Muxer *mux, const OptionsContext *o)
 {
     /* process manually set groups */
     for (int i = 0; i < o->stream_groups.nb_opt; i++) {
@@ -2838,7 +2837,7 @@ static int of_add_groups(FfmpegContext* ctx, Muxer *mux, const OptionsContext *o
         if (token) {
             if (ptr)
                 ptr += strspn(ptr, " \n\t\r");
-            ret = of_parse_group_token(ctx, mux, token, ptr);
+            ret = of_parse_group_token(mux, token, ptr);
         }
 
         av_free(str);
@@ -3297,13 +3296,13 @@ static int copy_meta(Muxer *mux, const OptionsContext *o)
         char *p;
         int in_file_index = strtol(o->metadata_map.opt[i].u.str, &p, 0);
 
-        if (in_file_index >= ctx->nb_input_files) {
+        if (in_file_index >= nb_input_files) {
             av_log(mux, AV_LOG_FATAL, "Invalid input file index %d while "
                    "processing metadata maps\n", in_file_index);
             return AVERROR(EINVAL);
         }
         ret = copy_metadata(mux,
-                            in_file_index >= 0 ? ctx->input_files[in_file_index]->ctx : NULL,
+                            in_file_index >= 0 ? input_files[in_file_index]->ctx : NULL,
                             o->metadata_map.opt[i].specifier, *p ? p + 1 : p,
                             &metadata_global_manual, &metadata_streams_manual,
                             &metadata_chapters_manual);
@@ -3312,12 +3311,12 @@ static int copy_meta(Muxer *mux, const OptionsContext *o)
     }
 
     /* copy chapters */
-    if (chapters_input_file >= ctx->nb_input_files) {
+    if (chapters_input_file >= nb_input_files) {
         if (chapters_input_file == INT_MAX) {
             /* copy chapters from the first input file that has them*/
             chapters_input_file = -1;
-            for (int i = 0; i < ctx->nb_input_files; i++)
-                if (ctx->input_files[i]->ctx->nb_chapters) {
+            for (int i = 0; i < nb_input_files; i++)
+                if (input_files[i]->ctx->nb_chapters) {
                     chapters_input_file = i;
                     break;
                 }
@@ -3328,12 +3327,12 @@ static int copy_meta(Muxer *mux, const OptionsContext *o)
         }
     }
     if (chapters_input_file >= 0)
-        copy_chapters(ctx->input_files[chapters_input_file], of, oc,
+        copy_chapters(input_files[chapters_input_file], of, oc,
                       !metadata_chapters_manual);
 
     /* copy global metadata by default */
-    if (!metadata_global_manual && ctx->nb_input_files){
-        av_dict_copy(&oc->metadata, ctx->input_files[0]->ctx->metadata,
+    if (!metadata_global_manual && nb_input_files){
+        av_dict_copy(&oc->metadata, input_files[0]->ctx->metadata,
                      AV_DICT_DONT_OVERWRITE);
         if (of->recording_time != INT64_MAX)
             av_dict_set(&oc->metadata, "duration", NULL, 0);
@@ -3632,22 +3631,22 @@ static const AVClass output_file_class = {
     .category   = AV_CLASS_CATEGORY_MUXER,
 };
 
-static Muxer *mux_alloc(FfmpegContext* ctx)
+static Muxer *mux_alloc(void)
 {
-    Muxer *mux = allocate_array_elem(&ctx->output_files, sizeof(*mux), &ctx->nb_output_files);
+    Muxer *mux = allocate_array_elem(&output_files, sizeof(*mux), &nb_output_files);
 
     if (!mux)
         return NULL;
 
     mux->of.class = &output_file_class;
-    mux->of.index = ctx->nb_output_files - 1;
+    mux->of.index = nb_output_files - 1;
 
     snprintf(mux->log_name, sizeof(mux->log_name), "out#%d", mux->of.index);
 
     return mux;
 }
 
-int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Scheduler *sch)
+int of_open(const OptionsContext *o, const char *filename, Scheduler *sch)
 {
     Muxer *mux;
     AVFormatContext *oc;
@@ -3657,7 +3656,7 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
     int64_t recording_time = o->recording_time;
     int64_t stop_time      = o->stop_time;
 
-    mux = mux_alloc(ctx);
+    mux = mux_alloc();
     if (!mux)
         return AVERROR(ENOMEM);
 
@@ -3716,8 +3715,7 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
         of->bitexact  = check_opt_bitexact(oc, mux->opts, "fflags",
                                            AVFMT_FLAG_BITEXACT);
     }
-    
-    mux->ctx = ctx;
+
     err = sch_add_mux(sch, muxer_thread, mux_check_init, mux,
                       !strcmp(oc->oformat->name, "rtp"), o->thread_queue_size);
     if (err < 0)
@@ -3726,7 +3724,7 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
     mux->sch_idx = err;
 
     /* create all output streams for this file */
-    err = create_streams(ctx, mux, o);
+    err = create_streams(mux, o);
     if (err < 0)
         return err;
 
@@ -3747,7 +3745,7 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
 
     if (!(oc->oformat->flags & AVFMT_NOFILE)) {
         /* test if it already exists to avoid losing precious files */
-        err = assert_file_overwrite(ctx, filename);
+        err = assert_file_overwrite(filename);
         if (err < 0)
             return err;
 
@@ -3760,7 +3758,7 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
             return err;
         }
     } else if (strcmp(oc->oformat->name, "image2")==0 && !av_filename_number_test(filename)) {
-        err = assert_file_overwrite(ctx, filename);
+        err = assert_file_overwrite(filename);
         if (err < 0)
             return err;
     }
@@ -3771,11 +3769,11 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
     oc->max_delay = (int)(o->mux_max_delay * AV_TIME_BASE);
 
     /* copy metadata and chapters from input files */
-    err = copy_meta(ctx, mux, o);
+    err = copy_meta(mux, o);
     if (err < 0)
         return err;
 
-    err = of_add_groups(ctx, mux, o);
+    err = of_add_groups(mux, o);
     if (err < 0)
         return err;
 
@@ -3815,7 +3813,7 @@ int of_open(FfmpegContext* ctx,const OptionsContext *o, const char *filename, Sc
         OutputStream *ost = of->streams[i];
 
         if (!ost->enc) {
-            err = of_stream_init(ctx, of, ost, NULL);
+            err = of_stream_init(of, ost, NULL);
             if (err < 0)
                 return err;
         }

@@ -78,7 +78,6 @@ static int report_file_level = AV_LOG_DEBUG;
 
 int show_license(void *optctx, const char *opt, const char *arg)
 {
-#if 0
 #if CONFIG_NONFREE
     printf(
     "This version of %s has nonfree parts compiled in.\n"
@@ -146,7 +145,6 @@ int show_license(void *optctx, const char *opt, const char *arg)
     "License along with %s; if not, write to the Free Software\n"
     "Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA\n",
     program_name, program_name, program_name );
-#endif
 #endif
 
     return 0;
@@ -252,21 +250,18 @@ void show_banner(int argc, char **argv, const OptionDef *options)
 
 int show_version(void *optctx, const char *opt, const char *arg)
 {
-#if 0
     av_log_set_callback(log_callback_help);
     print_program_info (SHOW_COPYRIGHT, AV_LOG_INFO);
     print_all_libs_info(SHOW_VERSION, AV_LOG_INFO);
-#endif    
 
     return 0;
 }
 
 int show_buildconf(void *optctx, const char *opt, const char *arg)
 {
-#if 0
     av_log_set_callback(log_callback_help);
     print_buildconf      (INDENT|0, AV_LOG_INFO);
-#endif
+
     return 0;
 }
 

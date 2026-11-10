@@ -119,8 +119,6 @@ typedef struct Muxer {
 
     SyncQueue              *sq_mux;
     AVPacket               *sq_pkt;
-    
-    void* ctx;
 } Muxer;
 
 int mux_check_init(void *arg);

@@ -102,8 +102,6 @@ typedef struct DecoderPriv {
         AVDictionary       *opts;
         const AVCodec      *codec;
     } standalone_init;
-    
-    void* ctx;
 } DecoderPriv;
 
 static DecoderPriv *dp_from_dec(Decoder *d)
@@ -164,7 +162,7 @@ static const AVClass dec_class = {
 
 static int decoder_thread(void *arg);
 
-static int dec_alloc(FfmpegContext* ctx, DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
+static int dec_alloc(DecoderPriv **pdec, Scheduler *sch, int send_end_ts)
 {
     DecoderPriv *dp;
     int ret = 0;
@@ -190,7 +188,6 @@ static int dec_alloc(FfmpegContext* ctx, DecoderPriv **pdec, Scheduler *sch, int
     dp->last_frame_tb                = (AVRational){ 1, 1 };
     dp->hwaccel_pix_fmt              = AV_PIX_FMT_NONE;
 
-    dp->ctx = ctx;
     ret = sch_add_dec(sch, decoder_thread, dp, send_end_ts);
     if (ret < 0)
         goto fail;
@@ -911,8 +908,7 @@ fail:
 
 static int decoder_thread(void *arg)
 {
-    DecoderPriv  *dp = (DecoderPriv  *)arg;
-    FfmpegContext* ctx = dp->ctx;
+    DecoderPriv  *dp = arg;
     DecThreadContext dt;
     int ret = 0, input_status = 0;
 
@@ -1684,7 +1680,7 @@ static int dec_open(DecoderPriv *dp, AVDictionary **dec_opts,
     return 0;
 }
 
-int dec_init(FfmpegContext* ctx, Decoder **pdec, Scheduler *sch,
+int dec_init(Decoder **pdec, Scheduler *sch,
              AVDictionary **dec_opts, const DecoderOpts *o,
              AVFrame *param_out)
 {
@@ -1693,7 +1689,7 @@ int dec_init(FfmpegContext* ctx, Decoder **pdec, Scheduler *sch,
 
     *pdec = NULL;
 
-    ret = dec_alloc(ctx, &dp, sch, !!(o->flags & DECODER_FLAG_SEND_END_TS));
+    ret = dec_alloc(&dp, sch, !!(o->flags & DECODER_FLAG_SEND_END_TS));
     if (ret < 0)
         return ret;
 
@@ -1711,7 +1707,7 @@ fail:
     return ret;
 }
 
-int dec_create(FfmpegContext* ctx, const OptionsContext *o, const char *arg, Scheduler *sch)
+int dec_create(const OptionsContext *o, const char *arg, Scheduler *sch)
 {
     DecoderPriv *dp;
 
@@ -1723,26 +1719,26 @@ int dec_create(FfmpegContext* ctx, const OptionsContext *o, const char *arg, Sch
     unsigned enc_idx;
     int ret;
 
-    ret = dec_alloc(ctx, &dp, sch, 0);
+    ret = dec_alloc(&dp, sch, 0);
     if (ret < 0)
         return ret;
 
-    dp->index = ctx->nb_decoders;
+    dp->index = nb_decoders;
 
-    ret = GROW_ARRAY(ctx->decoders, ctx->nb_decoders);
+    ret = GROW_ARRAY(decoders, nb_decoders);
     if (ret < 0) {
         dec_free((Decoder **)&dp);
         return ret;
     }
 
-    ctx->decoders[ctx->nb_decoders - 1] = (Decoder *)dp;
+    decoders[nb_decoders - 1] = (Decoder *)dp;
 
     of_index = strtol(arg, &p, 0);
-    if (of_index < 0 || of_index >= ctx->nb_output_files) {
+    if (of_index < 0 || of_index >= nb_output_files) {
         av_log(dp, AV_LOG_ERROR, "Invalid output file index '%d' in %s\n", of_index, arg);
         return AVERROR(EINVAL);
     }
-    of = ctx->output_files[of_index];
+    of = output_files[of_index];
 
     ost_index = strtol(p + 1, NULL, 0);
     if (ost_index < 0 || ost_index >= of->nb_streams) {

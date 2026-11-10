@@ -401,7 +401,6 @@ fail:
 int muxer_thread(void *arg)
 {
     Muxer     *mux = arg;
-    FfmpegContext* ctx= mux->ctx; 
     OutputFile *of = &mux->of;
 
     MuxThreadContext mt;
@@ -497,20 +496,20 @@ static int of_streamcopy(OutputFile *of, OutputStream *ost, AVPacket *pkt)
     return 0;
 }
 
-int print_sdp(FfmpegContext* ctx,const char *filename);
+int print_sdp(const char *filename);
 
-int print_sdp(FfmpegContext* ctx, const char *filename)
+int print_sdp(const char *filename)
 {
     char sdp[16384];
     int j = 0, ret;
     AVIOContext *sdp_pb;
     AVFormatContext **avc;
 
-    avc = av_malloc_array(ctx->nb_output_files, sizeof(*avc));
+    avc = av_malloc_array(nb_output_files, sizeof(*avc));
     if (!avc)
         return AVERROR(ENOMEM);
-    for (int i = 0; i < ctx->nb_output_files; i++) {
-        Muxer *mux = mux_from_of(ctx->output_files[i]);
+    for (int i = 0; i < nb_output_files; i++) {
+        Muxer *mux = mux_from_of(output_files[i]);
 
         if (!strcmp(mux->fc->oformat->name, "rtp")) {
             avc[j] = mux->fc;
@@ -550,7 +549,6 @@ fail:
 int mux_check_init(void *arg)
 {
     Muxer     *mux = arg;
-    FfmpegContext* ctx = mux->ctx;
     OutputFile *of = &mux->of;
     AVFormatContext *fc = mux->fc;
     int ret;
@@ -565,7 +563,7 @@ int mux_check_init(void *arg)
     mux->header_written = 1;
 
     av_dump_format(fc, of->index, fc->url, 1);
-    atomic_fetch_add(&ctx->nb_output_dumped, 1);
+    atomic_fetch_add(&nb_output_dumped, 1);
 
     return 0;
 }
@@ -604,7 +602,7 @@ static int bsf_init(MuxStream *ms)
     return 0;
 }
 
-int of_stream_init(FfmpegContext* ctx,OutputFile *of, OutputStream *ost,
+int of_stream_init(OutputFile *of, OutputStream *ost,
                    const AVCodecContext *enc_ctx)
 {
     Muxer *mux = mux_from_of(of);
@@ -867,19 +865,6 @@ static void ost_free(OutputStream **post)
 
     av_freep(&ost->attachment_filename);
 
-    if (ost->type == AVMEDIA_TYPE_VIDEO)
-    {
-                //av_log(NULL, AV_LOG_ERROR,"ost_free \n");
-		if (ost->sws_ctx)
-		  sws_freeContext(ost->sws_ctx);
-		if (ost->sws_ctx_chg)
-		  sws_freeContext(ost->sws_ctx_chg);
-		if (ost->rgb_buf)
-		  av_free(ost->rgb_buf);      
-		if (ost->frame_rgb)
-		  av_frame_free(&ost->frame_rgb);
-
-    }
     enc_stats_uninit(&ost->enc_stats_pre);
     enc_stats_uninit(&ost->enc_stats_post);
     enc_stats_uninit(&ms->stats);

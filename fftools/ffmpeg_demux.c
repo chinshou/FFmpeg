@@ -188,9 +188,9 @@ static Demuxer *demuxer_from_ifile(InputFile *f)
     return (Demuxer*)f;
 }
 
-InputStream *ist_find_unused(FfmpegContext* ctx, enum AVMediaType type)
+InputStream *ist_find_unused(enum AVMediaType type)
 {
-    for (InputStream *ist = ist_iter(ctx, NULL); ist; ist = ist_iter(ctx, ist)) {
+    for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
         DemuxStream *ds = ds_from_ist(ist);
         if (ist->par->codec_type == type && ds->discard &&
             ist->user_set_discard != AVDISCARD_ALL)
@@ -1054,7 +1054,7 @@ void ifile_close(InputFile **pf)
     av_freep(pf);
 }
 
-int ist_use(FfmpegContext* ctx, InputStream *ist, int decoding_needed,
+int ist_use(InputStream *ist, int decoding_needed,
             const ViewSpecifier *vs, SchedulerNode *src)
 {
     Demuxer      *d = demuxer_from_ifile(ist->file);
@@ -1180,7 +1180,7 @@ int ist_use(FfmpegContext* ctx, InputStream *ist, int decoding_needed,
         if (!ds->decoded_params)
             return AVERROR(ENOMEM);
 
-        ret = dec_init(ctx, &ist->decoder, d->sch,
+        ret = dec_init(&ist->decoder, d->sch,
                        &ds->decoder_opts, &ds->dec_opts, ds->decoded_params);
         if (ret < 0)
             return ret;
@@ -1207,7 +1207,7 @@ int ist_use(FfmpegContext* ctx, InputStream *ist, int decoding_needed,
     return 0;
 }
 
-int ist_filter_add(FfmpegContext* ctx,InputStream *ist, InputFilter *ifilter, int is_simple,
+int ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple,
                    const ViewSpecifier *vs, InputFilterOptions *opts,
                    SchedulerNode *src)
 {
@@ -1216,7 +1216,7 @@ int ist_filter_add(FfmpegContext* ctx,InputStream *ist, InputFilter *ifilter, in
     int64_t tsoffset = 0;
     int ret;
 
-    ret = ist_use(ctx, ist, is_simple ? DECODING_FOR_OST : DECODING_FOR_FILTER,
+    ret = ist_use(ist, is_simple ? DECODING_FOR_OST : DECODING_FOR_FILTER,
                   vs, src);
     if (ret < 0)
         return ret;
@@ -2068,11 +2068,11 @@ static int istg_parse_tile_grid(const OptionsContext *o, Demuxer *d, InputStream
             goto fail;
     }
 
-    ret = fg_create(ctx, NULL, &graph_str, d->sch, &opts);
+    ret = fg_create(NULL, &graph_str, d->sch, &opts);
     if (ret < 0)
         goto fail;
 
-    istg->fg = ctx->filtergraphs[ctx->nb_filtergraphs-1];
+    istg->fg = filtergraphs[nb_filtergraphs-1];
     istg->fg->is_internal = 1;
 
     ret = 0;
@@ -2134,7 +2134,7 @@ static int istg_parse_lcevc(const OptionsContext *o, Demuxer *d, DemuxStreamGrou
     return 0;
 }
 
-static int istg_add(FfmpegContext* ctx,const OptionsContext *o, Demuxer *d, AVStreamGroup *stg)
+static int istg_add(const OptionsContext *o, Demuxer *d, AVStreamGroup *stg)
 {
     InputFile *f = &d->f;
     DemuxStreamGroup *dsg;
@@ -2243,7 +2243,7 @@ static int safe_filename(const char *f, int allow_subdir)
     return 1;
 }
 
-static int dump_attachment(FfmpegContext* ctx, InputStream *ist, const char *filename)
+static int dump_attachment(InputStream *ist, const char *filename)
 {
     AVStream *st = ist->st;
     int ret;
@@ -2266,7 +2266,7 @@ static int dump_attachment(FfmpegContext* ctx, InputStream *ist, const char *fil
         return AVERROR(EINVAL);
     }
 
-    ret = assert_file_overwrite(ctx, filename);
+    ret = assert_file_overwrite(filename);
     if (ret < 0)
         return ret;
 
@@ -2300,22 +2300,22 @@ static const AVClass input_file_class = {
     .category   = AV_CLASS_CATEGORY_DEMUXER,
 };
 
-static Demuxer *demux_alloc(FfmpegContext* ctx)
+static Demuxer *demux_alloc(void)
 {
-    Demuxer *d = allocate_array_elem(&ctx->input_files, sizeof(*d), &ctx->nb_input_files);
+    Demuxer *d = allocate_array_elem(&input_files, sizeof(*d), &nb_input_files);
 
     if (!d)
         return NULL;
 
     d->f.class = &input_file_class;
-    d->f.index = ctx->nb_input_files - 1;
+    d->f.index = nb_input_files - 1;
 
     snprintf(d->log_name, sizeof(d->log_name), "in#%d", d->f.index);
 
     return d;
 }
 
-int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename, Scheduler *sch)
+int ifile_open(const OptionsContext *o, const char *filename, Scheduler *sch)
 {
     Demuxer   *d;
     InputFile *f;
@@ -2335,7 +2335,7 @@ int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename
     int64_t stop_time      = o->stop_time;
     int64_t recording_time = o->recording_time;
 
-    d = demux_alloc(ctx);
+    d = demux_alloc();
     if (!d)
         return AVERROR(ENOMEM);
 
@@ -2498,7 +2498,7 @@ int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename
         AVDictionary **opts;
         int orig_nb_streams = ic->nb_streams;
 
-        ret = setup_find_stream_info_opts(ctx, ic, o->g->codec_opts, &opts);
+        ret = setup_find_stream_info_opts(ic, o->g->codec_opts, &opts);
         if (ret < 0)
             return ret;
 
@@ -2627,7 +2627,7 @@ int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename
 
     /* Add all the stream groups from the given input file to the demuxer */
     for (int i = 0; i < ic->nb_stream_groups; i++) {
-        ret = istg_add(ctx, o, d, ic->stream_groups[i]);
+        ret = istg_add(o, d, ic->stream_groups[i]);
         if (ret < 0)
             return ret;
     }
@@ -2646,7 +2646,7 @@ int ifile_open(FfmpegContext* ctx, const OptionsContext *o, const char *filename
             InputStream *ist = f->streams[j];
 
             if (check_stream_specifier(ic, ist->st, o->dump_attachment.opt[i].specifier) == 1) {
-                ret = dump_attachment(ctx, ist, o->dump_attachment.opt[i].u.str);
+                ret = dump_attachment(ist, o->dump_attachment.opt[i].u.str);
                 if (ret < 0)
                     return ret;
             }
