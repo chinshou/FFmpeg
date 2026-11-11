@@ -28,11 +28,41 @@ CXXFLAGS="-O3 -fPIC -march=armv8-a -D__ANDROID_API__=23 -D__ANDROID__ -D__ARM_AR
 
 #export LDFLAGS=" -lz "
 
+# 校验 shared library 的 ELF LOAD 段是否按 16 KB 对齐 (Google Play / Android 15+ 要求)
+check_16k_page_alignment() {
+    local dir="$1"
+    local readelf="$TOOLCHAIN/bin/llvm-readelf"
+    [ -x "$readelf" ] || readelf=readelf
+    local failed=0
+    echo "--- Checking 16 KB page size alignment: $dir ---"
+    for so in "$dir"/*.so; do
+        [ -f "$so" ] || continue
+        local bad=0 align
+        while read -r align; do
+            (( align < 0x4000 )) && bad=1
+        done < <("$readelf" -lW "$so" | awk '/^[[:space:]]*LOAD/ {print $NF}')
+        if [ "$bad" -eq 0 ]; then
+            echo "  OK   $(basename "$so")"
+        else
+            echo "  FAIL $(basename "$so") - LOAD segment is not 16 KB aligned"
+            failed=1
+        fi
+    done
+    return "$failed"
+}
+
 function build_one
 {
 
 export PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig/
 echo $PKG_CONFIG_PATH
+
+# 上一次可能是 32 位构建, 残留的 .o 会造成 "File in wrong format" 链接错误
+# 所以先彻底清理, 再重新 configure
+if [ -f ffbuild/config.mak ]; then
+    make distclean > /dev/null 2>&1 || true
+fi
+
 ./configure \
     --prefix=$PREFIX \
     --enable-shared \
@@ -60,7 +90,7 @@ echo $PKG_CONFIG_PATH
     --disable-outdevs \
     --disable-decoder=h264_vdpau \
     --disable-muxer=encx --disable-muxer=encx_audio \
-    --disable-iconv --disable-muxer=encx_audio  --disable-demuxer=encx --disable-demuxer=encx_audio  \
+    --disable-iconv --disable-demuxer=encx --disable-demuxer=encx_audio \
     --disable-indev=waveform  \
     --cross-prefix=$CROSS_COMPILE \
     --cc=$TOOLCHAIN/bin/aarch64-linux-android23-clang \
@@ -73,9 +103,17 @@ echo $PKG_CONFIG_PATH
     --extra-ldflags=" -L$ARM_LIB -lz -lm -logg -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 "
  
 #--enable-libvpx \
-#make clean
-#make
-#make install
+
+    if [ $? -ne 0 ]; then
+        echo "Configure failed for $ARCH. Please check the logs."
+        exit 1
+    fi
+
+    make -j$(nproc) && make install
+
+    # 上传 Google Play 前必须通过 16 KB 对齐检查
+    check_16k_page_alignment "$PREFIX/lib" || exit 1
+
 #    --disable-muxers \
 #     --disable-demuxer=encx \
 }

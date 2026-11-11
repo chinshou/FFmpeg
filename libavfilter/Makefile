@@ -690,8 +690,11 @@ SKIPHEADERS-$(CONFIG_VULKAN)                 += vulkan_filter.h
 SKIPHEADERS-$(CONFIG_SCALE_CUDA_FILTER)      += vf_scale_cuda.h
 
 
+# libass / libiconv are only provided by the MinGW cross environment
+ifneq ($(filter mingw32 mingw64 cygwin msys win32 win64,$(TARGET_OS)),)
 CFLAGS += -I/usr/i686-mingw32/include/ass
 EXTRALIBS += -lass -lfreetype -liconv
+endif
 
 TOOLS     = graph2dot
 TESTPROGS = drawutils filtfmts formats integral
