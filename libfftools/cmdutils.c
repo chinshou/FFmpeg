@@ -30,7 +30,6 @@
    references to libraries that are not being built. */
 
 #include "config.h"
-#include "compat/va_copy.h"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
 #include "libswscale/version.h"
@@ -43,7 +42,6 @@
 #include "libavutil/getenv_utf8.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/imgutils.h"
-#include "libavutil/libm.h"
 #include "libavutil/mem.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/eval.h"
@@ -570,7 +568,7 @@ void parse_loglevel(int argc, char **argv, const OptionDef *options)
     if (!idx)
         idx = locate_option(argc, argv, options, "v");
     if (idx && argv[idx + 1])
-        opt_loglevel(NULL, "loglevel", argv[idx + 1]);
+        opt_loglevel(NULL, NULL, "loglevel", argv[idx + 1]);
     idx = locate_option(argc, argv, options, "report");
     env = getenv_utf8("FFREPORT");
     if (env || idx) {
@@ -602,7 +600,7 @@ static const AVOption *opt_find(void *obj, const char *name, const char *unit,
 }
 
 #define FLAGS ((o->type == AV_OPT_TYPE_FLAGS && (arg[0]=='-' || arg[0]=='+')) ? AV_DICT_APPEND : 0)
-int opt_default(void* ctx, void *optctx, const char *opt, const char *arg)
+int opt_default(FfmpegContext* ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVOption *o;
     int consumed = 0;
@@ -1276,7 +1274,7 @@ unsigned stream_specifier_match(const StreamSpecifier *ss,
                 break;
             }
         }
-        // fall-through
+        av_fallthrough;
     case STREAM_LIST_GROUP_IDX:
         if (ss->stream_list == STREAM_LIST_GROUP_IDX &&
             ss->list_id >= 0 && ss->list_id < s->nb_stream_groups)
@@ -1289,13 +1287,16 @@ unsigned stream_specifier_match(const StreamSpecifier *ss,
                    ss->list_id);
             return 0;
         }
-        nb_streams = g->nb_streams;
+        nb_streams = g->nb_entries;
         break;
     default: av_assert0(0);
     }
 
     for (int i = start_stream; i < nb_streams; i++) {
-        const AVStream *candidate = s->streams[g ? g->streams[i]->index :
+        if (g && g->entries[i]->type != AV_STREAM_GROUP_ENTRY_STREAM)
+            continue;
+
+        const AVStream *candidate = s->streams[g ? g->entries[i]->stream->index :
                                                p ? p->stream_index[i]   : i];
 
         if (ss->media_type != AVMEDIA_TYPE_UNKNOWN &&
@@ -1407,7 +1408,7 @@ unsigned stream_group_specifier_match(const StreamSpecifier *ss,
             case AV_STREAM_GROUP_PARAMS_TILE_GRID: {
                 const AVStreamGroupTileGrid *tg = candidate->params.tile_grid;
                 if (!tg->coded_width || !tg->coded_height || !tg->nb_tiles ||
-                    !tg->width       || !tg->height       || !tg->nb_tiles)
+                    !tg->width       || !tg->height       || !tg->offsets)
                     continue;
                 break;
             }

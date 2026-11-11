@@ -33,7 +33,7 @@ OBJS = ffmpeg.o                        \
     textformat/tw_stdout.o    \
 #    ffplay_renderer.o   \
     
-OBJS += $(COMPAT_OBJS:%=../compat/%)
+OBJS-$(CONFIG_MEDIACODEC) += ../compat/android/binder.o
 
 #OBJS-$(CONFIG_LIBSOXR) += soxr_resample.o
 

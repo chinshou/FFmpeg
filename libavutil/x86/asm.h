@@ -71,12 +71,10 @@ typedef int32_t x86_reg;
 typedef int x86_reg;
 #endif
 
-#define HAVE_7REGS (ARCH_X86_64 || (HAVE_EBX_AVAILABLE && HAVE_EBP_AVAILABLE))
-#define HAVE_6REGS (ARCH_X86_64 || (HAVE_EBX_AVAILABLE || HAVE_EBP_AVAILABLE))
-
 #if ARCH_X86_64 && defined(PIC)
 #    define BROKEN_RELOCATIONS 1
 #endif
+//#    define BROKEN_RELOCATIONS 1
 
 /*
  * If gcc is not set to support sse (-msse) it will not accept xmm registers

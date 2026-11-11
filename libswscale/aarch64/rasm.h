@@ -27,6 +27,7 @@
 #include <stdio.h>
 
 #include "libavutil/attributes.h"
+#include "libavutil/bprint.h"
 #include "libavutil/avassert.h"
 
 /**
@@ -233,8 +234,8 @@ void rasm_annotate_next(RasmContext *rctx, const char *comment);
 void rasm_annotate_nextf(RasmContext *rctx, char *s, size_t n,
                          const char *fmt, ...) av_printf_format(4, 5);
 
-/* Emit the assembled IR as GNU assembler text to fp. */
-int rasm_print(RasmContext *rctx, FILE *fp);
+/* Emit the assembled IR as GNU assembler text to bp. */
+int rasm_print(RasmContext *rctx, AVBPrint *bp);
 
 /*********************************************************************/
 /* AArch64-specific */
@@ -248,6 +249,8 @@ typedef enum AArch64InsnId {
     AARCH64_INSN_ADR,
     AARCH64_INSN_AND,
     AARCH64_INSN_B,
+    AARCH64_INSN_BCOND,
+    AARCH64_INSN_BLR,
     AARCH64_INSN_BR,
     AARCH64_INSN_CMP,
     AARCH64_INSN_CSEL,
@@ -269,6 +272,7 @@ typedef enum AArch64InsnId {
     AARCH64_INSN_LDRB,
     AARCH64_INSN_LDRH,
     AARCH64_INSN_LSR,
+    AARCH64_INSN_MLA,
     AARCH64_INSN_MOV,
     AARCH64_INSN_MOVI,
     AARCH64_INSN_MUL,
@@ -350,6 +354,7 @@ static inline uint8_t a64op_gpr_size(RasmOp op) { return op.u8[1]; }
 
 static inline RasmOp a64op_gpw(uint8_t n) { return a64op_make_gpr(n, sizeof(uint32_t)); }
 static inline RasmOp a64op_gpx(uint8_t n) { return a64op_make_gpr(n, sizeof(uint64_t)); }
+static inline RasmOp a64op_lr (void)      { return a64op_make_gpr(30, sizeof(uint64_t)); }
 static inline RasmOp a64op_sp (void)      { return a64op_make_gpr(31, sizeof(uint64_t)); }
 
 /* modifiers */
@@ -470,7 +475,14 @@ typedef struct AArch64VecViews {
 } AArch64VecViews;
 
 /* Fill vector view struct for given op. */
-void a64op_vec_views(RasmOp op, AArch64VecViews *out);
+AArch64VecViews a64op_vec_views(RasmOp op);
+
+#define A64OP_VEC_VIEWS4(op) { \
+    a64op_vec_views((op)[0]),  \
+    a64op_vec_views((op)[1]),  \
+    a64op_vec_views((op)[2]),  \
+    a64op_vec_views((op)[3]),  \
+}
 
 /*********************************************************************/
 /* AARCH64_OP_BASE */
@@ -537,7 +549,9 @@ static inline RasmOp a64cond_nv(void) { return a64op_cond(AARCH64_COND_NV); }
 #define i_addv(rctx,   op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_ADDV,   op0, op1, OPN, OPN)
 #define i_adr(rctx,    op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_ADR,    op0, op1, OPN, OPN)
 #define i_and(rctx,    op0, op1, op2     ) rasm_add_insn(rctx, AARCH64_INSN_AND,    op0, op1, op2, OPN)
-#define i_b(rctx,      op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_B,      op0, op1, OPN, OPN)
+#define i_b(rctx,      op0               ) rasm_add_insn(rctx, AARCH64_INSN_B,      op0, OPN, OPN, OPN)
+#define i_bcond(rctx,  op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_BCOND,  op0, op1, OPN, OPN)
+#define i_blr(rctx,    op0               ) rasm_add_insn(rctx, AARCH64_INSN_BLR,    op0, OPN, OPN, OPN)
 #define i_br(rctx,     op0               ) rasm_add_insn(rctx, AARCH64_INSN_BR,     op0, OPN, OPN, OPN)
 #define i_cmp(rctx,    op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_CMP,    op0, op1, OPN, OPN)
 #define i_csel(rctx,   op0, op1, op2, op3) rasm_add_insn(rctx, AARCH64_INSN_CSEL,   op0, op1, op2, op3)
@@ -559,6 +573,7 @@ static inline RasmOp a64cond_nv(void) { return a64op_cond(AARCH64_COND_NV); }
 #define i_ldrb(rctx,   op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_LDRB,   op0, op1, OPN, OPN)
 #define i_ldrh(rctx,   op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_LDRH,   op0, op1, OPN, OPN)
 #define i_lsr(rctx,    op0, op1, op2     ) rasm_add_insn(rctx, AARCH64_INSN_LSR,    op0, op1, op2, OPN)
+#define i_mla(rctx,    op0, op1, op2     ) rasm_add_insn(rctx, AARCH64_INSN_MLA,    op0, op1, op2, OPN)
 #define i_mov(rctx,    op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_MOV,    op0, op1, OPN, OPN)
 #define i_movi(rctx,   op0, op1          ) rasm_add_insn(rctx, AARCH64_INSN_MOVI,   op0, op1, OPN, OPN)
 #define i_mul(rctx,    op0, op1, op2     ) rasm_add_insn(rctx, AARCH64_INSN_MUL,    op0, op1, op2, OPN)
@@ -592,24 +607,26 @@ static inline RasmOp a64cond_nv(void) { return a64op_cond(AARCH64_COND_NV); }
 #define i_zip2(rctx,   op0, op1, op2     ) rasm_add_insn(rctx, AARCH64_INSN_ZIP2,   op0, op1, op2, OPN)
 
 /* Branch helpers. */
-#define i_beq(rctx, id) i_b(rctx, a64cond_eq(), rasm_op_label(id))
-#define i_bne(rctx, id) i_b(rctx, a64cond_ne(), rasm_op_label(id))
-#define i_bhs(rctx, id) i_b(rctx, a64cond_hs(), rasm_op_label(id))
-#define i_bcs(rctx, id) i_b(rctx, a64cond_cs(), rasm_op_label(id))
-#define i_blo(rctx, id) i_b(rctx, a64cond_lo(), rasm_op_label(id))
-#define i_bcc(rctx, id) i_b(rctx, a64cond_cc(), rasm_op_label(id))
-#define i_bmi(rctx, id) i_b(rctx, a64cond_mi(), rasm_op_label(id))
-#define i_bpl(rctx, id) i_b(rctx, a64cond_pl(), rasm_op_label(id))
-#define i_bvs(rctx, id) i_b(rctx, a64cond_vs(), rasm_op_label(id))
-#define i_bvc(rctx, id) i_b(rctx, a64cond_vc(), rasm_op_label(id))
-#define i_bhi(rctx, id) i_b(rctx, a64cond_hi(), rasm_op_label(id))
-#define i_bls(rctx, id) i_b(rctx, a64cond_ls(), rasm_op_label(id))
-#define i_bge(rctx, id) i_b(rctx, a64cond_ge(), rasm_op_label(id))
-#define i_blt(rctx, id) i_b(rctx, a64cond_lt(), rasm_op_label(id))
-#define i_bgt(rctx, id) i_b(rctx, a64cond_gt(), rasm_op_label(id))
-#define i_ble(rctx, id) i_b(rctx, a64cond_le(), rasm_op_label(id))
+#define i_beq(rctx, id) i_bcond(rctx, a64cond_eq(), rasm_op_label(id))
+#define i_bne(rctx, id) i_bcond(rctx, a64cond_ne(), rasm_op_label(id))
+#define i_bhs(rctx, id) i_bcond(rctx, a64cond_hs(), rasm_op_label(id))
+#define i_bcs(rctx, id) i_bcond(rctx, a64cond_cs(), rasm_op_label(id))
+#define i_blo(rctx, id) i_bcond(rctx, a64cond_lo(), rasm_op_label(id))
+#define i_bcc(rctx, id) i_bcond(rctx, a64cond_cc(), rasm_op_label(id))
+#define i_bmi(rctx, id) i_bcond(rctx, a64cond_mi(), rasm_op_label(id))
+#define i_bpl(rctx, id) i_bcond(rctx, a64cond_pl(), rasm_op_label(id))
+#define i_bvs(rctx, id) i_bcond(rctx, a64cond_vs(), rasm_op_label(id))
+#define i_bvc(rctx, id) i_bcond(rctx, a64cond_vc(), rasm_op_label(id))
+#define i_bhi(rctx, id) i_bcond(rctx, a64cond_hi(), rasm_op_label(id))
+#define i_bls(rctx, id) i_bcond(rctx, a64cond_ls(), rasm_op_label(id))
+#define i_bge(rctx, id) i_bcond(rctx, a64cond_ge(), rasm_op_label(id))
+#define i_blt(rctx, id) i_bcond(rctx, a64cond_lt(), rasm_op_label(id))
+#define i_bgt(rctx, id) i_bcond(rctx, a64cond_gt(), rasm_op_label(id))
+#define i_ble(rctx, id) i_bcond(rctx, a64cond_le(), rasm_op_label(id))
 
 /* Extra helpers. */
-#define i_mov16b(rctx, op0, op1) i_mov(rctx, v_16b(op0), v_16b(op1))
+#define i_and16b(rctx, op0, op1, op2) i_and(rctx, v_16b(op0), v_16b(op1), v_16b(op2))
+#define i_mov16b(rctx, op0, op1     ) i_mov(rctx, v_16b(op0), v_16b(op1)            )
+#define i_orr16b(rctx, op0, op1, op2) i_orr(rctx, v_16b(op0), v_16b(op1), v_16b(op2))
 
 #endif /* SWSCALE_AARCH64_RASM_H */

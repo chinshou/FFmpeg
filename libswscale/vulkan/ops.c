@@ -21,23 +21,19 @@
 #include "libavutil/mem.h"
 #include "libavutil/refstruct.h"
 
+#include "../graph.h"
 #include "../ops_internal.h"
 #include "../swscale_internal.h"
+#include "../uops.h"
 
 #include "ops.h"
 
-#if HAVE_SPIRV_HEADERS_SPIRV_H || HAVE_SPIRV_UNIFIED1_SPIRV_H
 #include "spvasm.h"
-#endif
 
-static void ff_sws_vk_uninit(AVRefStructOpaque opaque, void *obj)
+static void vk_ops_ctx_uninit(AVRefStructOpaque opaque, void *obj)
 {
     FFVulkanOpsCtx *s = obj;
 
-#if CONFIG_LIBSHADERC || CONFIG_LIBGLSLANG
-    if (s->spvc)
-        s->spvc->uninit(&s->spvc);
-#endif
     ff_vk_uninit(&s->vkctx);
 }
 
@@ -48,17 +44,17 @@ int ff_sws_vk_init(SwsContext *sws, AVBufferRef *dev_ref)
 
     if (!c->hw_priv) {
         c->hw_priv = av_refstruct_alloc_ext(sizeof(FFVulkanOpsCtx), 0, NULL,
-                                            ff_sws_vk_uninit);
+                                            vk_ops_ctx_uninit);
         if (!c->hw_priv)
             return AVERROR(ENOMEM);
     }
 
     FFVulkanOpsCtx *s = c->hw_priv;
-    if (s->vkctx.device_ref && s->vkctx.device_ref->data != dev_ref->data) {
+    if (s->vkctx.device_ref) {
+        if (s->vkctx.device_ref->data == dev_ref->data)
+            return 0;
         /* Reinitialize with new context */
         ff_vk_uninit(&s->vkctx);
-    } else if (s->vkctx.device_ref && s->vkctx.device_ref->data == dev_ref->data) {
-        return 0;
     }
 
     err = ff_vk_init(&s->vkctx, sws, dev_ref, NULL);
@@ -71,50 +67,64 @@ int ff_sws_vk_init(SwsContext *sws, AVBufferRef *dev_ref)
         return AVERROR(ENOTSUP);
     }
 
-#if CONFIG_LIBSHADERC || CONFIG_LIBGLSLANG
-    if (!s->spvc) {
-        s->spvc = ff_vk_spirv_init();
-        if (!s->spvc)
-            return AVERROR(ENOMEM);
-    }
-#endif
-
     return 0;
 }
 
+AVBufferRef *ff_sws_vk_device_ref(SwsContext *sws)
+{
+    SwsInternal *c = sws_internal(sws);
+    FFVulkanOpsCtx *s = c->hw_priv;
+    return s ? s->vkctx.device_ref : NULL;
+}
+
 #define MAX_DITHER_BUFS 4
+#define MAX_FILT_BUFS 4
+#define MAX_DATA_BUFS (MAX_DITHER_BUFS + MAX_FILT_BUFS*4)
 
 typedef struct VulkanPriv {
     FFVulkanOpsCtx *s;
     FFVkExecPool e;
     FFVulkanShader shd;
-    FFVkBuffer dither_buf[MAX_DITHER_BUFS];
-    int nb_dither_buf;
-    enum FFVkShaderRepFormat src_rep;
-    enum FFVkShaderRepFormat dst_rep;
+    FFVkBuffer data_bufs[MAX_DATA_BUFS];
+    int nb_data_bufs;
+    VkFormat src_view_fmt[AV_NUM_DATA_POINTERS];
+    VkFormat dst_view_fmt[AV_NUM_DATA_POINTERS];
+    int interlaced;
 } VulkanPriv;
 
-static void process(const SwsFrame *dst, const SwsFrame *src, int y, int h,
-                    const SwsPass *pass)
+static void spirv_process(const SwsFrame *dst, const SwsFrame *src,
+                          int y, int h, const SwsPass *pass)
 {
     VulkanPriv *p = (VulkanPriv *) pass->priv;
     FFVkExecContext *ec = ff_vk_exec_get(&p->s->vkctx, &p->e);
     FFVulkanFunctions *vk = &p->s->vkctx.vkfn;
-    ff_vk_exec_start(&p->s->vkctx, ec);
+    int err = ff_vk_exec_start(&p->s->vkctx, ec);
+    if (err < 0)
+        goto error;
 
     AVFrame *src_f = (AVFrame *) src->avframe;
     AVFrame *dst_f = (AVFrame *) dst->avframe;
-    ff_vk_exec_add_dep_frame(&p->s->vkctx, ec, src_f,
-                             VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-    ff_vk_exec_add_dep_frame(&p->s->vkctx, ec, dst_f,
-                             VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+    err = ff_vk_exec_add_dep_frame(&p->s->vkctx, ec, src_f,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+    if (err < 0)
+        goto fail;
+    err = ff_vk_exec_add_dep_frame(&p->s->vkctx, ec, dst_f,
+                                   VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+    if (err < 0)
+        goto fail;
 
     VkImageView src_views[AV_NUM_DATA_POINTERS];
     VkImageView dst_views[AV_NUM_DATA_POINTERS];
-    ff_vk_create_imageviews(&p->s->vkctx, ec, src_views, src_f, p->src_rep);
-    ff_vk_create_imageviews(&p->s->vkctx, ec, dst_views, dst_f, p->dst_rep);
+    err = ff_vk_create_imageviews_fmt(&p->s->vkctx, ec, src_views, src_f,
+                                      p->src_view_fmt);
+    if (err < 0)
+        goto fail;
+    err = ff_vk_create_imageviews_fmt(&p->s->vkctx, ec, dst_views, dst_f,
+                                      p->dst_view_fmt);
+    if (err < 0)
+        goto fail;
 
     ff_vk_shader_update_img_array(&p->s->vkctx, ec, &p->shd, src_f, src_views,
                                   0, 0, VK_IMAGE_LAYOUT_GENERAL, VK_NULL_HANDLE);
@@ -141,85 +151,120 @@ static void process(const SwsFrame *dst, const SwsFrame *src, int y, int h,
         .imageMemoryBarrierCount = nb_img_bar,
     });
 
+    if (p->interlaced) {
+        uint32_t field = pass->graph ? pass->graph->dst.field : 0;
+        ff_vk_shader_update_push_const(&p->s->vkctx, ec, &p->shd,
+                                       VK_SHADER_STAGE_COMPUTE_BIT,
+                                       0, sizeof(field), &field);
+    }
+
     ff_vk_exec_bind_shader(&p->s->vkctx, ec, &p->shd);
 
     vk->CmdDispatch(ec->buf,
-                    FFALIGN(src_f->width, p->shd.lg_size[0])/p->shd.lg_size[0],
-                    FFALIGN(src_f->height, p->shd.lg_size[1])/p->shd.lg_size[1],
+                    FFALIGN(dst->width, p->shd.lg_size[0])/p->shd.lg_size[0],
+                    FFALIGN(dst->height, p->shd.lg_size[1])/p->shd.lg_size[1],
                     1);
 
-    ff_vk_exec_submit(&p->s->vkctx, ec);
+    err = ff_vk_exec_submit(&p->s->vkctx, ec);
+    if (err < 0)
+        goto error;
     ff_vk_exec_wait(&p->s->vkctx, ec);
+    return;
+
+fail:
+    ff_vk_exec_discard(&p->s->vkctx, ec);
+error:
+    /* SwsPassFunc has no way to return errors */
+    av_log(&p->s->vkctx, AV_LOG_ERROR, "Vulkan pass failed: %s\n",
+           av_err2str(err));
 }
 
-static void free_fn(void *priv)
+static void spirv_free(void *priv)
 {
     VulkanPriv *p = priv;
     ff_vk_exec_pool_free(&p->s->vkctx, &p->e);
     ff_vk_shader_free(&p->s->vkctx, &p->shd);
-    for (int i = 0; i < p->nb_dither_buf; i++)
-        ff_vk_free_buf(&p->s->vkctx, &p->dither_buf[i]);
+    for (int i = 0; i < p->nb_data_bufs; i++)
+        ff_vk_free_buf(&p->s->vkctx, &p->data_bufs[i]);
     av_refstruct_unref(&p->s);
     av_free(priv);
 }
 
-static int create_dither_bufs(FFVulkanOpsCtx *s, VulkanPriv *p, SwsOpList *ops)
+static int create_filter_buf(FFVulkanOpsCtx *s, const SwsFilterWeights *wd,
+                             FFVkBuffer *buf)
 {
     int err;
-    p->nb_dither_buf = 0;
-    for (int n = 0; n < ops->num_ops; n++) {
-        const SwsOp *op = &ops->ops[n];
-        if (op->op != SWS_OP_DITHER)
-            continue;
-        av_assert0(p->nb_dither_buf + 1 <= MAX_DITHER_BUFS);
 
-        int size = (1 << op->dither.size_log2);
-        err = ff_vk_create_buf(&s->vkctx, &p->dither_buf[p->nb_dither_buf],
-                               size*size*sizeof(float), NULL, NULL,
-                               VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
-                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
-        if (err < 0)
-            goto fail;
+    /* Weights */
+    err = ff_vk_create_buf(&s->vkctx, buf,
+                           wd->num_weights*sizeof(float) +
+                           wd->dst_size*sizeof(int32_t), NULL, NULL,
+                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    if (err < 0)
+        goto fail;
 
-        float *dither_data;
-        err = ff_vk_map_buffer(&s->vkctx, &p->dither_buf[p->nb_dither_buf],
-                               (uint8_t **)&dither_data, 0);
-        if (err < 0)
-            goto fail;
+    float *weights_data;
+    err = ff_vk_map_buffer(&s->vkctx, buf,
+                           (uint8_t **)&weights_data, 0);
+    if (err < 0)
+        goto fail;
+    for (int i = 0; i < wd->num_weights; i++)
+        weights_data[i] = (float) wd->weights[i] / SWS_FILTER_SCALE;
 
-        for (int i = 0; i < size; i++) {
-            for (int j = 0; j < size; j++) {
-                const AVRational r = op->dither.matrix[i*size + j];
-                dither_data[i*size + j] = r.num/(float)r.den;
-            }
-        }
+    memcpy(weights_data + wd->num_weights,
+           wd->offsets, wd->dst_size*sizeof(int32_t));
 
-        ff_vk_unmap_buffer(&s->vkctx, &p->dither_buf[p->nb_dither_buf], 1);
-        p->nb_dither_buf++;
-    }
+    ff_vk_unmap_buffer(&s->vkctx, buf, 1);
 
     return 0;
 
 fail:
-    for (int i = 0; i < p->nb_dither_buf; i++)
-        ff_vk_free_buf(&p->s->vkctx, &p->dither_buf[i]);
+    ff_vk_free_buf(&s->vkctx, buf);
     return err;
 }
 
-#if HAVE_SPIRV_HEADERS_SPIRV_H || HAVE_SPIRV_UNIFIED1_SPIRV_H
-struct DitherData {
-        int size;
-        int arr_1d_id;
-        int arr_2d_id;
-        int struct_id;
-        int struct_ptr_id;
-        int id;
-        int mask_id;
-};
+static int create_dither_buf(FFVulkanOpsCtx *s, const SwsUOp *uop,
+                             FFVkBuffer *buf)
+{
+    int err;
+
+    const int size = 1 << uop->par.dither.size_log2;
+    const int rows = ff_sws_dither_height(&uop->par.dither);
+    err = ff_vk_create_buf(&s->vkctx, buf,
+                           rows*size*sizeof(float), NULL, NULL,
+                           VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT |
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+    if (err < 0)
+        return err;
+
+    float *dither_data;
+    err = ff_vk_map_buffer(&s->vkctx, buf, (uint8_t **)&dither_data, 0);
+    if (err < 0)
+        goto fail;
+
+    for (int i = 0; i < rows*size; i++)
+        dither_data[i] = uop->data.ptr[i].f32;
+
+    ff_vk_unmap_buffer(&s->vkctx, buf, 1);
+
+    return 0;
+
+fail:
+    ff_vk_free_buf(&s->vkctx, buf);
+    return err;
+}
 
 typedef struct SPIRVIDs {
-    int in_vars[3 + MAX_DITHER_BUFS];
+    /* Entrypoint interface variables */
+    int iface[3 + MAX_DATA_BUFS + 1];
+    int nb_iface;
+
+    int gid_var;
+    int in_img_var;
+    int out_img_var;
 
     int glfn;
     int ep;
@@ -241,23 +286,13 @@ typedef struct SPIRVIDs {
 
     int u32vec4_type;
     int f32vec4_type;
+    int f32mat4_type;
 
     /* Constants */
-    int u32_p;
-    int f32_p;
     int f32_0;
     int u32_cid[5];
 
-    int const_ids[128];
-    int nb_const_ids;
-
-    int linear_deco_off[16];
-    int linear_deco_ops[16];
-    int nb_linear_ops;
-
-    struct DitherData dither[MAX_DITHER_BUFS];
     int dither_ptr_elem_id;
-    int nb_dither_bufs;
 
     int out_img_type;
     int out_img_array_id;
@@ -272,84 +307,139 @@ typedef struct SPIRVIDs {
 
     int in_img_tptr;
     int in_img_sptr;
+
+    /* Interlaced handling */
+    int interlaced;
+    int push_const_struct_id;
+    int push_const_ptr_id;
+    int push_const_elem_ptr_id;
+    int push_const_var_id;
+    int field_i32;
+
+    VulkanPriv *priv;
+    FFVulkanDescriptorSetBinding buf_desc[MAX_DATA_BUFS]; /* set 1 */
+    const SwsOpList *ops;
+    int bitexact;
+
+    /* Per-invocation state of the main function */
+    int in_img[4], out_img[4];  /* image handles, indexed by plane */
+    int gid, gi2;               /* invocation position, as uvec2 and ivec2 */
+    int src_gid, dst_gid;       /* image position to read from / write to */
 } SPIRVIDs;
 
+/* All integer pixel types are represented as 32-bit unsigned integers */
+static int type_scalar(const SPIRVIDs *id, SwsPixelType type)
+{
+    av_assert1(type != SWS_PIXEL_NONE);
+    return ff_sws_pixel_type_is_int(type) ? id->u32_type : id->f32_type;
+}
+
+static int type_vec4(const SPIRVIDs *id, SwsPixelType type)
+{
+    av_assert1(type != SWS_PIXEL_NONE);
+    return ff_sws_pixel_type_is_int(type) ? id->u32vec4_type : id->f32vec4_type;
+}
+
+static int const_zero(const SPIRVIDs *id, SwsPixelType type)
+{
+    av_assert1(type != SWS_PIXEL_NONE);
+    return ff_sws_pixel_type_is_int(type) ? id->u32_cid[0] : id->f32_0;
+}
+
+static int const_pixel(SPICtx *spi, const SPIRVIDs *id, SwsPixelType type,
+                       SwsPixel px)
+{
+    switch (type) {
+    case SWS_PIXEL_U8:  return spi_OpConstantUInt(spi, id->u32_type, px.u8);
+    case SWS_PIXEL_U16: return spi_OpConstantUInt(spi, id->u32_type, px.u16);
+    case SWS_PIXEL_U32: return spi_OpConstantUInt(spi, id->u32_type, px.u32);
+    case SWS_PIXEL_F32: return spi_OpConstantFloat(spi, id->f32_type, px.f32);
+    default: break;
+    }
+
+    av_unreachable("Invalid pixel type!");
+    return 0;
+}
+
+static int const_splat(SPICtx *spi, const SPIRVIDs *id, SwsPixelType type,
+                       SwsPixel px)
+{
+    const int c = const_pixel(spi, id, type, px);
+    return spi_OpConstantComposite(spi, type_vec4(id, type), c, c, c, c);
+}
+
+/* Shift and mask vectors for (un)packing each component */
+static void define_pack_consts(SPICtx *spi, const SPIRVIDs *id, const SwsUOp *uop,
+                               int *shift_id, int *mask_id)
+{
+    uint64_t mask[4];
+    int shift[4], tmp[4];
+    ff_sws_pack_decode(uop->par.pack.pattern, mask, shift);
+    for (int i = 0; i < 4; i++)
+        tmp[i] = spi_OpConstantUInt(spi, id->u32_type, shift[i]);
+    *shift_id = spi_OpConstantComposite(spi, id->u32vec4_type,
+                                        tmp[0], tmp[1], tmp[2], tmp[3]);
+    for (int i = 0; i < 4; i++)
+        tmp[i] = spi_OpConstantUInt(spi, id->u32_type, mask[i]);
+    *mask_id = spi_OpConstantComposite(spi, id->u32vec4_type,
+                                       tmp[0], tmp[1], tmp[2], tmp[3]);
+}
+
+/* Arithmetic on operands of the given pixel type */
+static int emit_add(SPICtx *spi, SwsPixelType type, int res_type, int a, int b)
+{
+    return ff_sws_pixel_type_is_int(type) ? spi_OpIAdd(spi, res_type, a, b)
+                                          : spi_OpFAdd(spi, res_type, a, b);
+}
+
+static int emit_mul(SPICtx *spi, SwsPixelType type, int res_type, int a, int b)
+{
+    return ff_sws_pixel_type_is_int(type) ? spi_OpIMul(spi, res_type, a, b)
+                                          : spi_OpFMul(spi, res_type, a, b);
+}
+
+static int emit_min(SPICtx *spi, const SPIRVIDs *id, SwsPixelType type,
+                    int res_type, int a, int b)
+{
+    const int op = ff_sws_pixel_type_is_int(type) ? GLSLstd450UMin : GLSLstd450FMin;
+    return spi_OpExtInst(spi, res_type, id->glfn, op, a, b);
+}
+
+static int emit_max(SPICtx *spi, const SPIRVIDs *id, SwsPixelType type,
+                    int res_type, int a, int b)
+{
+    const int op = ff_sws_pixel_type_is_int(type) ? GLSLstd450UMax : GLSLstd450FMax;
+    return spi_OpExtInst(spi, res_type, id->glfn, op, a, b);
+}
+
+/* Converts between float and integer values, if needed */
+static int emit_convert(SPICtx *spi, SwsPixelType from, SwsPixelType to,
+                        int res_type, int a)
+{
+    if (ff_sws_pixel_type_is_int(from) == ff_sws_pixel_type_is_int(to))
+        return a;
+    return ff_sws_pixel_type_is_int(to) ? spi_OpConvertFToU(spi, res_type, a)
+                                        : spi_OpConvertUToF(spi, res_type, a);
+}
+
 /* Section 1: Function to define all shader header data, and decorations */
-static void define_shader_header(FFVulkanShader *shd, SwsOpList *ops,
-                                 SPICtx *spi, SPIRVIDs *id)
+static void define_shader_header(SPICtx *spi, SPIRVIDs *id)
 {
     spi_OpCapability(spi, SpvCapabilityShader); /* Shader type */
 
     /* Declare required capabilities */
-    spi_OpCapability(spi, SpvCapabilityInt16);
-    spi_OpCapability(spi, SpvCapabilityInt8);
     spi_OpCapability(spi, SpvCapabilityImageQuery);
     spi_OpCapability(spi, SpvCapabilityStorageImageReadWithoutFormat);
     spi_OpCapability(spi, SpvCapabilityStorageImageWriteWithoutFormat);
-    spi_OpCapability(spi, SpvCapabilityStorageBuffer8BitAccess);
     /* Import the GLSL set of functions (used for min/max) */
     id->glfn = spi_OpExtInstImport(spi, "GLSL.std.450");
 
     /* Next section starts here */
     spi_OpMemoryModel(spi, SpvAddressingModelLogical, SpvMemoryModelGLSL450);
-
-    /* Entrypoint */
-    id->ep = spi_OpEntryPoint(spi, SpvExecutionModelGLCompute, "main",
-                                id->in_vars, 3 + id->nb_dither_bufs);
-    spi_OpExecutionMode(spi, id->ep, SpvExecutionModeLocalSize,
-                        shd->lg_size, 3);
-
-    /* gl_GlobalInvocationID descriptor decorations */
-    spi_OpDecorate(spi, id->in_vars[0], SpvDecorationBuiltIn,
-                   SpvBuiltInGlobalInvocationId);
-
-    /* Input image descriptor decorations */
-    spi_OpDecorate(spi, id->in_vars[1], SpvDecorationNonWritable);
-    spi_OpDecorate(spi, id->in_vars[1], SpvDecorationDescriptorSet, 0);
-    spi_OpDecorate(spi, id->in_vars[1], SpvDecorationBinding, 0);
-
-    /* Output image descriptor decorations */
-    spi_OpDecorate(spi, id->in_vars[2], SpvDecorationNonReadable);
-    spi_OpDecorate(spi, id->in_vars[2], SpvDecorationDescriptorSet, 0);
-    spi_OpDecorate(spi, id->in_vars[2], SpvDecorationBinding, 1);
-
-    for (int i = 0; i < id->nb_dither_bufs; i++) {
-        spi_OpDecorate(spi, id->dither[i].arr_1d_id, SpvDecorationArrayStride,
-                       sizeof(float));
-        spi_OpDecorate(spi, id->dither[i].arr_2d_id, SpvDecorationArrayStride,
-                       id->dither[i].size*sizeof(float));
-        spi_OpDecorate(spi, id->dither[i].struct_id, SpvDecorationBlock);
-        spi_OpMemberDecorate(spi, id->dither[i].struct_id, 0, SpvDecorationOffset, 0);
-        spi_OpDecorate(spi, id->dither[i].id, SpvDecorationDescriptorSet, 1);
-        spi_OpDecorate(spi, id->dither[i].id, SpvDecorationBinding, i);
-    }
-
-    /* All linear arithmetic ops must be decorated with NoContraction */
-    for (int n = 0; n < ops->num_ops; n++) {
-        const SwsOp *op = &ops->ops[n];
-        if (op->op != SWS_OP_LINEAR)
-            continue;
-        av_assert0((id->nb_linear_ops + 1) <= FF_ARRAY_ELEMS(id->linear_deco_off));
-
-        int nb_ops = 0;
-        for (int j = 0; j < 4; j++) {
-            nb_ops += !!op->lin.m[j][0].num;
-            nb_ops += op->lin.m[j][0].num && op->lin.m[j][4].num;
-            for (int i = 1; i < 4; i++) {
-                nb_ops += !!op->lin.m[j][i].num;
-                nb_ops += op->lin.m[j][i].num &&
-                          (op->lin.m[j][0].num || op->lin.m[j][4].num);
-            }
-        }
-
-        id->linear_deco_off[id->nb_linear_ops] = spi_reserve(spi, nb_ops*4*3);
-        id->linear_deco_ops[id->nb_linear_ops] = nb_ops;
-        id->nb_linear_ops++;
-    }
 }
 
 /* Section 2: Define all types and constants */
-static void define_shader_consts(SwsOpList *ops, SPICtx *spi, SPIRVIDs *id)
+static void define_shader_consts(SPICtx *spi, SPIRVIDs *id)
 {
     /* Define scalar types */
     id->void_type    = spi_OpTypeVoid(spi);
@@ -370,150 +460,26 @@ static void define_shader_consts(SwsOpList *ops, SPICtx *spi, SPIRVIDs *id)
 
     id->u32vec4_type = spi_OpTypeVector(spi, u32_type, 4);
     id->f32vec4_type = spi_OpTypeVector(spi, f32_type, 4);
+    id->f32mat4_type = spi_OpTypeMatrix(spi, id->f32vec4_type, 4);
 
     /* Constants */
-    id->u32_p = spi_OpUndef(spi, u32_type);
-    id->f32_p = spi_OpUndef(spi, f32_type);
     id->f32_0 = spi_OpConstantFloat(spi, f32_type, 0);
     for (int i = 0; i < 5; i++)
         id->u32_cid[i] = spi_OpConstantUInt(spi, u32_type, i);
-
-    /* Operation constants */
-    id->nb_const_ids = 0;
-    for (int n = 0; n < ops->num_ops; n++) {
-        /* Make sure there's always enough space for the maximum number of
-         * constants a single operation needs (currently linear, 20 consts). */
-        av_assert0((id->nb_const_ids + 20) <= FF_ARRAY_ELEMS(id->const_ids));
-        const SwsOp *op = &ops->ops[n];
-        switch (op->op) {
-        case SWS_OP_CONVERT:
-            if (ff_sws_pixel_type_is_int(op->convert.to) && op->convert.expand) {
-                AVRational m = ff_sws_pixel_expand(op->type, op->convert.to);
-                int tmp = spi_OpConstantUInt(spi, id->u32_type, m.num);
-                tmp = spi_OpConstantComposite(spi, id->u32vec4_type,
-                                              tmp, tmp, tmp, tmp);
-                id->const_ids[id->nb_const_ids++] = tmp;
-            }
-            break;
-        case SWS_OP_CLEAR:
-            for (int i = 0; i < 4; i++) {
-                AVRational cv = op->clear.value[i];
-                if (cv.den && op->type == SWS_PIXEL_F32) {
-                    float q = (float)cv.num/cv.den;
-                    id->const_ids[id->nb_const_ids++] =
-                        spi_OpConstantFloat(spi, f32_type, q);
-                } else if (op->clear.value[i].den) {
-                    av_assert0(cv.den == 1);
-                    id->const_ids[id->nb_const_ids++] =
-                        spi_OpConstantUInt(spi, u32_type, cv.num);
-                }
-            }
-            break;
-        case SWS_OP_LSHIFT:
-        case SWS_OP_RSHIFT: {
-            int tmp = spi_OpConstantUInt(spi, u32_type, op->shift.amount);
-            tmp = spi_OpConstantComposite(spi, id->u32vec4_type,
-                                          tmp, tmp, tmp, tmp);
-            id->const_ids[id->nb_const_ids++] = tmp;
-            break;
-        }
-        case SWS_OP_SCALE: {
-            int tmp;
-            if (op->type == SWS_PIXEL_F32) {
-                float q = op->scale.factor.num/(float)op->scale.factor.den;
-                tmp = spi_OpConstantFloat(spi, f32_type, q);
-                tmp = spi_OpConstantComposite(spi, id->f32vec4_type,
-                                              tmp, tmp, tmp, tmp);
-            } else {
-                av_assert0(op->scale.factor.den == 1);
-                tmp = spi_OpConstantUInt(spi, u32_type, op->scale.factor.num);
-                tmp = spi_OpConstantComposite(spi, id->u32vec4_type,
-                                              tmp, tmp, tmp, tmp);
-            }
-            id->const_ids[id->nb_const_ids++] = tmp;
-            break;
-        }
-        case SWS_OP_MIN:
-        case SWS_OP_MAX:
-            for (int i = 0; i < 4; i++) {
-                int tmp;
-                AVRational cl = op->clamp.limit[i];
-                if (!op->clamp.limit[i].den) {
-                    continue;
-                } else if (op->type == SWS_PIXEL_F32) {
-                    float q = (float)cl.num/((float)cl.den);
-                    tmp = spi_OpConstantFloat(spi, f32_type, q);
-                } else {
-                    av_assert0(cl.den == 1);
-                    tmp = spi_OpConstantUInt(spi, u32_type, cl.num);
-                }
-                id->const_ids[id->nb_const_ids++] = tmp;
-            }
-            break;
-        case SWS_OP_DITHER:
-            for (int i = 0; i < 4; i++) {
-                if (op->dither.y_offset[i] < 0)
-                    continue;
-                int tmp = spi_OpConstantUInt(spi, u32_type, op->dither.y_offset[i]);
-                id->const_ids[id->nb_const_ids++] = tmp;
-            }
-            break;
-        case SWS_OP_LINEAR: {
-            for (int i = 0; i < 4; i++) {
-                float val;
-                if (op->lin.m[i][0].num) {
-                    val = op->lin.m[i][0].num/(float)op->lin.m[i][0].den;
-                    id->const_ids[id->nb_const_ids++] =
-                        spi_OpConstantFloat(spi, f32_type, val);
-                }
-                if (op->lin.m[i][4].num) {
-                    val = op->lin.m[i][4].num/(float)op->lin.m[i][4].den;
-                    id->const_ids[id->nb_const_ids++] =
-                        spi_OpConstantFloat(spi, f32_type, val);
-                }
-                for (int j = 1; j < 4; j++) {
-                    if (!op->lin.m[i][j].num)
-                        continue;
-                    val = op->lin.m[i][j].num/(float)op->lin.m[i][j].den;
-                    id->const_ids[id->nb_const_ids++] =
-                        spi_OpConstantFloat(spi, f32_type, val);
-                }
-            }
-            break;
-        }
-        default:
-            break;
-        }
-    }
 }
 
 /* Section 3: Define bindings */
-static void define_shader_bindings(SwsOpList *ops, SPICtx *spi, SPIRVIDs *id,
+static void define_shader_bindings(const SwsOpList *ops, SPICtx *spi, SPIRVIDs *id,
                                    int in_img_count, int out_img_count)
 {
     id->dither_ptr_elem_id = spi_OpTypePointer(spi, SpvStorageClassUniform,
-                                                 id->f32_type);
-
-    struct DitherData *dither = id->dither;
-    for (int i = 0; i < id->nb_dither_bufs; i++) {
-        int size_id = spi_OpConstantUInt(spi, id->u32_type, dither[i].size);
-        dither[i].mask_id = spi_OpConstantUInt(spi, id->u32_type, dither[i].size - 1);
-        spi_OpTypeArray(spi, id->f32_type, dither[i].arr_1d_id, size_id);
-        spi_OpTypeArray(spi, dither[i].arr_1d_id, dither[i].arr_2d_id, size_id);
-        spi_OpTypeStruct(spi, dither[i].struct_id, dither[i].arr_2d_id);
-        dither[i].struct_ptr_id = spi_OpTypePointer(spi, SpvStorageClassUniform,
-                                                    dither[i].struct_id);
-        dither[i].id = spi_OpVariable(spi, dither[i].id, dither[i].struct_ptr_id,
-                                      SpvStorageClassUniform, 0);
-    }
+                                               id->f32_type);
 
     const SwsOp *op_w = ff_sws_op_list_output(ops);
     const SwsOp *op_r = ff_sws_op_list_input(ops);
 
     /* Define image types for descriptors */
-    id->out_img_type = spi_OpTypeImage(spi,
-                                       op_w->type == SWS_PIXEL_F32 ?
-                                       id->f32_type : id->u32_type,
+    id->out_img_type = spi_OpTypeImage(spi, type_scalar(id, op_w->rw.type),
                                        2, 0, 0, 0, 2, SpvImageFormatUnknown);
     id->out_img_array_id = spi_OpTypeArray(spi, id->out_img_type, spi_get_id(spi),
                                            id->u32_cid[out_img_count]);
@@ -523,15 +489,13 @@ static void define_shader_bindings(SwsOpList *ops, SPICtx *spi, SPIRVIDs *id,
     if (op_r) {
         /* If the formats match, we have to reuse the types due to SPIR-V not
          * allowing redundant type defines */
-        int match = ((op_w->type == SWS_PIXEL_F32) ==
-                     (op_r->type == SWS_PIXEL_F32));
+        int match = type_scalar(id, op_w->rw.type) ==
+                    type_scalar(id, op_r->rw.type);
         id->in_img_type = match ? id->out_img_type :
-                            spi_OpTypeImage(spi,
-                                            op_r->type == SWS_PIXEL_F32 ?
-                                            id->f32_type : id->u32_type,
-                                            2, 0, 0, 0, 2, SpvImageFormatUnknown);
+                          spi_OpTypeImage(spi, type_scalar(id, op_r->rw.type),
+                                          2, 0, 0, 0, 2, SpvImageFormatUnknown);
         id->in_img_array_id = spi_OpTypeArray(spi, id->in_img_type, spi_get_id(spi),
-                                          id->u32_cid[in_img_count]);
+                                              id->u32_cid[in_img_count]);
     }
 
     /* Pointer types for images */
@@ -545,50 +509,517 @@ static void define_shader_bindings(SwsOpList *ops, SPICtx *spi, SPIRVIDs *id,
     id->in_img_tptr = 0;
     id->in_img_sptr = 0;
     if (op_r) {
-        id->in_img_tptr= spi_OpTypePointer(spi, SpvStorageClassUniformConstant,
-                                           id->in_img_array_id);
-        id->in_img_sptr= spi_OpTypePointer(spi, SpvStorageClassUniformConstant,
-                                           id->in_img_type);
+        id->in_img_tptr = spi_OpTypePointer(spi, SpvStorageClassUniformConstant,
+                                            id->in_img_array_id);
+        id->in_img_sptr = spi_OpTypePointer(spi, SpvStorageClassUniformConstant,
+                                            id->in_img_type);
     }
 
     /* Define inputs */
-    spi_OpVariable(spi, id->in_vars[0], id->u32vec3_tptr,
-                   SpvStorageClassInput, 0);
+    id->gid_var = spi_OpVariable(spi, spi_get_id(spi), id->u32vec3_tptr,
+                                 SpvStorageClassInput, 0);
+    id->iface[id->nb_iface++] = id->gid_var;
+    spi_OpDecorate(spi, id->gid_var, SpvDecorationBuiltIn,
+                   SpvBuiltInGlobalInvocationId);
+
     if (op_r) {
-        spi_OpVariable(spi, id->in_vars[1], id->in_img_tptr,
-                       SpvStorageClassUniformConstant, 0);
+        id->in_img_var = spi_OpVariable(spi, spi_get_id(spi), id->in_img_tptr,
+                                        SpvStorageClassUniformConstant, 0);
+        id->iface[id->nb_iface++] = id->in_img_var;
+        spi_OpDecorate(spi, id->in_img_var, SpvDecorationNonWritable);
+        spi_OpDecorate(spi, id->in_img_var, SpvDecorationDescriptorSet, 0);
+        spi_OpDecorate(spi, id->in_img_var, SpvDecorationBinding, 0);
     }
-    spi_OpVariable(spi, id->in_vars[2], id->out_img_tptr,
-                   SpvStorageClassUniformConstant, 0);
+
+    id->out_img_var = spi_OpVariable(spi, spi_get_id(spi), id->out_img_tptr,
+                                     SpvStorageClassUniformConstant, 0);
+    id->iface[id->nb_iface++] = id->out_img_var;
+    spi_OpDecorate(spi, id->out_img_var, SpvDecorationNonReadable);
+    spi_OpDecorate(spi, id->out_img_var, SpvDecorationDescriptorSet, 0);
+    spi_OpDecorate(spi, id->out_img_var, SpvDecorationBinding, 1);
+
+    if (id->interlaced) {
+        id->push_const_struct_id = spi_get_id(spi);
+        spi_OpTypeStruct(spi, id->push_const_struct_id, id->u32_type);
+        spi_OpDecorate(spi, id->push_const_struct_id, SpvDecorationBlock);
+        spi_OpMemberDecorate(spi, id->push_const_struct_id, 0,
+                             SpvDecorationOffset, 0);
+        id->push_const_ptr_id = spi_OpTypePointer(spi, SpvStorageClassPushConstant,
+                                                  id->push_const_struct_id);
+        id->push_const_elem_ptr_id = spi_OpTypePointer(spi, SpvStorageClassPushConstant,
+                                                       id->u32_type);
+        id->push_const_var_id = spi_OpVariable(spi, spi_get_id(spi),
+                                               id->push_const_ptr_id,
+                                               SpvStorageClassPushConstant, 0);
+        id->iface[id->nb_iface++] = id->push_const_var_id;
+    }
 }
 
-static int add_ops_spirv(VulkanPriv *p, FFVulkanOpsCtx *s,
-                         SwsOpList *ops, FFVulkanShader *shd)
+/* Must be called after all interface variables have been defined */
+static void define_entry_point(FFVulkanShader *shd, SPICtx *spi, SPIRVIDs *id)
 {
-    uint8_t spvbuf[1024*16];
-    SPICtx spi_context = { 0 }, *spi = &spi_context;
-    SPIRVIDs spid_data = { 0 }, *id = &spid_data;
-    spi_init(spi, spvbuf, sizeof(spvbuf));
+    spi_OpEntryPoint(spi, SpvExecutionModelGLCompute, id->ep, "main",
+                     id->iface, id->nb_iface);
+    spi_OpExecutionMode(spi, id->ep, SpvExecutionModeLocalSize,
+                        shd->lg_size, 3);
+}
 
-    /* Interlaced formats are not currently supported */
-    if (ops->src.interlaced || ops->dst.interlaced)
+static int insert_vmat_linear(const SwsUOp *uop, SPICtx *spi, SPIRVIDs *id,
+                              int data)
+{
+    const SwsPixel (*m)[5] = uop->data.mat4x5;
+    int col[4], tmp[4];
+    for (int j = 0; j < 4; j++) {
+        for (int i = 0; i < 4; i++)
+            tmp[i] = const_pixel(spi, id, SWS_PIXEL_F32, m[i][j]);
+        col[j] = spi_OpConstantComposite(spi, id->f32vec4_type,
+                                         tmp[0], tmp[1], tmp[2], tmp[3]);
+    }
+    int mat = spi_OpConstantComposite(spi, id->f32mat4_type,
+                                      col[0], col[1], col[2], col[3]);
+
+    for (int i = 0; i < 4; i++)
+        tmp[i] = const_pixel(spi, id, SWS_PIXEL_F32, m[i][4]);
+    int off = spi_OpConstantComposite(spi, id->f32vec4_type,
+                                      tmp[0], tmp[1], tmp[2], tmp[3]);
+
+    data = spi_OpMatrixTimesVector(spi, id->f32vec4_type, mat, data);
+    return spi_OpFAdd(spi, id->f32vec4_type, off, data);
+}
+
+static int insert_bitexact_linear(const SwsUOp *uop, SPICtx *spi, SPIRVIDs *id,
+                                  int data)
+{
+    const SwsPixelType op_type = uop->type;
+    const SwsPixel (*m)[5] = uop->data.mat4x5;
+    const uint32_t zero = uop->par.lin.zero;
+    int type_s = type_scalar(id, op_type);
+    int type_v = type_vec4(id, op_type);
+
+    int tmp[4];
+    tmp[0] = spi_OpCompositeExtract(spi, type_s, data, 0);
+    tmp[1] = spi_OpCompositeExtract(spi, type_s, data, 1);
+    tmp[2] = spi_OpCompositeExtract(spi, type_s, data, 2);
+    tmp[3] = spi_OpCompositeExtract(spi, type_s, data, 3);
+
+    /* Same evaluation order as the C backend: offset first, then each column
+     * from left to right, skipping zero coefficients */
+    int res[4];
+    for (int j = 0; j < 4; j++) {
+        if (!SWS_COMP_TEST(uop->mask, j)) {
+            res[j] = tmp[j];
+            continue;
+        }
+
+        bool acc = !(zero & SWS_MASK_OFF(j));
+        res[j] = acc ? const_pixel(spi, id, op_type, m[j][4])
+                     : const_zero(id, op_type);
+        for (int i = 0; i < 4; i++) {
+            if (zero & SWS_MASK(j, i))
+                continue;
+
+            int k = const_pixel(spi, id, op_type, m[j][i]);
+            int v = emit_mul(spi, op_type, type_s, tmp[i], k);
+            spi_OpDecorate(spi, v, SpvDecorationNoContraction);
+            if (acc) {
+                v = emit_add(spi, op_type, type_s, res[j], v);
+                spi_OpDecorate(spi, v, SpvDecorationNoContraction);
+            }
+            res[j] = v;
+            acc = true;
+        }
+    }
+
+    int result = spi_OpCompositeConstruct(spi, type_v,
+                                          res[0], res[1], res[2], res[3]);
+
+    /* Integer results are defined modulo the bit depth of the pixel type */
+    if (op_type == SWS_PIXEL_U8 || op_type == SWS_PIXEL_U16) {
+        const unsigned mask = op_type == SWS_PIXEL_U8 ? UINT8_MAX : UINT16_MAX;
+        const int mask_v = const_splat(spi, id, SWS_PIXEL_U32, (SwsPixel) { .u32 = mask });
+        result = spi_OpBitwiseAnd(spi, type_v, result, mask_v);
+    }
+    return result;
+}
+
+/* Registers the last created buffer in descriptor set 1, returns its binding */
+static int add_buf_binding(SPIRVIDs *id)
+{
+    VulkanPriv *p = id->priv;
+    id->buf_desc[p->nb_data_bufs] = (FFVulkanDescriptorSetBinding) {
+        .type   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+        .stages = VK_SHADER_STAGE_COMPUTE_BIT,
+    };
+    return p->nb_data_bufs++;
+}
+
+static int emit_read_filtered(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop,
+                              int *data)
+{
+    const SwsOpList *ops = id->ops;
+    const SwsFilterWeights *wd = uop->data.kernel;
+    VulkanPriv *p = id->priv;
+    if (p->nb_data_bufs >= MAX_DATA_BUFS)
         return AVERROR(ENOTSUP);
+
+    int err = create_filter_buf(p->s, wd, &p->data_bufs[p->nb_data_bufs]);
+    if (err < 0)
+        return err;
+    const int binding = add_buf_binding(id);
+
+    /* Uniform buffer in descriptor set 1:
+     * struct { float w[dst_size][filter_size]; int o[dst_size]; } */
+    const int fs_id = spi_OpConstantUInt(spi, id->u32_type, wd->filter_size);
+    const int ds_id = spi_OpConstantUInt(spi, id->u32_type, wd->dst_size);
+
+    int arr_w_in = spi_OpTypeArray(spi, id->f32_type, spi_get_id(spi), fs_id);
+    spi_OpDecorate(spi, arr_w_in, SpvDecorationArrayStride, sizeof(float));
+    int arr_w_out = spi_OpTypeArray(spi, arr_w_in, spi_get_id(spi), ds_id);
+    spi_OpDecorate(spi, arr_w_out, SpvDecorationArrayStride,
+                   wd->filter_size*sizeof(float));
+    int arr_o = spi_OpTypeArray(spi, id->i32_type, spi_get_id(spi), ds_id);
+    spi_OpDecorate(spi, arr_o, SpvDecorationArrayStride, sizeof(int32_t));
+
+    int struct_id = spi_get_id(spi);
+    spi_OpTypeStruct(spi, struct_id, arr_w_out, arr_o);
+    spi_OpDecorate(spi, struct_id, SpvDecorationBlock);
+    spi_OpMemberDecorate(spi, struct_id, 0, SpvDecorationOffset, 0);
+    spi_OpMemberDecorate(spi, struct_id, 1, SpvDecorationOffset,
+                         wd->num_weights*sizeof(float));
+
+    int ptr = spi_OpTypePointer(spi, SpvStorageClassUniform, struct_id);
+    int buf = spi_OpVariable(spi, spi_get_id(spi), ptr, SpvStorageClassUniform, 0);
+    spi_OpDecorate(spi, buf, SpvDecorationDescriptorSet, 1);
+    spi_OpDecorate(spi, buf, SpvDecorationBinding, binding);
+    id->iface[id->nb_iface++] = buf;
+
+    const int o_ptr_type = spi_OpTypePointer(spi, SpvStorageClassUniform,
+                                             id->i32_type);
+    const int is_h = uop->uop == SWS_UOP_READ_PLANAR_FH;
+    const int src_interlaced = ops->src.interlaced;
+
+    const int read_vtype = type_vec4(id, uop->type);
+
+    /* Buffer array index along the filtered axis: pos.x (H) or pos.y (V) */
+    int axis = spi_OpCompositeExtract(spi, id->u32_type, id->gid, is_h ? 0 : 1);
+
+    /* int o = filter_o[axis]; */
+    int o_ptr = spi_OpAccessChain(spi, o_ptr_type, buf, id->u32_cid[1], axis);
+    int o = spi_OpLoad(spi, id->i32_type, o_ptr, SpvMemoryAccessMaskNone, 0);
+
+    /* Signed pixel position, for the non-filtered coordinate axis */
+    int pos_x = spi_OpCompositeExtract(spi, id->i32_type, id->gi2, 0);
+    int pos_y = spi_OpCompositeExtract(spi, id->i32_type, id->gi2, 1);
+
+    /* For interlaced horizontal filtering, the y coordinate of every tap is
+     * the (constant) destination y mapped into the source image. */
+    if (src_interlaced && is_h) {
+        pos_y = spi_OpShiftLeftLogical(spi, id->i32_type, pos_y, id->u32_cid[1]);
+        pos_y = spi_OpIAdd(spi, id->i32_type, pos_y, id->field_i32);
+    }
+
+    /* Accumulators, initialized to zero */
+    int acc[4] = { id->f32_0, id->f32_0, id->f32_0, id->f32_0 };
+
+    for (int t = 0; t < wd->filter_size; t++) {
+        const int tap = spi_OpConstantInt(spi, id->i32_type, t);
+
+        /* float w = filter_w[axis][t]; */
+        int w_ptr = spi_OpAccessChain(spi, id->dither_ptr_elem_id, buf,
+                                      id->u32_cid[0], axis, tap);
+        int w = spi_OpLoad(spi, id->f32_type, w_ptr,
+                           SpvMemoryAccessMaskNone, 0);
+
+        /* Source coordinate, filtered axis offset by the tap index */
+        int c = t ? spi_OpIAdd(spi, id->i32_type, o, tap) : o;
+        /* For interlaced vertical filtering, the per-tap source row is
+         * field-local; map it to the actual image row. */
+        if (src_interlaced && !is_h) {
+            c = spi_OpShiftLeftLogical(spi, id->i32_type, c, id->u32_cid[1]);
+            c = spi_OpIAdd(spi, id->i32_type, c, id->field_i32);
+        }
+        int coord = is_h ?
+            spi_OpCompositeConstruct(spi, id->i32vec2_type, c, pos_y) :
+            spi_OpCompositeConstruct(spi, id->i32vec2_type, pos_x, c);
+
+        for (int e = 0; e < 4; e++) {
+            if (!SWS_COMP_TEST(uop->mask, e))
+                continue;
+            int px = spi_OpImageRead(spi, read_vtype,
+                                     id->in_img[ops->plane_src[e]], coord,
+                                     SpvImageOperandsMaskNone);
+            px = spi_OpCompositeExtract(spi, type_scalar(id, uop->type), px, 0);
+            px = emit_convert(spi, uop->type, SWS_PIXEL_F32, id->f32_type, px);
+            px = spi_OpFMul(spi, id->f32_type, w, px);
+            acc[e] = spi_OpFAdd(spi, id->f32_type, acc[e], px);
+        }
+    }
+
+    *data = spi_OpCompositeConstruct(spi, id->f32vec4_type,
+                                     acc[0], acc[1], acc[2], acc[3]);
+    return 0;
+}
+
+/* Sub-packed formats are accessed as a single raw word per pixel, which is
+ * then (un)packed manually. */
+static VkFormat packed_word_fmt(const SwsOp *op)
+{
+    if (!op || op->rw.mode != SWS_RW_PACKED || op->rw.elems != 1)
+        return VK_FORMAT_UNDEFINED;
+
+    switch (op->rw.type) {
+    case SWS_PIXEL_U8:  return VK_FORMAT_R8_UINT;
+    case SWS_PIXEL_U16: return VK_FORMAT_R16_UINT;
+    case SWS_PIXEL_U32: return VK_FORMAT_R32_UINT;
+    default:            return VK_FORMAT_UNDEFINED;
+    }
+}
+
+static int get_view_fmts(VkFormat view_fmts[AV_NUM_DATA_POINTERS],
+                         enum AVPixelFormat fmt, const SwsOp *op)
+{
+    const VkFormat *vk_fmts = av_vkfmt_from_pixfmt(fmt);
+    const VkFormat word_fmt = packed_word_fmt(op);
+    enum FFVkShaderRepFormat rep = FF_VK_REP_NATIVE;
+    if (op)
+        rep = ff_sws_pixel_type_is_int(op->rw.type) ? FF_VK_REP_UINT
+                                                    : FF_VK_REP_FLOAT;
+    if (!vk_fmts)
+        return AVERROR(ENOTSUP);
+
+    const int nb_planes = av_pix_fmt_count_planes(fmt);
+    for (int i = 0; i < nb_planes; i++) {
+        view_fmts[i] = word_fmt ? word_fmt : ff_vk_map_fmt_to_rep(vk_fmts[i], rep);
+        if (view_fmts[i] == VK_FORMAT_UNDEFINED)
+            return AVERROR(ENOTSUP);
+    }
+
+    return 0;
+}
+
+/* Plane indices refer to actual frame planes, so the image handle arrays
+ * have to cover the highest plane referenced, not just the plane count. */
+static int rw_op_img_count(const SwsOp *op, const uint8_t *planes)
+{
+    const int nb_planes = ff_sws_rw_op_planes(op);
+    int count = 0;
+    for (int i = 0; i < nb_planes; i++)
+        count = FFMAX(count, planes[i] + 1);
+    return count;
+}
+
+static int emit_read(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop, int *data)
+{
+    const SwsOpList *ops = id->ops;
+    const int type_v = type_vec4(id, uop->type);
+    const int type_s = type_scalar(id, uop->type);
+    const int zero = const_zero(id, uop->type);
+
+    switch (uop->uop) {
+    case SWS_UOP_READ_PLANAR_FH:
+    case SWS_UOP_READ_PLANAR_FV:
+        if (uop->par.filter.type != SWS_PIXEL_F32)
+            return AVERROR(ENOTSUP);
+        return emit_read_filtered(spi, id, uop, data);
+    case SWS_UOP_READ_PACKED:
+        *data = spi_OpImageRead(spi, type_v, id->in_img[ops->plane_src[0]],
+                                id->src_gid, SpvImageOperandsMaskNone);
+        break;
+    case SWS_UOP_READ_PLANAR: {
+        int tmp[4] = { zero, zero, zero, zero };
+        for (int i = 0; i < 4; i++) {
+            if (!SWS_COMP_TEST(uop->mask, i))
+                continue;
+            tmp[i] = spi_OpImageRead(spi, type_v,
+                                     id->in_img[ops->plane_src[i]], id->src_gid,
+                                     SpvImageOperandsMaskNone);
+            tmp[i] = spi_OpCompositeExtract(spi, type_s, tmp[i], 0);
+        }
+        *data = spi_OpCompositeConstruct(spi, type_v,
+                                         tmp[0], tmp[1], tmp[2], tmp[3]);
+        break;
+    }
+    default:
+        return AVERROR(ENOTSUP);
+    }
+
+    return 0;
+}
+
+static int emit_write(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop, int *data)
+{
+    const SwsOpList *ops = id->ops;
+    const int type_v = type_vec4(id, uop->type);
+    const int type_s = type_scalar(id, uop->type);
+
+    switch (uop->uop) {
+    case SWS_UOP_WRITE_PACKED:
+        spi_OpImageWrite(spi, id->out_img[ops->plane_dst[0]], id->dst_gid, *data,
+                         SpvImageOperandsMaskNone);
+        break;
+    case SWS_UOP_WRITE_PLANAR:
+        for (int i = 0; i < 4; i++) {
+            if (!SWS_COMP_TEST(uop->mask, i))
+                continue;
+            int tmp = spi_OpCompositeExtract(spi, type_s, *data, i);
+            tmp = spi_OpCompositeConstruct(spi, type_v, tmp, tmp, tmp, tmp);
+            spi_OpImageWrite(spi, id->out_img[ops->plane_dst[i]], id->dst_gid, tmp,
+                             SpvImageOperandsMaskNone);
+        }
+        break;
+    default:
+        return AVERROR(ENOTSUP);
+    }
+
+    return 0;
+}
+
+static int emit_clamp(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop, int *data)
+{
+    const SwsPixelType type = uop->type;
+    const int type_v = type_vec4(id, type);
+    const int type_s = type_scalar(id, type);
+
+    for (int i = 0; i < 4; i++) {
+        if (!SWS_COMP_TEST(uop->mask, i))
+            continue;
+        int lim = const_pixel(spi, id, type, uop->data.vec4[i]);
+        int tmp = spi_OpCompositeExtract(spi, type_s, *data, i);
+        if (uop->uop == SWS_UOP_MIN)
+            tmp = emit_min(spi, id, type, type_s, tmp, lim);
+        else
+            tmp = emit_max(spi, id, type, type_s, tmp, lim);
+        *data = spi_OpCompositeInsert(spi, type_v, tmp, *data, i);
+    }
+
+    return 0;
+}
+
+static int emit_dither(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop, int *data)
+{
+    if (uop->type != SWS_PIXEL_F32)
+        return AVERROR(ENOTSUP);
+
+    VulkanPriv *p = id->priv;
+    if (p->nb_data_bufs >= MAX_DATA_BUFS)
+        return AVERROR(ENOTSUP);
+
+    int err = create_dither_buf(p->s, uop, &p->data_bufs[p->nb_data_bufs]);
+    if (err < 0)
+        return err;
+    const int binding = add_buf_binding(id);
+
+    /* Uniform buffer in descriptor set 1: struct { float m[rows][size]; } */
+    const int size = 1 << uop->par.dither.size_log2;
+    const int rows = ff_sws_dither_height(&uop->par.dither);
+    const int size_id = spi_OpConstantUInt(spi, id->u32_type, size);
+    const int rows_id = spi_OpConstantUInt(spi, id->u32_type, rows);
+    const int mask_id = spi_OpConstantUInt(spi, id->u32_type, size - 1);
+
+    int arr_1d = spi_OpTypeArray(spi, id->f32_type, spi_get_id(spi), size_id);
+    spi_OpDecorate(spi, arr_1d, SpvDecorationArrayStride, sizeof(float));
+    int arr_2d = spi_OpTypeArray(spi, arr_1d, spi_get_id(spi), rows_id);
+    spi_OpDecorate(spi, arr_2d, SpvDecorationArrayStride, size*sizeof(float));
+
+    int struct_id = spi_get_id(spi);
+    spi_OpTypeStruct(spi, struct_id, arr_2d);
+    spi_OpDecorate(spi, struct_id, SpvDecorationBlock);
+    spi_OpMemberDecorate(spi, struct_id, 0, SpvDecorationOffset, 0);
+
+    int ptr = spi_OpTypePointer(spi, SpvStorageClassUniform, struct_id);
+    int buf = spi_OpVariable(spi, spi_get_id(spi), ptr, SpvStorageClassUniform, 0);
+    spi_OpDecorate(spi, buf, SpvDecorationDescriptorSet, 1);
+    spi_OpDecorate(spi, buf, SpvDecorationBinding, binding);
+    id->iface[id->nb_iface++] = buf;
+
+    /* The matrix is padded to allow offsetting the wrapped row */
+    int x_id = spi_OpCompositeExtract(spi, id->u32_type, id->gid, 0);
+    int y_id = spi_OpCompositeExtract(spi, id->u32_type, id->gid, 1);
+    x_id = spi_OpBitwiseAnd(spi, id->u32_type, x_id, mask_id);
+    y_id = spi_OpBitwiseAnd(spi, id->u32_type, y_id, mask_id);
+    for (int i = 0; i < 4; i++) {
+        if (!SWS_COMP_TEST(uop->mask, i))
+            continue;
+
+        int y_off = spi_OpConstantUInt(spi, id->u32_type,
+                                       uop->par.dither.y_offset[i]);
+        int row = spi_OpIAdd(spi, id->u32_type, y_id, y_off);
+
+        int val_ptr = spi_OpAccessChain(spi, id->dither_ptr_elem_id, buf,
+                                        id->u32_cid[0], row, x_id);
+        int val = spi_OpLoad(spi, id->f32_type, val_ptr,
+                             SpvMemoryAccessMaskNone, 0);
+
+        int tmp = spi_OpCompositeExtract(spi, id->f32_type, *data, i);
+        tmp = spi_OpFAdd(spi, id->f32_type, tmp, val);
+        *data = spi_OpCompositeInsert(spi, id->f32vec4_type, tmp, *data, i);
+    }
+
+    return 0;
+}
+
+static int emit_linear(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop, int *data)
+{
+    /* Matrix operations are only defined for floats */
+    if (id->bitexact || ff_sws_pixel_type_is_int(uop->type))
+        *data = insert_bitexact_linear(uop, spi, id, *data);
+    else
+        *data = insert_vmat_linear(uop, spi, id, *data);
+    return 0;
+}
+
+static int emit_pack(SPICtx *spi, SPIRVIDs *id, const SwsUOp *uop, int *data)
+{
+    const int type_v = type_vec4(id, uop->type);
+    const int type_s = type_scalar(id, uop->type);
+
+    int shift, mask;
+    define_pack_consts(spi, id, uop, &shift, &mask);
+    *data = spi_OpBitwiseAnd(spi, type_v, *data, mask);
+    *data = spi_OpShiftLeftLogical(spi, type_v, *data, shift);
+    int val = spi_OpCompositeExtract(spi, type_s, *data, 0);
+    for (int i = 1; i < 4; i++) {
+        int tmp = spi_OpCompositeExtract(spi, type_s, *data, i);
+        val = spi_OpBitwiseOr(spi, type_s, val, tmp);
+    }
+    *data = spi_OpCompositeConstruct(spi, type_v, val, val, val, val);
+    return 0;
+}
+
+static int emit_shader(SwsContext *sws, VulkanPriv *p, FFVulkanOpsCtx *s,
+                       const SwsOpList *ops, const SwsUOpList *uops,
+                       FFVulkanShader *shd, SPICtx *spi)
+{
+    SPIRVIDs spid_data = { 0 }, *id = &spid_data;
+    id->priv = p;
+    id->ops = ops;
+    id->bitexact = !!(sws->flags & SWS_BITEXACT);
+
+    id->interlaced = ops->src.interlaced || ops->dst.interlaced;
+    p->interlaced = id->interlaced;
 
     ff_vk_shader_load(shd, VK_SHADER_STAGE_COMPUTE_BIT, NULL,
                       (uint32_t []) { 32, 32, 1 }, 0);
     shd->precompiled = 0;
 
+    if (id->interlaced)
+        ff_vk_shader_add_push_const(shd, 0, sizeof(uint32_t),
+                                    VK_SHADER_STAGE_COMPUTE_BIT);
+
     /* Image ops, to determine types */
     const SwsOp *op_w = ff_sws_op_list_output(ops);
-    int out_img_count = op_w->rw.packed ? 1 : op_w->rw.elems;
-    p->dst_rep = op_w->type == SWS_PIXEL_F32 ? FF_VK_REP_FLOAT : FF_VK_REP_UINT;
-
+    int out_img_count = rw_op_img_count(op_w, ops->plane_dst);
     const SwsOp *op_r = ff_sws_op_list_input(ops);
-    int in_img_count = op_r ? op_r->rw.packed ? 1 : op_r->rw.elems : 0;
-    if (op_r)
-        p->src_rep = op_r->type == SWS_PIXEL_F32 ? FF_VK_REP_FLOAT : FF_VK_REP_UINT;
+    int in_img_count = op_r ? rw_op_img_count(op_r, ops->plane_src) : 0;
 
-    FFVulkanDescriptorSetBinding desc_set[MAX_DITHER_BUFS] = {
+    int err = get_view_fmts(p->dst_view_fmt, ops->dst.format, op_w);
+    if (err < 0)
+        return err;
+    err = get_view_fmts(p->src_view_fmt, ops->src.format, op_r);
+    if (err < 0)
+        return err;
+
+    FFVulkanDescriptorSetBinding img_desc[2] = {
         {
             .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
             .stages = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -600,80 +1031,77 @@ static int add_ops_spirv(VulkanPriv *p, FFVulkanOpsCtx *s,
             .elems = 4,
         },
     };
-    ff_vk_shader_add_descriptor_set(&s->vkctx, shd, desc_set, 2, 0, 0);
-
-    /* Create dither buffers */
-    int err = create_dither_bufs(s, p, ops);
-    if (err < 0)
-        return err;
-
-    /* Entrypoint inputs: gl_GlobalInvocationID, input and output images, dither */
-    id->in_vars[0] = spi_get_id(spi);
-    id->in_vars[1] = spi_get_id(spi);
-    id->in_vars[2] = spi_get_id(spi);
-
-    /* Create dither buffer descriptor set */
-    id->nb_dither_bufs = 0;
-    for (int n = 0; n < ops->num_ops; n++) {
-        const SwsOp *op = &ops->ops[n];
-        if (op->op != SWS_OP_DITHER)
-            continue;
-
-        id->dither[id->nb_dither_bufs].size = 1 << op->dither.size_log2;
-        id->dither[id->nb_dither_bufs].arr_1d_id = spi_get_id(spi);
-        id->dither[id->nb_dither_bufs].arr_2d_id = spi_get_id(spi);
-        id->dither[id->nb_dither_bufs].struct_id = spi_get_id(spi);
-        id->dither[id->nb_dither_bufs].id = spi_get_id(spi);
-        id->in_vars[3 + id->nb_dither_bufs] = id->dither[id->nb_dither_bufs].id;
-
-        desc_set[id->nb_dither_bufs++] = (FFVulkanDescriptorSetBinding) {
-            .type        = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .stages      = VK_SHADER_STAGE_COMPUTE_BIT,
-        };
-    }
-    if (id->nb_dither_bufs)
-        ff_vk_shader_add_descriptor_set(&s->vkctx, shd, desc_set,
-                                        id->nb_dither_bufs, 1, 0);
+    ff_vk_shader_add_descriptor_set(&s->vkctx, shd, img_desc, 2, 0);
 
     /* Define shader header sections */
-    define_shader_header(shd, ops, spi, id);
-    define_shader_consts(ops, spi, id);
+    define_shader_header(spi, id);
+    define_shader_consts(spi, id);
     define_shader_bindings(ops, spi, id, in_img_count, out_img_count);
 
     /* Main function starts here */
+    id->ep = spi_get_id(spi);
     spi_OpFunction(spi, id->ep, id->void_type, 0, id->void_fn_type);
     spi_OpLabel(spi, spi_get_id(spi));
 
     /* Load input image handles */
-    int in_img[4] = { 0 };
     for (int i = 0; i < in_img_count; i++) {
         /* Deref array and then the pointer */
         int img = spi_OpAccessChain(spi, id->in_img_sptr,
-                                    id->in_vars[1], id->u32_cid[i]);
-        in_img[i] = spi_OpLoad(spi, id->in_img_type, img,
+                                    id->in_img_var, id->u32_cid[i]);
+        id->in_img[i] = spi_OpLoad(spi, id->in_img_type, img,
                                SpvMemoryAccessMaskNone, 0);
     }
 
     /* Load output image handles */
-    int out_img[4];
     for (int i = 0; i < out_img_count; i++) {
         int img = spi_OpAccessChain(spi, id->out_img_sptr,
-                                    id->in_vars[2], id->u32_cid[i]);
-        out_img[i] = spi_OpLoad(spi, id->out_img_type, img,
+                                    id->out_img_var, id->u32_cid[i]);
+        id->out_img[i] = spi_OpLoad(spi, id->out_img_type, img,
                                 SpvMemoryAccessMaskNone, 0);
     }
 
     /* Load gl_GlobalInvocationID */
-    int gid = spi_OpLoad(spi, id->u32vec3_type, id->in_vars[0],
+    id->gid = spi_OpLoad(spi, id->u32vec3_type, id->gid_var,
                          SpvMemoryAccessMaskNone, 0);
 
     /* ivec2(gl_GlobalInvocationID.xy) */
-    gid = spi_OpVectorShuffle(spi, id->u32vec2_type, gid, gid, 0, 1);
-    int gi2 = spi_OpBitcast(spi, id->i32vec2_type, gid);
+    id->gid = spi_OpVectorShuffle(spi, id->u32vec2_type, id->gid, id->gid, 0, 1);
+    id->gi2 = spi_OpBitcast(spi, id->i32vec2_type, id->gid);
 
-    /* imageSize(out_img[0]); */
-    int img1_s = spi_OpImageQuerySize(spi, id->i32vec2_type, out_img[0]);
-    int scmp = spi_OpSGreaterThanEqual(spi, id->bvec2_type, gi2, img1_s);
+    /* For interlaced sources/destinations the shader operates on field-local
+     * coordinates, while images contain the full frame. Map the y axis to the
+     * actual image row: image_y = field_y * 2 + field. */
+    int dst_gi2 = id->gi2;
+    id->dst_gid = id->src_gid = id->gid;
+    if (id->interlaced) {
+        int field_u32_ptr = spi_OpAccessChain(spi, id->push_const_elem_ptr_id,
+                                              id->push_const_var_id,
+                                              id->u32_cid[0]);
+        int field_u32 = spi_OpLoad(spi, id->u32_type, field_u32_ptr,
+                                   SpvMemoryAccessMaskNone, 0);
+        id->field_i32 = spi_OpBitcast(spi, id->i32_type, field_u32);
+
+        int img_y_i32 = spi_OpShiftLeftLogical(spi, id->i32_type,
+                                               spi_OpCompositeExtract(spi, id->i32_type, id->gi2, 1),
+                                               id->u32_cid[1]);
+        img_y_i32 = spi_OpIAdd(spi, id->i32_type, img_y_i32, id->field_i32);
+
+        int gi2_x = spi_OpCompositeExtract(spi, id->i32_type, id->gi2, 0);
+        int mapped_gi2 = spi_OpCompositeConstruct(spi, id->i32vec2_type,
+                                                  gi2_x, img_y_i32);
+        int mapped_gid = spi_OpBitcast(spi, id->u32vec2_type, mapped_gi2);
+
+        if (ops->src.interlaced)
+            id->src_gid = mapped_gid;
+        if (ops->dst.interlaced) {
+            id->dst_gid = mapped_gid;
+            dst_gi2 = mapped_gi2;
+        }
+    }
+
+    /* imageSize(id->out_img[0]); */
+    int img1_s = spi_OpImageQuerySize(spi, id->i32vec2_type, id->out_img[0]);
+    int scmp = spi_OpSGreaterThanEqual(spi, id->bvec2_type, dst_gi2, img1_s);
     scmp = spi_OpAny(spi, id->b_type, scmp);
 
     /* if (out of bounds) return */
@@ -686,449 +1114,163 @@ static int add_ops_spirv(VulkanPriv *p, FFVulkanOpsCtx *s,
     spi_OpLabel(spi, merge_label);
 
     /* Initialize main data state */
-    int data;
-    if (ops->ops[0].type == SWS_PIXEL_F32)
-        data = spi_OpCompositeConstruct(spi, id->f32vec4_type,
-                                        id->f32_p, id->f32_p,
-                                        id->f32_p, id->f32_p);
-    else
-        data = spi_OpCompositeConstruct(spi, id->u32vec4_type,
-                                        id->u32_p, id->u32_p,
-                                        id->u32_p, id->u32_p);
-
-    /* Keep track of which constant/buffer to use */
-    int nb_const_ids = 0;
-    int nb_dither_bufs = 0;
-    int nb_linear_ops = 0;
+    const SwsPixelType type0 = uops->ops[0].type;
+    const int zero0 = const_zero(id, type0);
+    int data = spi_OpCompositeConstruct(spi, type_vec4(id, type0),
+                                        zero0, zero0, zero0, zero0);
 
     /* Operations */
-    for (int n = 0; n < ops->num_ops; n++) {
-        const SwsOp *op = &ops->ops[n];
-        SwsPixelType cur_type = op->op == SWS_OP_CONVERT ?
-                                op->convert.to : op->type;
-        int type_v = cur_type == SWS_PIXEL_F32 ?
-                     id->f32vec4_type : id->u32vec4_type;
-        int type_s = cur_type == SWS_PIXEL_F32 ?
-                     id->f32_type : id->u32_type;
-        int uid = cur_type == SWS_PIXEL_F32 ?
-                  id->f32_p : id->u32_p;
+    for (int n = 0; n < uops->num_ops; n++) {
+        const SwsUOp *uop = &uops->ops[n];
+        const int type_v = type_vec4(id, uop->type);
 
-        switch (op->op) {
-        case SWS_OP_READ:
-            if (op->rw.frac || op->rw.filter) {
-                return AVERROR(ENOTSUP);
-            } else if (op->rw.packed) {
-                data = spi_OpImageRead(spi, type_v, in_img[ops->plane_src[0]],
-                                       gid, SpvImageOperandsMaskNone);
-            } else {
-                int tmp[4] = { uid, uid, uid, uid };
-                for (int i = 0; i < op->rw.elems; i++) {
-                    tmp[i] = spi_OpImageRead(spi, type_v,
-                                             in_img[ops->plane_src[i]], gid,
-                                             SpvImageOperandsMaskNone);
-                    tmp[i] = spi_OpCompositeExtract(spi, type_s, tmp[i], 0);
-                }
-                data = spi_OpCompositeConstruct(spi, type_v,
-                                                tmp[0], tmp[1], tmp[2], tmp[3]);
-            }
+        switch (uop->uop) {
+        case SWS_UOP_READ_PLANAR:
+        case SWS_UOP_READ_PLANAR_FH:
+        case SWS_UOP_READ_PLANAR_FV:
+        case SWS_UOP_READ_PACKED:
+            err = emit_read(spi, id, uop, &data);
             break;
-        case SWS_OP_WRITE:
-            if (op->rw.frac || op->rw.filter) {
-                return AVERROR(ENOTSUP);
-            } else if (op->rw.packed) {
-                spi_OpImageWrite(spi, out_img[ops->plane_dst[0]], gid, data,
-                                 SpvImageOperandsMaskNone);
-            } else {
-                for (int i = 0; i < op->rw.elems; i++) {
-                    int tmp = spi_OpCompositeExtract(spi, type_s, data, i);
-                    tmp = spi_OpCompositeConstruct(spi, type_v, tmp, tmp, tmp, tmp);
-                    spi_OpImageWrite(spi, out_img[ops->plane_dst[i]], gid, tmp,
-                                     SpvImageOperandsMaskNone);
-                }
-            }
+        case SWS_UOP_WRITE_PLANAR:
+        case SWS_UOP_WRITE_PACKED:
+            err = emit_write(spi, id, uop, &data);
             break;
-        case SWS_OP_CLEAR:
+        case SWS_UOP_CLEAR:
             for (int i = 0; i < 4; i++) {
-                if (!op->clear.value[i].den)
+                if (!SWS_COMP_TEST(uop->mask, i))
                     continue;
-                data = spi_OpCompositeInsert(spi, type_v,
-                                             id->const_ids[nb_const_ids++],
-                                             data, i);
+                int val = const_pixel(spi, id, uop->type, uop->data.vec4[i]);
+                data = spi_OpCompositeInsert(spi, type_v, val, data, i);
             }
             break;
-        case SWS_OP_SWIZZLE:
+        case SWS_UOP_PERMUTE:
+        case SWS_UOP_COPY: {
+            const SwsMoveUOp *move = &uop->par.move;
+            int idx[5] = { -1, 0, 1, 2, 3 }; /* tmp, x, y, z, w */
+            for (int i = 0; i < move->num_moves; i++)
+                idx[move->dst[i] + 1] = idx[move->src[i] + 1];
+
             data = spi_OpVectorShuffle(spi, type_v, data, data,
-                                       op->swizzle.in[0],
-                                       op->swizzle.in[1],
-                                       op->swizzle.in[2],
-                                       op->swizzle.in[3]);
+                                       idx[1], idx[2], idx[3], idx[4]);
             break;
-        case SWS_OP_CONVERT:
-            if (ff_sws_pixel_type_is_int(cur_type) && op->convert.expand)
-                data = spi_OpIMul(spi, type_v, data, id->const_ids[nb_const_ids++]);
-            else if (op->type == SWS_PIXEL_F32 && type_s == id->u32_type)
-                data = spi_OpConvertFToU(spi, type_v, data);
-            else if (op->type != SWS_PIXEL_F32 && type_s == id->f32_type)
-                data = spi_OpConvertUToF(spi, type_v, data);
+        }
+        case SWS_UOP_TO_U8:
+        case SWS_UOP_TO_U16:
+        case SWS_UOP_TO_U32:
+            data = emit_convert(spi, uop->type, SWS_PIXEL_U32,
+                                id->u32vec4_type, data);
             break;
-        case SWS_OP_LSHIFT:
-            data = spi_OpShiftLeftLogical(spi, type_v, data,
-                                          id->const_ids[nb_const_ids++]);
+        case SWS_UOP_TO_F32:
+            data = emit_convert(spi, uop->type, SWS_PIXEL_F32,
+                                id->f32vec4_type, data);
             break;
-        case SWS_OP_RSHIFT:
-            data = spi_OpShiftRightLogical(spi, type_v, data,
-                                           id->const_ids[nb_const_ids++]);
+        case SWS_UOP_EXPAND_PAIR:
+        case SWS_UOP_EXPAND_QUAD: {
+            /* The SPIR-V compiler should optimize this multiplication into
+             * a shift and or, if faster */
+            const uint32_t k = uop->uop == SWS_UOP_EXPAND_PAIR ? 0x101 : 0x1010101;
+            const int k_v = const_splat(spi, id, SWS_PIXEL_U32, (SwsPixel) { .u32 = k });
+            data = spi_OpIMul(spi, type_v, data, k_v);
             break;
-        case SWS_OP_SCALE:
-            if (op->type == SWS_PIXEL_F32)
-                data = spi_OpFMul(spi, type_v, data,
-                                  id->const_ids[nb_const_ids++]);
+        }
+        case SWS_UOP_LSHIFT:
+        case SWS_UOP_RSHIFT: {
+            const SwsPixel amount = { .u32 = uop->par.shift.amount };
+            const int shift_v = const_splat(spi, id, SWS_PIXEL_U32, amount);
+            if (uop->uop == SWS_UOP_LSHIFT)
+                data = spi_OpShiftLeftLogical(spi, type_v, data, shift_v);
             else
-                data = spi_OpIMul(spi, type_v, data,
-                                  id->const_ids[nb_const_ids++]);
+                data = spi_OpShiftRightLogical(spi, type_v, data, shift_v);
             break;
-        case SWS_OP_MIN:
-        case SWS_OP_MAX: {
-            int t = op->type == SWS_PIXEL_F32 ?
-                    op->op == SWS_OP_MIN ? GLSLstd450FMin : GLSLstd450FMax :
-                    op->op == SWS_OP_MIN ? GLSLstd450UMin : GLSLstd450UMax;
+        }
+        case SWS_UOP_SCALE:
+            data = emit_mul(spi, uop->type, type_v, data,
+                            const_splat(spi, id, uop->type, uop->data.scalar));
+            break;
+        case SWS_UOP_ADD: {
+            const int zero = const_zero(id, uop->type);
+            int arg[4] = { zero, zero, zero, zero };
             for (int i = 0; i < 4; i++) {
-                if (!op->clamp.limit[i].den)
+                if (!SWS_COMP_TEST(uop->mask, i))
                     continue;
-                int tmp = spi_OpCompositeExtract(spi, type_s, data, i);
-                tmp = spi_OpExtInst(spi, type_s, id->glfn, t,
-                                    tmp, id->const_ids[nb_const_ids++]);
-                data = spi_OpCompositeInsert(spi, type_v, tmp, data, i);
+                arg[i] = const_pixel(spi, id, uop->type, uop->data.vec4[i]);
             }
+
+            int arg_v = spi_OpConstantComposite(spi, type_v, arg[0], arg[1], arg[2], arg[3]);
+            data = emit_add(spi, uop->type, type_v, data, arg_v);
             break;
         }
-        case SWS_OP_DITHER: {
-            int did = nb_dither_bufs++;
-            int x_id = spi_OpCompositeExtract(spi, id->u32_type, gid, 0);
-            int y_pos = spi_OpCompositeExtract(spi, id->u32_type, gid, 1);
-            x_id = spi_OpBitwiseAnd(spi, id->u32_type, x_id,
-                                    id->dither[did].mask_id);
-            for (int i = 0; i < 4; i++) {
-                if (op->dither.y_offset[i] < 0)
-                    continue;
-
-                int y_id = spi_OpIAdd(spi, id->u32_type, y_pos,
-                                      id->const_ids[nb_const_ids++]);
-                y_id = spi_OpBitwiseAnd(spi, id->u32_type, y_id,
-                                        id->dither[did].mask_id);
-
-                int ptr = spi_OpAccessChain(spi, id->dither_ptr_elem_id,
-                                            id->dither[did].id, id->u32_cid[0],
-                                            y_id, x_id);
-                int val = spi_OpLoad(spi, id->f32_type, ptr,
-                                     SpvMemoryAccessMaskNone, 0);
-
-                int tmp = spi_OpCompositeExtract(spi, type_s, data, i);
-                tmp = spi_OpFAdd(spi, type_s, tmp, val);
-                data = spi_OpCompositeInsert(spi, type_v, tmp, data, i);
-            }
+        case SWS_UOP_MIN:
+        case SWS_UOP_MAX:
+            err = emit_clamp(spi, id, uop, &data);
+            break;
+        case SWS_UOP_DITHER:
+            err = emit_dither(spi, id, uop, &data);
+            break;
+        case SWS_UOP_LINEAR:
+            err = emit_linear(spi, id, uop, &data);
+            break;
+        case SWS_UOP_UNPACK: {
+            int shift, mask;
+            define_pack_consts(spi, id, uop, &shift, &mask);
+            data = spi_OpVectorShuffle(spi, type_v, data, data, 0, 0, 0, 0);
+            data = spi_OpShiftRightLogical(spi, type_v, data, shift);
+            data = spi_OpBitwiseAnd(spi, type_v, data, mask);
             break;
         }
-        case SWS_OP_LINEAR: {
-            int tmp[4];
-            tmp[0] = spi_OpCompositeExtract(spi, type_s, data, 0);
-            tmp[1] = spi_OpCompositeExtract(spi, type_s, data, 1);
-            tmp[2] = spi_OpCompositeExtract(spi, type_s, data, 2);
-            tmp[3] = spi_OpCompositeExtract(spi, type_s, data, 3);
-
-            int off = spi_reserve(spi, 0); /* Current offset */
-            spi->off = id->linear_deco_off[nb_linear_ops];
-            for (int i = 0; i < id->linear_deco_ops[nb_linear_ops]; i++)
-                spi_OpDecorate(spi, spi->id + i, SpvDecorationNoContraction);
-            spi->off = off;
-
-            int res[4];
-            for (int j = 0; j < 4; j++) {
-                res[j] = op->type == SWS_PIXEL_F32 ? id->f32_0 : id->u32_cid[0];
-                if (op->lin.m[j][0].num)
-                    res[j] = spi_OpFMul(spi, type_s, tmp[0],
-                                        id->const_ids[nb_const_ids++]);
-
-                if (op->lin.m[j][0].num && op->lin.m[j][4].num)
-                    res[j] = spi_OpFAdd(spi, type_s,
-                                        id->const_ids[nb_const_ids++], res[j]);
-                else if (op->lin.m[j][4].num)
-                    res[j] = id->const_ids[nb_const_ids++];
-
-                for (int i = 1; i < 4; i++) {
-                    if (!op->lin.m[j][i].num)
-                        continue;
-
-                    int v = spi_OpFMul(spi, type_s, tmp[i],
-                                       id->const_ids[nb_const_ids++]);
-                    if (op->lin.m[j][0].num || op->lin.m[j][4].num)
-                        res[j] = spi_OpFAdd(spi, type_s, res[j], v);
-                    else
-                        res[j] = v;
-                }
-            }
-            data = spi_OpCompositeConstruct(spi, type_v,
-                                            res[0], res[1], res[2], res[3]);
-            nb_linear_ops++;
+        case SWS_UOP_PACK:
+            err = emit_pack(spi, id, uop, &data);
             break;
-        }
         default:
             return AVERROR(ENOTSUP);
         }
+
+        if (err < 0)
+            return err;
     }
 
     /* Return and finalize */
     spi_OpReturn(spi);
     spi_OpFunctionEnd(spi);
 
-    int len = spi_end(spi);
-    if (len < 0)
-        return AVERROR_INVALIDDATA;
+    if (p->nb_data_bufs)
+        ff_vk_shader_add_descriptor_set(&s->vkctx, shd, id->buf_desc,
+                                        p->nb_data_bufs, 1);
 
-    return ff_vk_shader_link(&s->vkctx, shd, spvbuf, len, "main");
-}
-#endif
-
-#if CONFIG_LIBSHADERC || CONFIG_LIBGLSLANG
-static void add_desc_read_write(FFVulkanDescriptorSetBinding *out_desc,
-                                enum FFVkShaderRepFormat *out_rep,
-                                const SwsOp *op)
-{
-    const char *img_type = op->type == SWS_PIXEL_F32 ? "rgba32f"  :
-                           op->type == SWS_PIXEL_U32 ? "rgba32ui" :
-                           op->type == SWS_PIXEL_U16 ? "rgba16ui" :
-                                                       "rgba8ui";
-
-    *out_desc = (FFVulkanDescriptorSetBinding) {
-        .name = op->op == SWS_OP_WRITE ? "dst_img" : "src_img",
-        .type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .mem_layout = img_type,
-        .mem_quali = op->op == SWS_OP_WRITE ? "writeonly" : "readonly",
-        .dimensions = 2,
-        .elems = 4,
-        .stages = VK_SHADER_STAGE_COMPUTE_BIT,
-    };
-
-    *out_rep = op->type == SWS_PIXEL_F32 ? FF_VK_REP_FLOAT : FF_VK_REP_UINT;
-}
-
-#define QSTR "(%i/%i%s)"
-#define QTYPE(Q) (Q).num, (Q).den, cur_type == SWS_PIXEL_F32 ? ".0f" : ""
-
-static int add_ops_glsl(VulkanPriv *p, FFVulkanOpsCtx *s,
-                        SwsOpList *ops, FFVulkanShader *shd)
-{
-    int err;
-    uint8_t *spv_data;
-    size_t spv_len;
-    void *spv_opaque = NULL;
-
-    /* Interlaced formats are not currently supported */
-    if (ops->src.interlaced || ops->dst.interlaced)
-        return AVERROR(ENOTSUP);
-
-    err = ff_vk_shader_init(&s->vkctx, shd, "sws_pass",
-                            VK_SHADER_STAGE_COMPUTE_BIT,
-                            NULL, 0, 32, 32, 1, 0);
-    if (err < 0)
-        return err;
-
-    int nb_desc = 0;
-    FFVulkanDescriptorSetBinding buf_desc[8];
-
-    const SwsOp *read  = ff_sws_op_list_input(ops);
-    const SwsOp *write = ff_sws_op_list_output(ops);
-    if (read)
-        add_desc_read_write(&buf_desc[nb_desc++], &p->src_rep, read);
-    add_desc_read_write(&buf_desc[nb_desc++], &p->dst_rep, write);
-    ff_vk_shader_add_descriptor_set(&s->vkctx, shd, buf_desc, nb_desc, 0, 0);
-
-    err = create_dither_bufs(s, p, ops);
-    if (err < 0)
-        return err;
-
-    nb_desc = 0;
-    char dither_buf_name[MAX_DITHER_BUFS][64];
-    char dither_mat_name[MAX_DITHER_BUFS][64];
-    for (int n = 0; n < ops->num_ops; n++) {
-        const SwsOp *op = &ops->ops[n];
-        if (op->op != SWS_OP_DITHER)
-            continue;
-        int size = (1 << op->dither.size_log2);
-        av_assert0(size < 8192);
-        snprintf(dither_buf_name[nb_desc], 64, "dither_buf%i", n);
-        snprintf(dither_mat_name[nb_desc], 64, "float dither_mat%i[%i][%i];",
-                 n, size, size);
-        buf_desc[nb_desc] = (FFVulkanDescriptorSetBinding) {
-            .name        = dither_buf_name[nb_desc],
-            .type        = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .stages      = VK_SHADER_STAGE_COMPUTE_BIT,
-            .mem_layout  = "scalar",
-            .buf_content = dither_mat_name[nb_desc],
-        };
-        nb_desc++;
-    }
-    if (nb_desc)
-        ff_vk_shader_add_descriptor_set(&s->vkctx, shd, buf_desc,
-                                        nb_desc, 1, 0);
-
-    GLSLC(0, void main()                                                      );
-    GLSLC(0, {                                                                );
-    GLSLC(1,     ivec2 pos = ivec2(gl_GlobalInvocationID.xy);                 );
-    GLSLC(1,     ivec2 size = imageSize(src_img[0]);                          );
-    GLSLC(1,     if (any(greaterThanEqual(pos, size)))                        );
-    GLSLC(2,         return;                                                  );
-    GLSLC(0,                                                                  );
-    GLSLC(1,     u8vec4 u8;                                                   );
-    GLSLC(1,     u16vec4 u16;                                                 );
-    GLSLC(1,     u32vec4 u32;                                                 );
-    GLSLC(1,     precise f32vec4 f32;                                         );
-    GLSLC(1,     precise f32vec4 tmp;                                         );
-    GLSLC(0,                                                                  );
-
-    for (int n = 0; n < ops->num_ops; n++) {
-        const SwsOp *op = &ops->ops[n];
-        SwsPixelType cur_type = op->op == SWS_OP_CONVERT ? op->convert.to :
-                                op->type;
-        const char *type_name = ff_sws_pixel_type_name(cur_type);
-        const char *type_v = cur_type == SWS_PIXEL_F32 ? "f32vec4" :
-                             cur_type == SWS_PIXEL_U32 ? "u32vec4" :
-                             cur_type == SWS_PIXEL_U16 ? "u16vec4" : "u8vec4";
-        const char *type_s = cur_type == SWS_PIXEL_F32 ? "float" :
-                             cur_type == SWS_PIXEL_U32 ? "uint32_t" :
-                             cur_type == SWS_PIXEL_U16 ? "uint16_t" : "uint8_t";
-        av_bprintf(&shd->src, "    // %s\n", ff_sws_op_type_name(op->op));
-
-        switch (op->op) {
-        case SWS_OP_READ: {
-            if (op->rw.frac || op->rw.filter) {
-                return AVERROR(ENOTSUP);
-            } else if (op->rw.packed) {
-                GLSLF(1, %s = %s(imageLoad(src_img[%i], pos));                 ,
-                      type_name, type_v, ops->plane_src[0]);
-            } else {
-                for (int i = 0; i < op->rw.elems; i++)
-                    GLSLF(1, %s.%c = %s(imageLoad(src_img[%i], pos)[0]);       ,
-                          type_name, "xyzw"[i], type_s, ops->plane_src[i]);
-            }
-            break;
-        }
-        case SWS_OP_WRITE: {
-            if (op->rw.frac || op->rw.filter) {
-                return AVERROR(ENOTSUP);
-            } else if (op->rw.packed) {
-                GLSLF(1, imageStore(dst_img[%i], pos, %s(%s));                  ,
-                      ops->plane_dst[0], type_v, type_name);
-            } else {
-                for (int i = 0; i < op->rw.elems; i++)
-                    GLSLF(1, imageStore(dst_img[%i], pos, %s(%s[%i]));         ,
-                          ops->plane_dst[i], type_v, type_name, i);
-            }
-            break;
-        }
-        case SWS_OP_SWIZZLE: {
-            av_bprintf(&shd->src, "    %s = %s.", type_name, type_name);
-            for (int i = 0; i < 4; i++)
-                av_bprintf(&shd->src, "%c", "xyzw"[op->swizzle.in[i]]);
-            av_bprintf(&shd->src, ";\n");
-            break;
-        }
-        case SWS_OP_CLEAR: {
-            for (int i = 0; i < 4; i++) {
-                if (!op->clear.value[i].den)
-                    continue;
-                av_bprintf(&shd->src, "    %s.%c = %s"QSTR";\n", type_name,
-                           "xyzw"[i], type_s, QTYPE(op->clear.value[i]));
-            }
-            break;
-        }
-        case SWS_OP_SCALE:
-            av_bprintf(&shd->src, "    %s = %s * "QSTR";\n",
-                       type_name, type_name, QTYPE(op->scale.factor));
-            break;
-        case SWS_OP_MIN:
-        case SWS_OP_MAX:
-            for (int i = 0; i < 4; i++) {
-                if (!op->clamp.limit[i].den)
-                    continue;
-                av_bprintf(&shd->src, "    %s.%c = %s(%s.%c, "QSTR");\n",
-                           type_name, "xyzw"[i],
-                           op->op == SWS_OP_MIN ? "min" : "max",
-                           type_name, "xyzw"[i], QTYPE(op->clamp.limit[i]));
-            }
-            break;
-        case SWS_OP_LSHIFT:
-        case SWS_OP_RSHIFT:
-            av_bprintf(&shd->src, "    %s %s= %i;\n", type_name,
-                       op->op == SWS_OP_LSHIFT ? "<<" : ">>", op->shift.amount);
-            break;
-        case SWS_OP_CONVERT:
-            if (ff_sws_pixel_type_is_int(cur_type) && op->convert.expand) {
-                const AVRational sc = ff_sws_pixel_expand(op->type, op->convert.to);
-                av_bprintf(&shd->src, "    %s = %s((%s*%i)/%i);\n",
-                           type_name, type_v, ff_sws_pixel_type_name(op->type),
-                           sc.num, sc.den);
-            } else {
-                av_bprintf(&shd->src, "    %s = %s(%s);\n",
-                           type_name, type_v, ff_sws_pixel_type_name(op->type));
-            }
-            break;
-        case SWS_OP_DITHER: {
-            int size = (1 << op->dither.size_log2);
-            for (int i = 0; i < 4; i++) {
-                if (op->dither.y_offset[i] < 0)
-                    continue;
-                av_bprintf(&shd->src, "    %s.%c += dither_mat%i[(pos.y + %i) & %i]"
-                                                                "[pos.x & %i];\n",
-                           type_name, "xyzw"[i], n,
-                           op->dither.y_offset[i], size - 1,
-                           size - 1);
-            }
-            break;
-        }
-        case SWS_OP_LINEAR:
-            for (int i = 0; i < 4; i++) {
-                if (op->lin.m[i][4].num)
-                    av_bprintf(&shd->src, "    tmp.%c = "QSTR";\n", "xyzw"[i],
-                               QTYPE(op->lin.m[i][4]));
-                else
-                    av_bprintf(&shd->src, "    tmp.%c = 0;\n", "xyzw"[i]);
-                for (int j = 0; j < 4; j++) {
-                    if (!op->lin.m[i][j].num)
-                        continue;
-                    av_bprintf(&shd->src, "    tmp.%c += f32.%c*"QSTR";\n",
-                               "xyzw"[i], "xyzw"[j], QTYPE(op->lin.m[i][j]));
-                }
-            }
-            av_bprintf(&shd->src, "    f32 = tmp;\n");
-            break;
-        default:
-            return AVERROR(ENOTSUP);
-        }
-    }
-
-    GLSLC(0, }                                                                );
-
-    err = s->spvc->compile_shader(&s->vkctx, s->spvc, shd,
-                                  &spv_data, &spv_len, "main",
-                                  &spv_opaque);
-    if (err < 0)
-        return err;
-
-    err = ff_vk_shader_link(&s->vkctx, shd, spv_data, spv_len, "main");
-
-    if (spv_opaque)
-        s->spvc->free_shader(s->spvc, &spv_opaque);
-
-    if (err < 0)
-        return err;
-
+    define_entry_point(shd, spi, id);
     return 0;
 }
-#endif
 
-static int compile(SwsContext *sws, SwsOpList *ops, SwsCompiledOp *out, int glsl)
+static int add_ops_spirv(SwsContext *sws, VulkanPriv *p, FFVulkanOpsCtx *s,
+                         const SwsOpList *ops, const SwsUOpList *uops,
+                         FFVulkanShader *shd)
 {
+    uint8_t *spvbuf = NULL;
+    SPICtx spi_context, *spi = &spi_context;
+    spi_init(spi);
+
+    int err = emit_shader(sws, p, s, ops, uops, shd, spi);
+    if (err < 0)
+        goto fail;
+
+    int len = spi_end(spi, &spvbuf);
+    if (len < 0) {
+        err = len;
+        goto fail;
+    }
+
+    err = ff_vk_shader_link(&s->vkctx, shd, spvbuf, len, "main");
+
+fail:
+    av_free(spvbuf);
+    spi_uninit(spi);
+    return err;
+}
+
+static int compile_ops_spirv(SwsContext *sws, const SwsOpList *ops,
+                             SwsCompiledOp *out)
+{
+    SwsUOpList *uops = NULL;
     int err;
     SwsInternal *c = sws_internal(sws);
     FFVulkanOpsCtx *s = c->hw_priv;
@@ -1145,35 +1287,17 @@ static int compile(SwsContext *sws, SwsOpList *ops, SwsCompiledOp *out, int glsl
     if (err < 0)
         goto fail;
 
-    if (ops->src.format == AV_PIX_FMT_BGR0 ||
-        ops->src.format == AV_PIX_FMT_BGRA ||
-        ops->dst.format == AV_PIX_FMT_BGR0 ||
-        ops->dst.format == AV_PIX_FMT_BGRA) {
-        VkFormatProperties2 prop = {
-            .sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2,
-        };
-        FFVulkanFunctions *vk = &s->vkctx.vkfn;
-        vk->GetPhysicalDeviceFormatProperties2(s->vkctx.hwctx->phys_dev,
-                                               VK_FORMAT_B8G8R8A8_UNORM,
-                                               &prop);
-        if (!(prop.formatProperties.optimalTilingFeatures &
-              VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT)) {
-            err = AVERROR(ENOTSUP);
-            goto fail;
-        }
+    uops = ff_sws_uop_list_alloc();
+    if (!uops) {
+        err = AVERROR(ENOMEM);
+        goto fail;
     }
 
-    if (glsl) {
-        err = AVERROR(ENOTSUP);
-#if CONFIG_LIBSHADERC || CONFIG_LIBGLSLANG
-        err = add_ops_glsl(p, s, ops, &p->shd);
-#endif
-    } else {
-        err = AVERROR(ENOTSUP);
-#if HAVE_SPIRV_HEADERS_SPIRV_H || HAVE_SPIRV_UNIFIED1_SPIRV_H
-        err = add_ops_spirv(p, s, ops, &p->shd);
-#endif
-    }
+    err = ff_sws_ops_translate(sws, ops, SWS_UOP_FLAG_ADD, uops);
+    if (err < 0)
+        goto fail;
+
+    err = add_ops_spirv(sws, p, s, ops, uops, &p->shd);
     if (err < 0)
         goto fail;
 
@@ -1181,47 +1305,32 @@ static int compile(SwsContext *sws, SwsOpList *ops, SwsCompiledOp *out, int glsl
     if (err < 0)
         goto fail;
 
-    for (int i = 0; i < p->nb_dither_buf; i++)
+    for (int i = 0; i < p->nb_data_bufs; i++)
         ff_vk_shader_update_desc_buffer(&s->vkctx, &p->e.contexts[0], &p->shd,
-                                        1, i, 0, &p->dither_buf[i],
+                                        1, i, 0, &p->data_bufs[i],
                                         0, VK_WHOLE_SIZE, VK_FORMAT_UNDEFINED);
 
     *out = (SwsCompiledOp) {
         .opaque      = true,
-        .func_opaque = process,
+        .func_opaque = spirv_process,
         .priv        = p,
-        .free        = free_fn,
+        .free        = spirv_free,
     };
 
+    ff_sws_uop_list_print(sws, AV_LOG_DEBUG, uops);
+
+    ff_sws_uop_list_free(&uops);
     return 0;
 
 fail:
-    free_fn(p);
+    ff_sws_uop_list_free(&uops);
+    spirv_free(p);
     return err;
-}
-
-#if HAVE_SPIRV_HEADERS_SPIRV_H || HAVE_SPIRV_UNIFIED1_SPIRV_H
-static int compile_spirv(SwsContext *sws, SwsOpList *ops, SwsCompiledOp *out)
-{
-    return compile(sws, ops, out, 0);
 }
 
 const SwsOpBackend backend_spirv = {
     .name      = "spirv",
-    .compile   = compile_spirv,
+    .flags     = SWS_BACKEND_SPIRV,
+    .compile   = compile_ops_spirv,
     .hw_format = AV_PIX_FMT_VULKAN,
 };
-#endif
-
-#if CONFIG_LIBSHADERC || CONFIG_LIBGLSLANG
-static int compile_glsl(SwsContext *sws, SwsOpList *ops, SwsCompiledOp *out)
-{
-    return compile(sws, ops, out, 1);
-}
-
-const SwsOpBackend backend_glsl = {
-    .name      = "glsl",
-    .compile   = compile_glsl,
-    .hw_format = AV_PIX_FMT_VULKAN,
-};
-#endif
