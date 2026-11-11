@@ -7,12 +7,12 @@ export PKG_CONFIG_PATH=/usr/x86_64-mingw32/lib/pkgconfig/
  --enable-libmp3lame  --enable-libtheora --enable-sdl \
  --enable-libopencore-amrnb --enable-libopencore-amrwb \
  --enable-libass --enable-libx264 --enable-libbluray --enable-libvo-amrwbenc \
- --enable-openssl  --disable-ffplay --enable-libcelt \
+ --enable-openssl  --disable-ffplay  \
  --enable-libwebp --enable-libxml2  --enable-libharfbuzz \
  --disable-muxer=encx --enable-libdav1d --enable-w32threads --disable-pthreads \
  --disable-muxer=encx_audio \
  --disable-demuxer=encx_audio \
- --disable-demuxer=encx --enable-libdatachannel \
+ --disable-demuxer=encx \
  --enable-libx265 --enable-libmfx \
  --enable-libxavs --disable-outdev=sdl --extra-cflags="-I/usr/x86_64-mingw32/include "  \
  --extra-ldflags="-L/usr/x86_64-mingw32/lib -static -static-libgcc -static-libstdc++ "  \
