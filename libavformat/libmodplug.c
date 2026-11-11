@@ -197,10 +197,14 @@ static int modplug_read_header(AVFormatContext *s)
             return r;
     }
 
-    modplug->buf = av_malloc(modplug->max_size);
+    modplug->buf = av_malloc(sz);
     if (!modplug->buf)
         return AVERROR(ENOMEM);
     sz = avio_read(pb, modplug->buf, sz);
+    if (sz < 0) {
+        av_freep(&modplug->buf);
+        return sz;
+    }
 
     ModPlug_GetSettings(&settings);
     settings.mChannels       = 2;
@@ -348,7 +352,7 @@ static int modplug_read_packet(AVFormatContext *s, AVPacket *pkt)
 
     pkt->size = ModPlug_Read(modplug->f, pkt->data, AUDIO_PKT_SIZE);
     if (pkt->size <= 0) {
-        return pkt->size == 0 ? AVERROR_EOF : AVERROR(EIO);
+        return pkt->size == 0 ? AVERROR_EOF : AVERROR_EXTERNAL;
     }
     return 0;
 }

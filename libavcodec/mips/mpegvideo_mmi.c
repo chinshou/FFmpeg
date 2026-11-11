@@ -23,10 +23,11 @@
  */
 
 #include "mpegvideo_mips.h"
+#include "libavutil/avassert.h"
 #include "libavutil/mips/mmiutils.h"
 
-void ff_dct_unquantize_h263_intra_mmi(MpegEncContext *s, int16_t *block,
-        int n, int qscale)
+void ff_dct_unquantize_h263_intra_mmi(const MPVContext *s, int16_t *block,
+                                      int n, int qscale)
 {
     int64_t level, nCoeffs;
     double ftmp[6];
@@ -51,7 +52,7 @@ void ff_dct_unquantize_h263_intra_mmi(MpegEncContext *s, int16_t *block,
     if(s->ac_pred)
         nCoeffs = 63;
     else
-        nCoeffs = s->inter_scantable.raster_end[s->block_last_index[n]];
+        nCoeffs = s->intra_scantable.raster_end[s->block_last_index[n]];
 
     __asm__ volatile (
         "pxor       %[ftmp0],   %[ftmp0],       %[ftmp0]                \n\t"
@@ -101,8 +102,8 @@ void ff_dct_unquantize_h263_intra_mmi(MpegEncContext *s, int16_t *block,
     block[0] = level;
 }
 
-void ff_dct_unquantize_h263_inter_mmi(MpegEncContext *s, int16_t *block,
-        int n, int qscale)
+void ff_dct_unquantize_h263_inter_mmi(const MPVContext *s, int16_t *block,
+                                      int n, int qscale)
 {
     int64_t nCoeffs;
     double ftmp[6];
@@ -160,8 +161,8 @@ void ff_dct_unquantize_h263_inter_mmi(MpegEncContext *s, int16_t *block,
     );
 }
 
-void ff_dct_unquantize_mpeg1_intra_mmi(MpegEncContext *s, int16_t *block,
-        int n, int qscale)
+void ff_dct_unquantize_mpeg1_intra_mmi(const MPVContext *s, int16_t *block,
+                                       int n, int qscale)
 {
     int64_t nCoeffs;
     const uint16_t *quant_matrix;
@@ -254,8 +255,8 @@ void ff_dct_unquantize_mpeg1_intra_mmi(MpegEncContext *s, int16_t *block,
     block[0] = block0;
 }
 
-void ff_dct_unquantize_mpeg1_inter_mmi(MpegEncContext *s, int16_t *block,
-        int n, int qscale)
+void ff_dct_unquantize_mpeg1_inter_mmi(const MPVContext *s, int16_t *block,
+                                       int n, int qscale)
 {
     int64_t nCoeffs;
     const uint16_t *quant_matrix;
@@ -342,8 +343,8 @@ void ff_dct_unquantize_mpeg1_inter_mmi(MpegEncContext *s, int16_t *block,
     );
 }
 
-void ff_dct_unquantize_mpeg2_intra_mmi(MpegEncContext *s, int16_t *block,
-        int n, int qscale)
+void ff_dct_unquantize_mpeg2_intra_mmi(const MPVContext *s, int16_t *block,
+                                       int n, int qscale)
 {
     uint64_t nCoeffs;
     const uint16_t *quant_matrix;
@@ -354,7 +355,7 @@ void ff_dct_unquantize_mpeg2_intra_mmi(MpegEncContext *s, int16_t *block,
     DECLARE_VAR_ALL64;
     DECLARE_VAR_ADDRT;
 
-    assert(s->block_last_index[n]>=0);
+    av_assert2(s->block_last_index[n]>=0);
 
     nCoeffs = s->intra_scantable.raster_end[s->block_last_index[n]];
 

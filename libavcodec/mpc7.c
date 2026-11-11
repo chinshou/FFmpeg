@@ -25,6 +25,7 @@
  * divided into 32 subbands.
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/internal.h"
 #include "libavutil/lfg.h"
@@ -108,6 +109,10 @@ static av_cold int mpc7_decode_init(AVCodecContext * avctx)
     skip_bits_long(&gb, 88);
     c->gapless = get_bits1(&gb);
     c->lastframelen = get_bits(&gb, 11);
+    if (c->lastframelen > MPC_FRAME_SIZE) {
+        av_log(avctx, AV_LOG_ERROR, "Invalid last frame length: %d\n", c->lastframelen);
+        return AVERROR_INVALIDDATA;
+    }
     av_log(avctx, AV_LOG_DEBUG, "IS: %d, MSS: %d, TG: %d, LFL: %d, bands: %d\n",
             c->IS, c->MSS, c->gapless, c->lastframelen, c->maxbands);
     c->frames_to_skip = 0;
@@ -296,7 +301,7 @@ static int mpc7_decode_frame(AVCodecContext *avctx, AVFrame *frame,
     return avpkt->size;
 }
 
-static void mpc7_decode_flush(AVCodecContext *avctx)
+static av_cold void mpc7_decode_flush(AVCodecContext *avctx)
 {
     MPCContext *c = avctx->priv_data;
 
@@ -323,5 +328,4 @@ const FFCodec ff_mpc7_decoder = {
     FF_CODEC_DECODE_CB(mpc7_decode_frame),
     .flush          = mpc7_decode_flush,
     .p.capabilities = AV_CODEC_CAP_DR1,
-    CODEC_SAMPLEFMTS(AV_SAMPLE_FMT_S16P),
 };

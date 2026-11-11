@@ -30,20 +30,20 @@
  * Print a listing containing autodetected sinks of the output device.
  * Device name with options may be passed as an argument to limit results.
  */
-int show_sinks(void *optctx, const char *opt, const char *arg);
+int show_sinks(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing autodetected sources of the input device.
  * Device name with options may be passed as an argument to limit results.
  */
-int show_sources(void *optctx, const char *opt, const char *arg);
+int show_sources(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 #endif
 
 #if CONFIG_AVDEVICE
 #define CMDUTILS_COMMON_OPTIONS_AVDEVICE                                                                                \
-    { "sources"    , OPT_TYPE_FUNC, OPT_EXIT | OPT_FUNC_ARG | OPT_EXPERT, { .func_arg = show_sources },                 \
+    { "sources"    , OPT_TYPE_FUNC, OPT_EXIT | OPT_EXPERT, { .func_arg = show_sources },                                \
       "list sources of the input device", "device" },                                                                   \
-    { "sinks"      , OPT_TYPE_FUNC, OPT_EXIT | OPT_FUNC_ARG | OPT_EXPERT, { .func_arg = show_sinks },                   \
+    { "sinks"      , OPT_TYPE_FUNC, OPT_EXIT | OPT_EXPERT, { .func_arg = show_sinks },                                  \
       "list sinks of the output device", "device" },                                                                    \
 
 #else
@@ -55,12 +55,12 @@ int show_sources(void *optctx, const char *opt, const char *arg);
  * the license of the libraries compiled into the program.
  * This option processing function does not utilize the arguments.
  */
-int show_license(void *optctx, const char *opt, const char *arg);
+int show_license(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Generic -h handler common to all fftools.
  */
-int show_help(void *optctx, const char *opt, const char *arg);
+int show_help(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print the version of the program to stdout. The version message
@@ -68,136 +68,137 @@ int show_help(void *optctx, const char *opt, const char *arg);
  * libraries.
  * This option processing function does not utilize the arguments.
  */
-int show_version(void *optctx, const char *opt, const char *arg);
+int show_version(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print the build configuration of the program to stdout. The contents
  * depend on the definition of FFMPEG_CONFIGURATION.
  * This option processing function does not utilize the arguments.
  */
-int show_buildconf(void *optctx, const char *opt, const char *arg);
+int show_buildconf(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the formats supported by the
  * program (including devices).
  * This option processing function does not utilize the arguments.
  */
-int show_formats(void *optctx, const char *opt, const char *arg);
+int show_formats(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the muxers supported by the
  * program (including devices).
  * This option processing function does not utilize the arguments.
  */
-int show_muxers(void *optctx, const char *opt, const char *arg);
+int show_muxers(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the demuxer supported by the
  * program (including devices).
  * This option processing function does not utilize the arguments.
  */
-int show_demuxers(void *optctx, const char *opt, const char *arg);
+int show_demuxers(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the devices supported by the
  * program.
  * This option processing function does not utilize the arguments.
  */
-int show_devices(void *optctx, const char *opt, const char *arg);
+int show_devices(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the codecs supported by the
  * program.
  * This option processing function does not utilize the arguments.
  */
-int show_codecs(void *optctx, const char *opt, const char *arg);
+int show_codecs(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the decoders supported by the
  * program.
  */
-int show_decoders(void *optctx, const char *opt, const char *arg);
+int show_decoders(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the encoders supported by the
  * program.
  */
-int show_encoders(void *optctx, const char *opt, const char *arg);
+int show_encoders(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the bit stream filters supported by the
  * program.
  * This option processing function does not utilize the arguments.
  */
-int show_bsfs(void *optctx, const char *opt, const char *arg);
+int show_bsfs(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the protocols supported by the
  * program.
  * This option processing function does not utilize the arguments.
  */
-int show_protocols(void *optctx, const char *opt, const char *arg);
+int show_protocols(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the filters supported by the
  * program.
  * This option processing function does not utilize the arguments.
  */
-int show_filters(void *optctx, const char *opt, const char *arg);
+int show_filters(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the pixel formats supported by the
  * program.
  * This option processing function does not utilize the arguments.
  */
-int show_pix_fmts(void *optctx, const char *opt, const char *arg);
+int show_pix_fmts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the standard channel layouts supported by
  * the program.
  * This option processing function does not utilize the arguments.
  */
-int show_layouts(void *optctx, const char *opt, const char *arg);
+int show_layouts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the sample formats supported by the
  * program.
  */
-int show_sample_fmts(void *optctx, const char *opt, const char *arg);
+int show_sample_fmts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all supported stream dispositions.
  */
-int show_dispositions(void *optctx, const char *opt, const char *arg);
+int show_dispositions(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Print a listing containing all the color names and values recognized
  * by the program.
  */
-int show_colors(void *optctx, const char *opt, const char *arg);
+int show_colors(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Set the libav* libraries log level.
  */
-int opt_loglevel(void *optctx, const char *opt, const char *arg);
+int opt_loglevel(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
-int opt_report(void *optctx, const char *opt, const char *arg);
+int opt_report(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 int init_report(const char *env, FILE **file);
 
-int opt_max_alloc(void *optctx, const char *opt, const char *arg);
+int opt_max_alloc(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Override the cpuflags.
  */
-int opt_cpuflags(void *optctx, const char *opt, const char *arg);
+int opt_cpuflags(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Override the cpucount.
  */
-int opt_cpucount(void *optctx, const char *opt, const char *arg);
+int opt_cpucount(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 #define CMDUTILS_COMMON_OPTIONS                                                                                         \
     { "L",            OPT_TYPE_FUNC, OPT_EXIT,              { .func_arg = show_license },     "show license" },                          \
+    { "license",      OPT_TYPE_FUNC, OPT_EXIT,              { .func_arg = show_license },     "show license" },                          \
     { "h",            OPT_TYPE_FUNC, OPT_EXIT,              { .func_arg = show_help },        "show help", "topic" },                    \
     { "?",            OPT_TYPE_FUNC, OPT_EXIT | OPT_EXPERT, { .func_arg = show_help },        "show help", "topic" },                    \
     { "help",         OPT_TYPE_FUNC, OPT_EXIT | OPT_EXPERT, { .func_arg = show_help },        "show help", "topic" },                    \

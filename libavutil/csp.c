@@ -79,7 +79,7 @@ static const AVColorPrimariesDesc color_primaries[AVCOL_PRI_NB] = {
     [AVCOL_PRI_BT470BG]   = { WP_D65, { { AVR(0.640), AVR(0.330) }, { AVR(0.290), AVR(0.600) }, { AVR(0.150), AVR(0.060) } } },
     [AVCOL_PRI_SMPTE170M] = { WP_D65, { { AVR(0.630), AVR(0.340) }, { AVR(0.310), AVR(0.595) }, { AVR(0.155), AVR(0.070) } } },
     [AVCOL_PRI_SMPTE240M] = { WP_D65, { { AVR(0.630), AVR(0.340) }, { AVR(0.310), AVR(0.595) }, { AVR(0.155), AVR(0.070) } } },
-    [AVCOL_PRI_SMPTE428]  = { WP_E,   { { AVR(0.735), AVR(0.265) }, { AVR(0.274), AVR(0.718) }, { AVR(0.167), AVR(0.009) } } },
+    [AVCOL_PRI_SMPTE428]  = { WP_E,   { { AVR(1.000), AVR(0.000) }, { AVR(0.000), AVR(1.000) }, { AVR(0.000), AVR(0.000) } } },
     [AVCOL_PRI_SMPTE431]  = { WP_DCI, { { AVR(0.680), AVR(0.320) }, { AVR(0.265), AVR(0.690) }, { AVR(0.150), AVR(0.060) } } },
     [AVCOL_PRI_SMPTE432]  = { WP_D65, { { AVR(0.680), AVR(0.320) }, { AVR(0.265), AVR(0.690) }, { AVR(0.150), AVR(0.060) } } },
     [AVCOL_PRI_FILM]      = { WP_C,   { { AVR(0.681), AVR(0.319) }, { AVR(0.243), AVR(0.692) }, { AVR(0.145), AVR(0.049) } } },
@@ -87,16 +87,21 @@ static const AVColorPrimariesDesc color_primaries[AVCOL_PRI_NB] = {
     [AVCOL_PRI_JEDEC_P22] = { WP_D65, { { AVR(0.630), AVR(0.340) }, { AVR(0.295), AVR(0.605) }, { AVR(0.155), AVR(0.077) } } },
 };
 
+static const AVColorPrimariesDesc color_primaries_ext[AVCOL_PRI_EXT_NB -
+                                                      AVCOL_PRI_EXT_BASE] = {
+    [AVCOL_PRI_V_GAMUT - AVCOL_PRI_EXT_BASE] = { WP_D65, { { AVR(0.730), AVR(0.280) }, { AVR(0.165), AVR(0.840) }, { AVR(0.100), AVR(-0.030) } } },
+};
+
 const AVColorPrimariesDesc *av_csp_primaries_desc_from_id(enum AVColorPrimaries prm)
 {
-    const AVColorPrimariesDesc *p;
-
-    if ((unsigned)prm >= AVCOL_PRI_NB)
+    const AVColorPrimariesDesc *p = NULL;
+    if ((unsigned)prm < AVCOL_PRI_NB)
+        p = &color_primaries[prm];
+    else if (((unsigned)prm >= AVCOL_PRI_EXT_BASE) &&
+             ((unsigned)prm < AVCOL_PRI_EXT_NB))
+        p = &color_primaries_ext[prm - AVCOL_PRI_EXT_BASE];
+    if (!p || !p->prim.r.x.num)
         return NULL;
-    p = &color_primaries[prm];
-    if (!p->prim.r.x.num)
-        return NULL;
-
     return p;
 }
 
@@ -146,14 +151,46 @@ static const double approximate_gamma[AVCOL_TRC_NB] = {
     [AVCOL_TRC_SMPTE428] = 2.6,
 };
 
+static const double approximate_gamma_ext[AVCOL_TRC_EXT_NB -
+                                          AVCOL_TRC_EXT_BASE] = {
+    [AVCOL_TRC_V_LOG - AVCOL_TRC_EXT_BASE] = 2.2,
+};
+
 double av_csp_approximate_trc_gamma(enum AVColorTransferCharacteristic trc)
 {
-    double gamma;
-    if ((unsigned)trc >= AVCOL_TRC_NB)
-        return 0.0;
-    gamma = approximate_gamma[trc];
-    if (gamma > 0)
-        return gamma;
+    if (trc < AVCOL_TRC_NB)
+        return approximate_gamma[trc];
+    else if ((trc >= AVCOL_TRC_EXT_BASE) && (trc < AVCOL_TRC_EXT_NB))
+        return approximate_gamma_ext[trc - AVCOL_TRC_EXT_BASE];
+    return 0.0;
+}
+
+static const double approximate_eotf_gamma[AVCOL_TRC_NB] = {
+    [AVCOL_TRC_BT709] = 2.2,
+    [AVCOL_TRC_SMPTE170M] = 2.2,
+    [AVCOL_TRC_SMPTE240M] = 2.2,
+    [AVCOL_TRC_BT1361_ECG] = 2.2,
+    [AVCOL_TRC_BT2020_10] = 2.2,
+    [AVCOL_TRC_BT2020_12] = 2.2,
+    [AVCOL_TRC_GAMMA22] = 2.2,
+    [AVCOL_TRC_IEC61966_2_1] = 2.2,
+    [AVCOL_TRC_GAMMA28] = 2.8,
+    [AVCOL_TRC_LINEAR] = 1.0,
+    [AVCOL_TRC_SMPTE428] = 2.6,
+};
+
+static const double approximate_eotf_gamma_ext[AVCOL_TRC_EXT_NB -
+                                               AVCOL_TRC_EXT_BASE] = {
+    [AVCOL_TRC_V_LOG - AVCOL_TRC_EXT_BASE] = 2.2,
+};
+
+double av_csp_approximate_eotf_gamma(enum AVColorTransferCharacteristic trc)
+{
+    if ((unsigned)trc < AVCOL_TRC_NB)
+        return approximate_eotf_gamma[trc];
+    else if (((unsigned)trc >= AVCOL_TRC_EXT_BASE) &&
+             ((unsigned)trc < AVCOL_TRC_EXT_NB))
+        return approximate_eotf_gamma_ext[trc - AVCOL_TRC_EXT_BASE];
     return 0.0;
 }
 
@@ -271,7 +308,7 @@ static double trc_bt1361(double Lc)
     const double a = BT709_alpha;
     const double b = BT709_beta;
 
-    return (-0.0045 >= Lc) ? -(a * pow(-4.0 * Lc, 0.45) + (a - 1.0)) / 4.0
+    return (-0.0045 >= Lc) ? -(a * pow(-4.0 * Lc, 0.45) - (a - 1.0)) / 4.0
          : ( b >  Lc) ? 4.500 * Lc
          :               a * pow( Lc, 0.45) - (a - 1.0);
 }
@@ -281,7 +318,7 @@ static double trc_bt1361_inv(double E)
     const double a = BT709_alpha;
     const double b = 4.500 * BT709_beta;
 
-    return (-0.02025 >= E) ? -pow((-4.0 * E - (a - 1.0)) / a, 1.0 / 0.45) / 4.0
+    return (-0.02025 >= E) ? -pow((-4.0 * E + (a - 1.0)) / a, 1.0 / 0.45) / 4.0
          : ( b       >  E) ? E / 4.500
          :                    pow(( E + (a - 1.0)) / a, 1.0 / 0.45);
 }
@@ -378,6 +415,32 @@ static double trc_arib_std_b67_inv(double E)
         (E <= 0.5 ? E * E / 3.0 : (exp((E - c) / a) + b) / 12.0);
 }
 
+#define VLOG_c1 0.01
+#define VLOG_c2 0.181
+#define VLOG_b  0.00873
+#define VLOG_c  0.241514
+#define VLOG_d  0.598206
+
+static double trc_v_log(double E)
+{
+    const double c1 = VLOG_c1;
+    const double b = VLOG_b;
+    const double c = VLOG_c;
+    const double d = VLOG_d;
+    return (E < c1) ? (5.6 * E + 0.125) :
+        (c * log10(E + b) + d);
+}
+
+static double trc_v_log_inv(double E)
+{
+    const double c2 = VLOG_c2;
+    const double b = VLOG_b;
+    const double c = VLOG_c;
+    const double d = VLOG_d;
+    return (E < c2) ? (E - 0.125) / 5.6 :
+        (pow(10.0, ((E - d) / c)) - b);
+}
+
 static const av_csp_trc_function trc_funcs[AVCOL_TRC_NB] = {
     [AVCOL_TRC_BT709] = trc_bt709,
     [AVCOL_TRC_GAMMA22] = trc_gamma22,
@@ -397,11 +460,19 @@ static const av_csp_trc_function trc_funcs[AVCOL_TRC_NB] = {
     [AVCOL_TRC_ARIB_STD_B67] = trc_arib_std_b67,
 };
 
+static const av_csp_trc_function trc_funcs_ext[AVCOL_TRC_EXT_NB -
+                                               AVCOL_TRC_EXT_BASE] = {
+    [AVCOL_TRC_V_LOG - AVCOL_TRC_EXT_BASE] = trc_v_log,
+};
+
 av_csp_trc_function av_csp_trc_func_from_id(enum AVColorTransferCharacteristic trc)
 {
-    if ((unsigned)trc >= AVCOL_TRC_NB)
-        return NULL;
-    return trc_funcs[trc];
+    if ((unsigned)trc < AVCOL_TRC_NB)
+        return trc_funcs[trc];
+    else if (((unsigned)trc >= AVCOL_TRC_EXT_BASE) &&
+             ((unsigned)trc < AVCOL_TRC_EXT_NB))
+        return trc_funcs_ext[trc - AVCOL_TRC_EXT_BASE];
+    return NULL;
 }
 
 static const av_csp_trc_function trc_inv_funcs[AVCOL_TRC_NB] = {
@@ -423,11 +494,19 @@ static const av_csp_trc_function trc_inv_funcs[AVCOL_TRC_NB] = {
     [AVCOL_TRC_ARIB_STD_B67] = trc_arib_std_b67_inv,
 };
 
+static const av_csp_trc_function trc_inv_funcs_ext[AVCOL_TRC_EXT_NB -
+                                                   AVCOL_TRC_EXT_BASE] = {
+    [AVCOL_TRC_V_LOG - AVCOL_TRC_EXT_BASE] = trc_v_log_inv,
+};
+
 av_csp_trc_function av_csp_trc_func_inv_from_id(enum AVColorTransferCharacteristic trc)
 {
-    if ((unsigned)trc >= AVCOL_TRC_NB)
-        return NULL;
-    return trc_inv_funcs[trc];
+    if ((unsigned)trc < AVCOL_TRC_NB)
+        return trc_inv_funcs[trc];
+    else if (((unsigned)trc >= AVCOL_TRC_EXT_BASE) &&
+             ((unsigned)trc < AVCOL_TRC_EXT_NB))
+        return trc_inv_funcs_ext[trc - AVCOL_TRC_EXT_BASE];
+    return NULL;
 }
 
 static void eotf_linear(const double Lw, const double Lb, double E[3])
@@ -458,6 +537,7 @@ static void oetf_##name##_inv(double E[3])                          \
 WRAP_SDR_OETF(gamma22)
 WRAP_SDR_OETF(gamma28)
 WRAP_SDR_OETF(iec61966_2_1)
+WRAP_SDR_OETF(smpte_st428_1)
 
 #define WRAP_SDR_EOTF(name)                                         \
 static void eotf_##name(double Lw, double Lb, double E[3])          \
@@ -475,6 +555,7 @@ static void eotf_##name##_inv(double Lw, double Lb, double L[3])    \
 WRAP_SDR_EOTF(gamma22)
 WRAP_SDR_EOTF(gamma28)
 WRAP_SDR_EOTF(iec61966_2_1)
+WRAP_SDR_EOTF(smpte_st428_1)
 
 static void eotf_bt1886(const double Lw, const double Lb, double E[3])
 {
@@ -508,34 +589,6 @@ static void eotf_smpte_st2084_inv(const double Lw, const double Lb, double L[3])
 {
     for (int i = 0; i < 3; i++)
         L[i] = trc_smpte_st2084(L[i]);
-}
-
-/* This implementation assumes an SMPTE RP 431-2 reference projector (DCI) */
-#define DCI_L 48.00
-#define DCI_P 52.37
-#define DCI_X (42.94 / DCI_L)
-#define DCI_Z (45.82 / DCI_L)
-
-static void eotf_smpte_st428_1(const double Lw_Y, const double Lb_Y, double E[3])
-{
-    const double Lw[3] = { DCI_X * Lw_Y, Lw_Y, DCI_Z * Lw_Y };
-    const double Lb[3] = { DCI_X * Lb_Y, Lb_Y, DCI_Z * Lb_Y };
-
-    for (int i = 0; i < 3; i++) {
-        E[i] = (0.0 > E[i]) ? 0.0 : pow(E[i], 2.6) * DCI_P / DCI_L;
-        E[i] = E[i] * (Lw[i] - Lb[i]) + Lb[i];
-    }
-}
-
-static void eotf_smpte_st428_1_inv(const double Lw_Y, const double Lb_Y, double L[3])
-{
-    const double Lw[3] = { DCI_X * Lw_Y, Lw_Y, DCI_Z * Lw_Y };
-    const double Lb[3] = { DCI_X * Lb_Y, Lb_Y, DCI_Z * Lb_Y };
-
-    for (int i = 0; i < 3; i++) {
-        L[i] = (L[i] - Lb[i]) / (Lw[i] - Lb[i]);
-        L[i] = (0.0 > L[i]) ? 0.0 : pow(L[i] * DCI_L / DCI_P, 1.0 / 2.6);
-    }
 }
 
 static void eotf_arib_std_b67(const double Lw, const double Lb, double E[3])

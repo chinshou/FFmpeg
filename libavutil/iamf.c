@@ -226,8 +226,6 @@ AVIAMFParamDefinition *av_iamf_param_definition_alloc(enum AVIAMFParamDefinition
         default:
             av_assert0(0);
         }
-
-        av_opt_set_defaults(subblock);
     }
 
     if (out_size)
@@ -239,6 +237,8 @@ AVIAMFParamDefinition *av_iamf_param_definition_alloc(enum AVIAMFParamDefinition
 //
 // Audio Element
 //
+static const AVOptionArrayDef demixing_matrix_def = { .size_max = (255 + 255) * 255, .sep = '|' };
+
 #undef OFFSET
 #define OFFSET(x) offsetof(AVIAMFLayer, x)
 static const AVOption layer_options[] = {
@@ -269,6 +269,8 @@ static const AVOption layer_options[] = {
                    { .i64 = AV_IAMF_AMBISONICS_MODE_MONO },       .unit = "ambisonics_mode" },
         { "projection", NULL, 0, AV_OPT_TYPE_CONST,
                    { .i64 = AV_IAMF_AMBISONICS_MODE_PROJECTION }, .unit = "ambisonics_mode" },
+    { "demixing_matrix", "set demixing_matrix", OFFSET(demixing_matrix), AV_OPT_TYPE_RATIONAL | AV_OPT_TYPE_FLAG_ARRAY,
+            { .arr = &demixing_matrix_def }, -1.0, 1.0, FLAGS },
     { NULL },
 };
 
@@ -298,7 +300,7 @@ static const AVClass *audio_element_child_iterate(void **opaque)
     uintptr_t i = (uintptr_t)*opaque;
     const AVClass *ret = NULL;
 
-    if (i)
+    if (!i)
         ret = &layer_class;
 
     if (ret)
@@ -385,7 +387,7 @@ static const AVClass *submix_element_child_iterate(void **opaque)
     uintptr_t i = (uintptr_t)*opaque;
     const AVClass *ret = NULL;
 
-    if (i)
+    if (!i)
         ret = &param_definition_class;
 
     if (ret)
@@ -496,7 +498,7 @@ static const AVClass *mix_presentation_child_iterate(void **opaque)
     uintptr_t i = (uintptr_t)*opaque;
     const AVClass *ret = NULL;
 
-    if (i)
+    if (!i)
         ret = &submix_class;
 
     if (ret)

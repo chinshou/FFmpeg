@@ -34,27 +34,26 @@
 //#define CHECKED
 
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
 #include <stdio.h>
 #include "config.h"
 #include "attributes.h"
-#include "libm.h"
+#include "mathematics.h"
 #include "macros.h"
 
 #ifndef attribute_align_arg
-#if ARCH_X86_32 && AV_GCC_VERSION_AT_LEAST(4,2)
+#if ARCH_X86_32 && defined(__GNUC__)
 #    define attribute_align_arg __attribute__((force_align_arg_pointer))
 #else
 #    define attribute_align_arg
 #endif
 #endif
 
-#if defined(_WIN32) && CONFIG_SHARED && !defined(BUILDING_avutil)
-#    define av_export_avutil __declspec(dllimport)
-#else
-#    define av_export_avutil
+#if HAVE_MIPSFPU && HAVE_INLINE_ASM
+#   include "mips/libm_mips.h"
 #endif
 
 #if HAVE_PRAGMA_DEPRECATED
@@ -73,6 +72,10 @@
 #    define FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
+
+#ifdef __ANDROID__
+#   include "compat/android/math.h"
+#endif
 
 #define FF_ALLOC_TYPED_ARRAY(p, nelem)  (p = av_malloc_array(nelem, sizeof(*p)))
 #define FF_ALLOCZ_TYPED_ARRAY(p, nelem) (p = av_calloc(nelem, sizeof(*p)))
@@ -114,20 +117,6 @@ void avpriv_report_missing_feature(void *avc,
  */
 void avpriv_request_sample(void *avc,
                            const char *msg, ...) av_printf_format(2, 3);
-
-#if HAVE_LIBC_MSVCRT
-#include <crtversion.h>
-#if defined(_VC_CRT_MAJOR_VERSION) && _VC_CRT_MAJOR_VERSION < 14
-#pragma comment(linker, "/include:" EXTERN_PREFIX "avpriv_strtod")
-#pragma comment(linker, "/include:" EXTERN_PREFIX "avpriv_snprintf")
-#endif
-
-#define PTRDIFF_SPECIFIER "Id"
-#define SIZE_SPECIFIER "Iu"
-#else
-#define PTRDIFF_SPECIFIER "td"
-#define SIZE_SPECIFIER "zu"
-#endif
 
 #ifdef DEBUG
 #   define ff_dlog(ctx, ...) av_log(ctx, AV_LOG_DEBUG, __VA_ARGS__)

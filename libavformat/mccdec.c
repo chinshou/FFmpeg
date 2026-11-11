@@ -26,6 +26,7 @@
 #include "libavcodec/bytestream.h"
 #include "libavcodec/codec_id.h"
 #include "libavcodec/smpte_436m.h"
+#include "libavutil/attributes_internal.h"
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
 #include "libavutil/error.h"
@@ -84,7 +85,7 @@ typedef struct alias {
 #define CCPAD "\xFA\x0\x0"
 #define CCPAD3 CCPAD CCPAD CCPAD
 
-static const char cc_pad[27] = CCPAD3 CCPAD3 CCPAD3;
+static attribute_nonstring const char cc_pad[27] = CCPAD3 CCPAD3 CCPAD3;
 
 static const alias aliases[20] = {
     // clang-format off
@@ -155,10 +156,10 @@ static int time_tracker_set_time(TimeTracker *tt, const MCCTimecode *tc, void *l
 
 struct ValidTimeCodeRate {
     AVRational  rate;
-    const char *str;
+    char        str[5];
 };
 
-static struct ValidTimeCodeRate valid_time_code_rates[] = {
+static const struct ValidTimeCodeRate valid_time_code_rates[] = {
     { .rate = { .num = 24, .den = 1 },       .str = "24"   },
     { .rate = { .num = 25, .den = 1 },       .str = "25"   },
     { .rate = { .num = 30000, .den = 1001 }, .str = "30DF" },
@@ -185,7 +186,7 @@ static int parse_time_code_rate(AVFormatContext *s, AVStream *st, TimeTracker *t
             return time_tracker_init(tt, st, valid_time_code_rates[i].rate, s);
         }
     }
-    av_log(s, AV_LOG_FATAL, "invalid mcc time code rate: %s", time_code_rate);
+    av_log(s, AV_LOG_FATAL, "invalid mcc time code rate: %s\n", time_code_rate);
     return AVERROR_INVALIDDATA;
 }
 
@@ -291,7 +292,7 @@ static int mcc_read_header(AVFormatContext *s)
         MCCTimecode tc;
         ret = mcc_parse_time_code(&line_left, &tc);
         if (ret < 0) {
-            av_log(s, AV_LOG_ERROR, "can't parse mcc time code");
+            av_log(s, AV_LOG_ERROR, "can't parse mcc time code\n");
             continue;
         }
 
@@ -312,7 +313,8 @@ static int mcc_read_header(AVFormatContext *s)
 
             if (v >= 16 && v <= 35) {
                 int idx = v - 16;
-                bytestream2_put_buffer(&pb, aliases[idx].value, aliases[idx].len);
+                if (aliases[idx].len)
+                    bytestream2_put_buffer(&pb, aliases[idx].value, aliases[idx].len);
             } else {
                 uint8_t vv;
 

@@ -25,6 +25,8 @@
  * @author Niklas Haas <ffmpeg@haasn.xyz>
  */
 
+#include <stdatomic.h>
+
 #include "libavutil/avassert.h"
 #include "libavutil/bswap.h"
 #include "libavcodec/bswapdsp.h"
@@ -32,8 +34,33 @@
 #include "libavutil/imgutils.h"
 #include "libavutil/md5.h"
 #include "libavutil/mem.h"
+#include "libavutil/thread.h"
 
 #include "h274.h"
+
+typedef struct H274FilmGrainDatabase {
+    // Database of film grain patterns, lazily computed as-needed
+    int8_t db[13 /* h */][13 /* v */][64][64];
+    atomic_uint residency[6];
+    // Temporary buffer for slice generation (protected by init_slice's mutex)
+    int16_t tmp[64][64];
+} H274FilmGrainDatabase;
+
+static H274FilmGrainDatabase *film_grain_db;
+static AVOnce film_grain_db_once = AV_ONCE_INIT;
+
+static av_cold void init_film_grain_db(void)
+{
+    // Only `residency` (24 bytes with 32-bit atomic_uint) needs
+    // zero-initialization (`init_slice_c` fully writes each `db[h][v]` slice
+    // and `tmp` before reading them), so use `av_malloc` instead of
+    // `av_mallocz` to avoid faulting in and dirtying all 700,440 bytes upfront.
+    film_grain_db = av_malloc(sizeof(*film_grain_db));
+    if (film_grain_db) {
+        for (size_t i = 0; i < FF_ARRAY_ELEMS(film_grain_db->residency); i++)
+            atomic_init(&film_grain_db->residency[i], 0);
+    }
+}
 
 static const int8_t Gaussian_LUT[2048+4];
 static const uint32_t Seed_LUT[256];
@@ -47,8 +74,7 @@ static void prng_shift(uint32_t *state)
     *state = (x << 1) | (feedback & 1u);
 }
 
-static void init_slice_c(int8_t out[64][64], uint8_t h, uint8_t v,
-                         int16_t tmp[64][64])
+static void init_slice_c(int8_t out[64][64], uint8_t h, uint8_t v)
 {
     static const uint8_t deblock_factors[13] = {
         64, 71, 77, 84, 90, 96, 103, 109, 116, 122, 128, 128, 128
@@ -57,6 +83,8 @@ static void init_slice_c(int8_t out[64][64], uint8_t h, uint8_t v,
     const uint8_t deblock_coeff = deblock_factors[v];
     const uint8_t freq_h = ((h + 3) << 2) - 1;
     const uint8_t freq_v = ((v + 3) << 2) - 1;
+    // Temporary buffer for slice generation (protected by init_slice's mutex).
+    int16_t (*tmp)[64] = film_grain_db->tmp;
     uint32_t seed = Seed_LUT[h + v * 13];
 
     // Initialize with random gaussian values, using the output array as a
@@ -106,13 +134,24 @@ static void init_slice_c(int8_t out[64][64], uint8_t h, uint8_t v,
     }
 }
 
-static void init_slice(H274FilmGrainDatabase *database, uint8_t h, uint8_t v)
+static void init_slice(uint8_t h, uint8_t v)
 {
-    if (database->residency[h] & (1 << v))
+    static AVMutex mutex = AV_MUTEX_INITIALIZER;
+    unsigned bitpos = h * 13 + v;
+    unsigned res = atomic_load_explicit(&film_grain_db->residency[bitpos / 32],
+                                        memory_order_acquire);
+
+    if (res & (1U << (bitpos & 31)))
         return;
 
-    database->residency[h] |= (1 << v);
-    init_slice_c(database->db[h][v], h, v, database->slice_tmp);
+    ff_mutex_lock(&mutex);
+    res = atomic_load_explicit(&film_grain_db->residency[bitpos / 32], memory_order_relaxed);
+    if (!(res & (1U << (bitpos & 31)))) {
+        init_slice_c(film_grain_db->db[h][v], h, v);
+        atomic_store_explicit(&film_grain_db->residency[bitpos / 32],
+                              res | (1U << (bitpos & 31)), memory_order_release);
+    }
+    ff_mutex_unlock(&mutex);
 }
 
 // Computes the average of an 8x8 block
@@ -160,7 +199,6 @@ static void deblock_8x8_c(int8_t *out, const int out_stride)
 // deblocking step (note that this implies writing to the previous block).
 static av_always_inline void generate(int8_t *out, int out_stride,
                                       const uint8_t *in, int in_stride,
-                                      H274FilmGrainDatabase *database,
                                       const AVFilmGrainH274Params *h274,
                                       int c, int invert, int deblock,
                                       int y_offset, int x_offset)
@@ -198,14 +236,14 @@ static av_always_inline void generate(int8_t *out, int out_stride,
 
     h = av_clip(h274->comp_model_value[c][s][1], 2, 14) - 2;
     v = av_clip(h274->comp_model_value[c][s][2], 2, 14) - 2;
-    init_slice(database, h, v);
+    init_slice(h, v);
 
     scale = h274->comp_model_value[c][s][0];
     if (invert)
         scale = -scale;
 
     synth_grain_8x8_c(out, out_stride, scale, shift,
-                      &database->db[h][v][y_offset][x_offset]);
+                      &film_grain_db->db[h][v][y_offset][x_offset]);
 
     if (deblock)
         deblock_8x8_c(out, out_stride);
@@ -220,7 +258,6 @@ static void add_8x8_clip_c(uint8_t *out, const uint8_t *a, const int8_t *b,
 }
 
 int ff_h274_apply_film_grain(AVFrame *out_frame, const AVFrame *in_frame,
-                             H274FilmGrainDatabase *database,
                              const AVFilmGrainParams *params)
 {
     AVFilmGrainH274Params h274 = params->codec.h274;
@@ -231,6 +268,10 @@ int ff_h274_apply_film_grain(AVFrame *out_frame, const AVFrame *in_frame,
     av_assert1(out_frame->format == in_frame->format);
     if (in_frame->format != AV_PIX_FMT_YUV420P)
         return AVERROR_PATCHWELCOME;
+
+    ff_thread_once(&film_grain_db_once, init_film_grain_db);
+    if (!film_grain_db)
+        return AVERROR(ENOMEM);
 
     for (int c = 0; c < 3; c++) {
         static const uint8_t color_offset[3] = { 0, 85, 170 };
@@ -275,7 +316,7 @@ int ff_h274_apply_film_grain(AVFrame *out_frame, const AVFrame *in_frame,
                     for (int xx = 0; xx < 16 && x+xx < width; xx += 8) {
                         generate(grain + (y+yy) * grain_stride + (x+xx), grain_stride,
                                  in + (y+yy) * in_stride + (x+xx), in_stride,
-                                 database, &h274, c, invert, (x+xx) > 0,
+                                 &h274, c, invert, (x+xx) > 0,
                                  y_offset + yy, x_offset + xx);
                     }
                 }
@@ -897,10 +938,10 @@ void ff_h274_hash_freep(H274HashContext **ctx)
         H274HashContext *c = *ctx;
         if (c->ctx)
             av_free(c->ctx);
-        av_freep(ctx);
 #if HAVE_BIGENDIAN
         av_freep(&c->buf);
 #endif
+        av_freep(ctx);
     }
 }
 

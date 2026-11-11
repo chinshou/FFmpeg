@@ -55,7 +55,7 @@ fate-lavf-mov_hybrid_frag: CMD = lavf_container "" "-movflags +hybrid_fragmented
 fate-lavf-mp4: CMD = lavf_container_timecode "-c:v mpeg4 -an -threads 1"
 fate-lavf-mpg: CMD = lavf_container_timecode "-ar 44100 -threads 1"
 fate-lavf-mxf: CMD = lavf_container_timecode "-af aresample=48000:tsf=s16p -bf 2 -threads 1"
-fate-lavf-mxf_d10: CMD = lavf_container "-ar 48000 -ac 2" "-r 25 -vf scale=720:576,pad=720:608:0:32,setfield=tff -c:v mpeg2video -g 0 -flags +ildct+low_delay -dc 10 -non_linear_quant 1 -intra_vlc 1 -qscale 1 -ps 1 -qmin 1 -rc_max_vbv_use 1 -rc_min_vbv_use 1 -pix_fmt yuv422p -minrate 30000k -maxrate 30000k -b 30000k -bufsize 1200000 -rc_init_occupancy 1200000 -qmax 12 -f mxf_d10"
+fate-lavf-mxf_d10: CMD = lavf_container "-ar 48000 -ac 2" "-r 25 -vf scale=720:576,pad=720:608:0:32,setfield=tff -c:v mpeg2video -g 0 -flags +ildct+low_delay -intra_dc_precision 2 -non_linear_quant 1 -intra_vlc 1 -qscale 1 -ps 1 -qmin 1 -rc_max_vbv_use 1 -rc_min_vbv_use 1 -pix_fmt yuv422p -minrate 30000k -maxrate 30000k -b 30000k -bufsize 1200000 -rc_init_occupancy 1200000 -qmax 12 -f mxf_d10"
 fate-lavf-mxf_dv25: CMD = lavf_container "-ar 48000 -ac 2" "-r 25 -vf scale=720:576,setdar=4/3,setfield=bff -c:v dvvideo -pix_fmt yuv420p -b 25000k -f mxf"
 fate-lavf-mxf_dvcpro50: CMD = lavf_container "-ar 48000 -ac 2" "-r 25 -vf scale=720:576,setdar=16/9,setfield=bff -c:v dvvideo -pix_fmt yuv422p -b 50000k -f mxf"
 fate-lavf-mxf_dvcpro100: CMD = lavf_container "-ar 48000 -ac 2" "-r 25 -vf scale=1440:1080,setdar=16/9,setfield=bff -c:v dvvideo -pix_fmt yuv422p -b 100000k -f mxf"
@@ -74,14 +74,18 @@ fate-lavf-container fate-lavf: $(FATE_LAVF_CONTAINER)
 FATE_LAVF_CONTAINER_FATE-$(call CRC, APV MOV,,           APV_PARSER MP4_MUXER) += apv.mp4
 FATE_LAVF_CONTAINER_FATE-$(call CRC, IVF MOV, AV1,       AV1_PARSER EXTRACT_EXTRADATA_BSF MP4_MUXER)      += av1.mp4
 FATE_LAVF_CONTAINER_FATE-$(call CRC, IVF MATROSKA, AV1,  AV1_PARSER EXTRACT_EXTRADATA_BSF MATROSKA_MUXER) += av1.mkv
+FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV EAC3,,          AC3_PARSER MP4_MUXER) += eac3.mp4
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV EVC,,           EVC_PARSER MP4_MUXER) += evc.mp4
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV H264,,          H264_PARSER EXTRACT_EXTRADATA_BSF MP4_MUXER) += h264.mp4
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV HEVC,,          HEVC_PARSER EXTRACT_EXTRADATA_BSF MP4_MUXER) += hevc.mp4
+FATE_LAVF_CONTAINER_FATE-$(call CRC, MPEGTS MOV,,        H264_PARSER LCEVC_PARSER EXTRACT_EXTRADATA_BSF MP4_MUXER) += lcevc.mp4
+FATE_LAVF_CONTAINER_FATE-$(call CRC, MPEGTS,,            H264_PARSER LCEVC_PARSER EXTRACT_EXTRADATA_BSF MPEGTS_MUXER) += lcevc.ts
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV,,               MOV_MUXER)   += mv_hevc.mov
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MATROSKA, VVC,      VVC_PARSER SETTS_BSF MATROSKA_MUXER)         += vvc.mkv
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV, VVC,           VVC_PARSER EXTRACT_EXTRADATA_BSF MP4_MUXER)  += vvc.mp4
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MATROSKA OGG, VP3 THEORA, OGG_MUXER)               += vp3.ogg
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MATROSKA OGG, VP8 VORBIS, VORBIS_PARSER OGV_MUXER) += vp8.ogg
+FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV AAC, AAC, ADTS_MUXER) += adts
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV LOAS, AAC_LATM, LATM_MUXER) += latm
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MP3,,               MP3_MUXER)  += mp3
 FATE_LAVF_CONTAINER_FATE-$(call CRC, MOV, QTRLE MACE6,         MOV_MUXER ARESAMPLE_FILTER) += qtrle_mace6.mov
@@ -96,13 +100,17 @@ $(FATE_LAVF_CONTAINER_FATE): $(AREF) $(VREF)
 fate-lavf-fate-apv.mp4: CMD = lavf_container_fate "apv/profile_422-10.apv" "" "" "-c:v copy"
 fate-lavf-fate-av1.mp4: CMD = lavf_container_fate "av1-test-vectors/av1-1-b8-05-mv.ivf" "-c:v av1" "" "-c:v copy"
 fate-lavf-fate-av1.mkv: CMD = lavf_container_fate "av1-test-vectors/av1-1-b8-05-mv.ivf" "-c:v av1" "" "-c:v copy"
+fate-lavf-fate-eac3.mp4: CMD = lavf_container_fate "eac3/the_great_wall_7.1.eac3" "" "" "-c:a copy"
 fate-lavf-fate-evc.mp4: CMD = lavf_container_fate "evc/akiyo_cif.evc" "" "" "-c:v copy"
 fate-lavf-fate-h264.mp4: CMD = lavf_container_fate "h264/intra_refresh.h264" "" "" "-c:v copy"
 fate-lavf-fate-hevc.mp4: CMD = lavf_container_fate "hevc-conformance/HRD_A_Fujitsu_2.bit" "" "" "-c:v copy"
+fate-lavf-fate-lcevc.mp4: CMD = lavf_container_fate "lcevc/L_H264_640x360p_8bit8bit_2D_dd_dualTrack.ts" "" "-map 0 -stream_group map=0=0:st=0:st=1" "-map 0:g:0:1 -c:v copy"
+fate-lavf-fate-lcevc.ts: CMD = lavf_container_fate "lcevc/L_H264_640x360p_8bit8bit_2D_dd_dualTrack.ts" "" "-map 0 -stream_group map=0=0:st=0:st=1" "-map 0:g:0:1 -c:v copy"
 fate-lavf-fate-vvc.mkv: CMD = lavf_container_fate "vvc-conformance/VPS_A_3.bit" "" "-bsf:v setts=pts=DTS" "-c:v copy"
 fate-lavf-fate-vvc.mp4: CMD = lavf_container_fate "vvc-conformance/VPS_A_3.bit" "" "" "-c:v copy"
 fate-lavf-fate-vp3.ogg: CMD = lavf_container_fate "vp3/coeff_level64.mkv" "-idct auto"
 fate-lavf-fate-vp8.ogg: CMD = lavf_container_fate "vp8/RRSF49-short.webm" "" "" "-c:a copy"
+fate-lavf-fate-adts: CMD = lavf_container_fate "aac/al22_chCfg0PCE_44.mp4" "" "" "-c:a copy" "-show_streams"
 fate-lavf-fate-latm: CMD = lavf_container_fate "aac/al04_44.mp4" "" "" "-c:a copy"
 fate-lavf-fate-mv_hevc.mov: CMD = lavf_container_fate "hevc/multiview.mov" "" "" "-c:v copy"
 fate-lavf-fate-mp3: CMD = lavf_container_fate "mp3-conformance/he_32khz.bit" "" "" "-c:a copy"
@@ -110,5 +118,5 @@ fate-lavf-fate-qtrle_mace6.mov: CMD = lavf_container_fate "qtrle/Animation-16Gre
 fate-lavf-fate-cram.avi: CMD = lavf_container_fate "cram/toon.avi" "-idct auto"
 fate-lavf-fate-hevc.flv: CMD = lavf_container_fate "mkv/hdr10tags-both.mkv" "" "" "-c:v copy"
 
-FATE_SAMPLES_FFMPEG += $(FATE_LAVF_CONTAINER_FATE)
+FATE_SAMPLES_FFMPEG_FFPROBE += $(FATE_LAVF_CONTAINER_FATE)
 fate-lavf-fate fate-lavf: $(FATE_LAVF_CONTAINER_FATE)

@@ -25,6 +25,7 @@
 #include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/display.h"
+#include "libavutil/gain_map.h"
 #include "libavutil/iamf.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
@@ -342,7 +343,7 @@ static void dump_mastering_display_metadata(void *ctx, const AVPacketSideData *s
 {
     const AVMasteringDisplayMetadata *metadata =
         (const AVMasteringDisplayMetadata *)sd->data;
-    av_log(ctx, log_level, "Mastering Display Metadata, "
+    av_log(ctx, log_level,
            "has_primaries:%d has_luminance:%d "
            "r(%5.4f,%5.4f) g(%5.4f,%5.4f) b(%5.4f %5.4f) wp(%5.4f, %5.4f) "
            "min_luminance=%f, max_luminance=%f",
@@ -362,16 +363,16 @@ static void dump_content_light_metadata(void *ctx, const AVPacketSideData *sd,
 {
     const AVContentLightMetadata *metadata =
         (const AVContentLightMetadata *)sd->data;
-    av_log(ctx, log_level, "Content Light Level Metadata, "
+    av_log(ctx, log_level,
            "MaxCLL=%d, MaxFALL=%d",
            metadata->MaxCLL, metadata->MaxFALL);
 }
 
-static void dump_ambient_viewing_environment_metadata(void *ctx, const AVPacketSideData *sd)
+static void dump_ambient_viewing_environment_metadata(void *ctx, const AVPacketSideData *sd, int log_level)
 {
     const AVAmbientViewingEnvironment *ambient =
         (const AVAmbientViewingEnvironment *)sd->data;
-    av_log(ctx, AV_LOG_INFO, "Ambient Viewing Environment, "
+    av_log(ctx, log_level,
            "ambient_illuminance=%f, ambient_light_x=%f, ambient_light_y=%f",
            av_q2d(ambient->ambient_illuminance),
            av_q2d(ambient->ambient_light_x),
@@ -402,9 +403,7 @@ static void dump_spherical(void *ctx, int w, int h,
         size_t l, t, r, b;
         av_spherical_tile_bounds(spherical, w, h,
                                  &l, &t, &r, &b);
-        av_log(ctx, log_level,
-               "[%"SIZE_SPECIFIER", %"SIZE_SPECIFIER", %"SIZE_SPECIFIER", %"SIZE_SPECIFIER"] ",
-               l, t, r, b);
+        av_log(ctx, log_level, "[%zu, %zu, %zu, %zu] ", l, t, r, b);
     } else if (spherical->projection == AV_SPHERICAL_CUBEMAP) {
         av_log(ctx, log_level, "[pad %"PRIu32"] ", spherical->padding);
     }
@@ -445,12 +444,12 @@ static void dump_s12m_timecode(void *ctx, AVRational avg_frame_rate, const AVPac
     }
 }
 
-static void dump_cropping(void *ctx, const AVPacketSideData *sd)
+static void dump_cropping(void *ctx, const AVPacketSideData *sd, int log_level)
 {
     uint32_t top, bottom, left, right;
 
     if (sd->size < sizeof(uint32_t) * 4) {
-        av_log(ctx, AV_LOG_ERROR, "invalid data\n");
+        av_log(ctx, log_level, "invalid data\n");
         return;
     }
 
@@ -459,15 +458,42 @@ static void dump_cropping(void *ctx, const AVPacketSideData *sd)
     left   = AV_RL32(sd->data +  8);
     right  = AV_RL32(sd->data + 12);
 
-    av_log(ctx, AV_LOG_INFO, "%d/%d/%d/%d", left, right, top, bottom);
+    av_log(ctx, log_level, "%"PRIu32"/%"PRIu32"/%"PRIu32"/%"PRIu32"", left, right, top, bottom);
 }
 
-static void dump_tdrdi(void *ctx, const AVPacketSideData *sd)
+static void dump_tdrdi(void *ctx, const AVPacketSideData *sd, int log_level)
 {
     const AV3DReferenceDisplaysInfo *tdrdi =
         (const AV3DReferenceDisplaysInfo *)sd->data;
 
-    av_log(ctx, AV_LOG_INFO, "number of reference displays: %u", tdrdi->num_ref_displays);
+    av_log(ctx, log_level, "number of reference displays: %u", tdrdi->num_ref_displays);
+}
+
+static void dump_gain_map_params(void *ctx, const AVPacketSideData *sd, int log_level)
+{
+    const AVGainMapParams *p = (const AVGainMapParams *) sd->data;
+
+    av_log(ctx, log_level, "version=%d, nb_channels=%d, use_base_color_space=%d, "
+           "base_hdr_headroom=%f, alternate_hdr_headroom=%f, channels={ ",
+           p->version, p->nb_channels, p->use_base_color_space,
+           av_q2d(p->base_hdr_headroom), av_q2d(p->alternate_hdr_headroom));
+
+    if (!(p->nb_channels == 1 || p->nb_channels == 3)) {
+        av_log(ctx, AV_LOG_ERROR, "invalid data }\n");
+        return;
+    }
+
+    for (int c = 0; c < p->nb_channels; c++) {
+        const struct AVGainMapChannel *ch = &p->channels[c];
+        av_log(ctx, log_level,
+               "{ gain_map_min=%f, gain_map_max=%f, gamma=%f, "
+               "base_offset=%f, alternate_offset=%f } ",
+               av_q2d(ch->gain_map_min), av_q2d(ch->gain_map_max),
+               av_q2d(ch->gamma), av_q2d(ch->base_offset),
+               av_q2d(ch->alternate_offset));
+    }
+
+    av_log(ctx, log_level, "}");
 }
 
 static void dump_sidedata(void *ctx, const AVPacketSideData *side_data, int nb_side_data,
@@ -481,81 +507,68 @@ static void dump_sidedata(void *ctx, const AVPacketSideData *side_data, int nb_s
 
     for (i = 0; i < nb_side_data; i++) {
         const AVPacketSideData *sd = &side_data[i];
-        av_log(ctx, log_level, "%s  ", indent);
+        const char *name = av_packet_side_data_name(sd->type);
 
+        av_log(ctx, log_level, "%s  ", indent);
+        if (name)
+            av_log(ctx, log_level, "%s: ", name);
         switch (sd->type) {
-        case AV_PKT_DATA_PALETTE:
-            av_log(ctx, log_level, "palette");
-            break;
-        case AV_PKT_DATA_NEW_EXTRADATA:
-            av_log(ctx, log_level, "new extradata");
-            break;
         case AV_PKT_DATA_PARAM_CHANGE:
-            av_log(ctx, log_level, "paramchange: ");
             dump_paramchange(ctx, sd, log_level);
             break;
-        case AV_PKT_DATA_H263_MB_INFO:
-            av_log(ctx, log_level, "H.263 macroblock info");
-            break;
         case AV_PKT_DATA_REPLAYGAIN:
-            av_log(ctx, log_level, "replaygain: ");
             dump_replaygain(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_DISPLAYMATRIX:
-            av_log(ctx, log_level, "displaymatrix: rotation of %.2f degrees",
+            av_log(ctx, log_level, "rotation of %.2f degrees",
                    av_display_rotation_get((const int32_t *)sd->data));
             break;
         case AV_PKT_DATA_STEREO3D:
-            av_log(ctx, log_level, "stereo3d: ");
             dump_stereo3d(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_AUDIO_SERVICE_TYPE:
-            av_log(ctx, log_level, "audio service type: ");
             dump_audioservicetype(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_QUALITY_STATS:
-            av_log(ctx, log_level, "quality factor: %"PRId32", pict_type: %c",
+            av_log(ctx, log_level, "%"PRId32", pict_type: %c",
                    AV_RL32(sd->data), av_get_picture_type_char(sd->data[4]));
             break;
         case AV_PKT_DATA_CPB_PROPERTIES:
-            av_log(ctx, log_level, "cpb: ");
             dump_cpb(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_MASTERING_DISPLAY_METADATA:
             dump_mastering_display_metadata(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_SPHERICAL:
-            av_log(ctx, log_level, "spherical: ");
             dump_spherical(ctx, w, h, sd, log_level);
             break;
         case AV_PKT_DATA_CONTENT_LIGHT_LEVEL:
             dump_content_light_metadata(ctx, sd, log_level);
             break;
-        case AV_PKT_DATA_ICC_PROFILE:
-            av_log(ctx, log_level, "ICC Profile");
-            break;
         case AV_PKT_DATA_DOVI_CONF:
-            av_log(ctx, log_level, "DOVI configuration record: ");
             dump_dovi_conf(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_S12M_TIMECODE:
-            av_log(ctx, log_level, "SMPTE ST 12-1:2014: ");
             dump_s12m_timecode(ctx, avg_frame_rate, sd, log_level);
             break;
         case AV_PKT_DATA_AMBIENT_VIEWING_ENVIRONMENT:
-            dump_ambient_viewing_environment_metadata(ctx, sd);
+            dump_ambient_viewing_environment_metadata(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_FRAME_CROPPING:
-            av_log(ctx, AV_LOG_INFO, "Frame cropping: ");
-            dump_cropping(ctx, sd);
+            dump_cropping(ctx, sd, log_level);
             break;
         case AV_PKT_DATA_3D_REFERENCE_DISPLAYS:
-            av_log(ctx, log_level, "3D Reference Displays Information: ");
-            dump_tdrdi(ctx, sd);
+            dump_tdrdi(ctx, sd, log_level);
+            break;
+        case AV_PKT_DATA_GAIN_MAP_PARAMS:
+            dump_gain_map_params(ctx, sd, log_level);
             break;
         default:
-            av_log(ctx, log_level, "unknown side data type %d "
-                   "(%"SIZE_SPECIFIER" bytes)", sd->type, sd->size);
+            if (name)
+                av_log(ctx, log_level, "(%zu bytes)", sd->size);
+            else
+                av_log(ctx, log_level, "unknown side data type %d "
+                       "(%zu bytes)", sd->type, sd->size);
             break;
         }
 
@@ -633,11 +646,6 @@ static void dump_stream_format(const AVFormatContext *ic, int i,
 
     // Fields which are missing from AVCodecParameters need to be taken from the AVCodecContext
     if (sti->avctx) {
-#if FF_API_CODEC_PROPS
-FF_DISABLE_DEPRECATION_WARNINGS
-        avctx->properties   = sti->avctx->properties;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
         avctx->codec        = sti->avctx->codec;
         avctx->qmin         = sti->avctx->qmin;
         avctx->qmax         = sti->avctx->qmax;
@@ -693,7 +701,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
     if (st->start_time != AV_NOPTS_VALUE && st->start_time != 0 && st->time_base.den && st->time_base.num) {
         const double stream_start = av_q2d(st->time_base) * st->start_time;
-        av_log(NULL, AV_LOG_INFO, ", start %.6f", stream_start);
+        av_log(NULL, log_level, ", start %.6f", stream_start);
     }
 
     dump_disposition(st->disposition, log_level);
@@ -707,36 +715,43 @@ FF_ENABLE_DEPRECATION_WARNINGS
 }
 
 static void dump_stream_group(const AVFormatContext *ic, uint8_t *printed,
-                              int i, int index, int is_output)
+                              int i, int index, int is_output, int log_level)
 {
     const AVStreamGroup *stg = ic->stream_groups[i];
+    const char *group_indent = log_level != AV_LOG_INFO ? "  " : "";
+    const char *extra_indent = log_level != AV_LOG_INFO ? "      " : "    ";
     int flags = (is_output ? ic->oformat->flags : ic->iformat->flags);
     char buf[512];
     int ret;
 
-    av_log(NULL, AV_LOG_INFO, "  Stream group #%d:%d", index, i);
+    av_log(NULL, log_level, "%s  Stream group #%d:%d", group_indent, index, i);
     if (flags & AVFMT_SHOW_IDS)
-        av_log(NULL, AV_LOG_INFO, "[0x%"PRIx64"]", stg->id);
-    av_log(NULL, AV_LOG_INFO, ":");
+        av_log(NULL, log_level, "[0x%"PRIx64"]", stg->id);
+    av_log(NULL, log_level, ":");
 
     switch (stg->type) {
     case AV_STREAM_GROUP_PARAMS_IAMF_AUDIO_ELEMENT: {
         const AVIAMFAudioElement *audio_element = stg->params.iamf_audio_element;
-        av_log(NULL, AV_LOG_INFO, " IAMF Audio Element:");
-        dump_disposition(stg->disposition, AV_LOG_INFO);
-        av_log(NULL, AV_LOG_INFO, "\n");
-        dump_metadata(NULL, stg->metadata, "    ", AV_LOG_INFO);
+        av_log(NULL, log_level, " IAMF Audio Element:");
+        dump_disposition(stg->disposition, log_level);
+        av_log(NULL, log_level, "\n");
+        dump_metadata(NULL, stg->metadata, "    ", log_level);
         for (int j = 0; j < audio_element->nb_layers; j++) {
             const AVIAMFLayer *layer = audio_element->layers[j];
             int channel_count = layer->ch_layout.nb_channels;
-            av_log(NULL, AV_LOG_INFO, "    Layer %d:", j);
+            av_log(NULL, log_level, "    Layer %d:", j);
             ret = av_channel_layout_describe(&layer->ch_layout, buf, sizeof(buf));
             if (ret >= 0)
-                av_log(NULL, AV_LOG_INFO, " %s", buf);
-            av_log(NULL, AV_LOG_INFO, "\n");
-            for (int k = 0; channel_count > 0 && k < stg->nb_streams; k++) {
-                AVStream *st = stg->streams[k];
-                dump_stream_format(ic, st->index, i, index, is_output, AV_LOG_VERBOSE);
+                av_log(NULL, log_level, " %s", buf);
+            av_log(NULL, log_level, "\n");
+            for (int k = 0; log_level == AV_LOG_INFO && channel_count > 0 && k < stg->nb_entries; k++) {
+                const AVStreamGroupEntry *entry = stg->entries[k];
+                if (entry->type != AV_STREAM_GROUP_ENTRY_STREAM)
+                    continue;
+                const AVStream *st = entry->stream;
+                int loglevel = printed[st->index] ? AV_LOG_VERBOSE : AV_LOG_INFO;
+                av_log(NULL, loglevel, "  ");
+                dump_stream_format(ic, st->index, i, index, is_output, loglevel);
                 printed[st->index] = 1;
                 channel_count -= st->codecpar->ch_layout.nb_channels;
             }
@@ -745,14 +760,14 @@ static void dump_stream_group(const AVFormatContext *ic, uint8_t *printed,
     }
     case AV_STREAM_GROUP_PARAMS_IAMF_MIX_PRESENTATION: {
         const AVIAMFMixPresentation *mix_presentation = stg->params.iamf_mix_presentation;
-        av_log(NULL, AV_LOG_INFO, " IAMF Mix Presentation:");
-        dump_disposition(stg->disposition, AV_LOG_INFO);
-        av_log(NULL, AV_LOG_INFO, "\n");
-        dump_metadata(NULL, stg->metadata, "    ", AV_LOG_INFO);
-        dump_dictionary(NULL, mix_presentation->annotations, "Annotations", "    ", AV_LOG_INFO);
+        av_log(NULL, log_level, " IAMF Mix Presentation:");
+        dump_disposition(stg->disposition, log_level);
+        av_log(NULL, log_level, "\n");
+        dump_metadata(NULL, stg->metadata, "    ", log_level);
+        dump_dictionary(NULL, mix_presentation->annotations, "Annotations", "    ", log_level);
         for (int j = 0; j < mix_presentation->nb_submixes; j++) {
             AVIAMFSubmix *sub_mix = mix_presentation->submixes[j];
-            av_log(NULL, AV_LOG_INFO, "    Submix %d:\n", j);
+            av_log(NULL, log_level, "    Submix %d:\n", j);
             for (int k = 0; k < sub_mix->nb_elements; k++) {
                 const AVIAMFSubmixElement *submix_element = sub_mix->elements[k];
                 const AVStreamGroup *audio_element = NULL;
@@ -763,24 +778,24 @@ static void dump_stream_group(const AVFormatContext *ic, uint8_t *printed,
                         break;
                     }
                 if (audio_element) {
-                    av_log(NULL, AV_LOG_INFO, "      IAMF Audio Element #%d:%d",
+                    av_log(NULL, log_level, "      IAMF Audio Element #%d:%d",
                            index, audio_element->index);
                     if (flags & AVFMT_SHOW_IDS)
-                        av_log(NULL, AV_LOG_INFO, "[0x%"PRIx64"]", audio_element->id);
-                    av_log(NULL, AV_LOG_INFO, "\n");
-                    dump_dictionary(NULL, submix_element->annotations, "Annotations", "        ", AV_LOG_INFO);
+                        av_log(NULL, log_level, "[0x%"PRIx64"]", audio_element->id);
+                    av_log(NULL, log_level, "\n");
+                    dump_dictionary(NULL, submix_element->annotations, "Annotations", "        ", log_level);
                 }
             }
             for (int k = 0; k < sub_mix->nb_layouts; k++) {
                 const AVIAMFSubmixLayout *submix_layout = sub_mix->layouts[k];
-                av_log(NULL, AV_LOG_INFO, "      Layout #%d:", k);
+                av_log(NULL, log_level, "      Layout #%d:", k);
                 if (submix_layout->layout_type == 2 ||
                     submix_layout->layout_type == 3) {
                     ret = av_channel_layout_describe(&submix_layout->sound_system, buf, sizeof(buf));
                     if (ret >= 0)
-                        av_log(NULL, AV_LOG_INFO, " %s", buf);
+                        av_log(NULL, log_level, " %s", buf);
                 }
-                av_log(NULL, AV_LOG_INFO, "\n");
+                av_log(NULL, log_level, "\n");
             }
         }
         break;
@@ -789,68 +804,126 @@ static void dump_stream_group(const AVFormatContext *ic, uint8_t *printed,
         const AVStreamGroupTileGrid *tile_grid = stg->params.tile_grid;
         AVCodecContext *avctx = avcodec_alloc_context3(NULL);
         const char *ptr = NULL;
-        av_log(NULL, AV_LOG_INFO, " Tile Grid:");
-        if (avctx && stg->nb_streams && !avcodec_parameters_to_context(avctx, stg->streams[0]->codecpar)) {
-            avctx->width  = tile_grid->width;
-            avctx->height = tile_grid->height;
-            avctx->coded_width  = tile_grid->coded_width;
-            avctx->coded_height = tile_grid->coded_height;
-            if (ic->dump_separator)
-                av_opt_set(avctx, "dump_separator", ic->dump_separator, 0);
-            buf[0] = 0;
-            avcodec_string(buf, sizeof(buf), avctx, is_output);
-            ptr = av_stristr(buf, " ");
+        av_log(NULL, log_level, " Tile Grid:");
+        if (avctx && stg->nb_entries && stg->entries[0]->type == AV_STREAM_GROUP_ENTRY_STREAM) {
+            const AVStream *st = stg->entries[0]->stream;
+            if (!avcodec_parameters_to_context(avctx, st->codecpar)) {
+                avctx->width  = tile_grid->width;
+                avctx->height = tile_grid->height;
+                avctx->coded_width  = tile_grid->coded_width;
+                    avctx->coded_height = tile_grid->coded_height;
+                if (ic->dump_separator)
+                    av_opt_set(avctx, "dump_separator", ic->dump_separator, 0);
+                buf[0] = 0;
+                avcodec_string(buf, sizeof(buf), avctx, is_output);
+                ptr = av_stristr(buf, " ");
+            }
         }
         avcodec_free_context(&avctx);
         if (ptr)
-            av_log(NULL, AV_LOG_INFO, "%s", ptr);
-        dump_disposition(stg->disposition, AV_LOG_INFO);
-        av_log(NULL, AV_LOG_INFO, "\n");
-        dump_metadata(NULL, stg->metadata, "    ", AV_LOG_INFO);
-        dump_sidedata(NULL, tile_grid->coded_side_data, tile_grid->nb_coded_side_data,
+            av_log(NULL, log_level, "%s", ptr);
+        dump_disposition(stg->disposition, log_level);
+        av_log(NULL, log_level, "\n");
+        dump_metadata(NULL, stg->metadata, extra_indent, log_level);
+        dump_sidedata(NULL, stg->coded_side_data, stg->nb_coded_side_data,
                       tile_grid->width, tile_grid->height, (AVRational) {0,1},
-                      "    ", AV_LOG_INFO);
+                      extra_indent, log_level);
         for (int i = 0; i < tile_grid->nb_tiles; i++) {
             const AVStream *st = NULL;
-            if (tile_grid->offsets[i].idx < stg->nb_streams)
-                st = stg->streams[tile_grid->offsets[i].idx];
+            if (tile_grid->offsets[i].idx < stg->nb_entries) {
+                const AVStreamGroupEntry *entry = stg->entries[tile_grid->offsets[i].idx];
+                if (entry->type != AV_STREAM_GROUP_ENTRY_STREAM)
+                    continue;
+                st = entry->stream;
+            }
             if (st && !printed[st->index]) {
                 dump_stream_format(ic, st->index, i, index, is_output, AV_LOG_VERBOSE);
                 printed[st->index] = 1;
             }
         }
-        for (int i = 0; i < stg->nb_streams; i++) {
-            const AVStream *st = stg->streams[i];
+        for (int i = 0; i < stg->nb_entries; i++) {
+            const AVStreamGroupEntry *entry = stg->entries[i];
+            if (entry->type != AV_STREAM_GROUP_ENTRY_STREAM)
+                continue;
+            const AVStream *st = entry->stream;
             if (!printed[st->index]) {
-                dump_stream_format(ic, st->index, i, index, is_output, AV_LOG_INFO);
+                dump_stream_format(ic, st->index, i, index, is_output, log_level);
                 printed[st->index] = 1;
             }
         }
         break;
     }
+    case AV_STREAM_GROUP_PARAMS_ALPHA:
+    case AV_STREAM_GROUP_PARAMS_DOLBY_VISION:
+    case AV_STREAM_GROUP_PARAMS_GAIN_MAP:
     case AV_STREAM_GROUP_PARAMS_LCEVC: {
-        const AVStreamGroupLCEVC *lcevc = stg->params.lcevc;
+        const AVStreamGroupLayeredVideo *layered_video = stg->params.layered_video;
         AVCodecContext *avctx = avcodec_alloc_context3(NULL);
         const char *ptr = NULL;
-        av_log(NULL, AV_LOG_INFO, " LCEVC:");
-        if (avctx && stg->nb_streams && !avcodec_parameters_to_context(avctx, stg->streams[0]->codecpar)) {
-            avctx->width  = lcevc->width;
-            avctx->height = lcevc->height;
-            avctx->coded_width  = lcevc->width;
-            avctx->coded_height = lcevc->height;
-            if (ic->dump_separator)
-                av_opt_set(avctx, "dump_separator", ic->dump_separator, 0);
+        switch (stg->type) {
+        case AV_STREAM_GROUP_PARAMS_ALPHA:
+            av_log(NULL, AV_LOG_INFO, " Alpha:");
+            break;
+        case AV_STREAM_GROUP_PARAMS_DOLBY_VISION:
+            av_log(NULL, AV_LOG_INFO, " Dolby Vision:");
+            break;
+        case AV_STREAM_GROUP_PARAMS_GAIN_MAP:
+            av_log(NULL, AV_LOG_INFO, " Gain Map:");
+            break;
+        case AV_STREAM_GROUP_PARAMS_LCEVC:
+            av_log(NULL, AV_LOG_INFO, " LCEVC:");
+            break;
+        }
+        if (avctx && stg->nb_entries == 2 &&
+            (stg->entries[ layered_video->el_index]->type == AV_STREAM_GROUP_ENTRY_STREAM ||
+             stg->entries[!layered_video->el_index]->type == AV_STREAM_GROUP_ENTRY_STREAM)) {
+            const AVStream *st = stg->entries[!layered_video->el_index]->type == AV_STREAM_GROUP_ENTRY_STREAM ?
+                                 stg->entries[!layered_video->el_index]->stream :
+                                 stg->entries[ layered_video->el_index]->stream;
+            if (!avcodec_parameters_to_context(avctx, st->codecpar)) {
+                avctx->width  = layered_video->width;
+                avctx->height = layered_video->height;
+                avctx->coded_width  = layered_video->width;
+                avctx->coded_height = layered_video->height;
+                if (ic->dump_separator)
+                    av_opt_set(avctx, "dump_separator", ic->dump_separator, 0);
+                buf[0] = 0;
+                avcodec_string(buf, sizeof(buf), avctx, is_output);
+                ptr = av_stristr(buf, " ");
+            }
+        } else {
             buf[0] = 0;
-            avcodec_string(buf, sizeof(buf), avctx, is_output);
-            ptr = av_stristr(buf, " ");
+            av_strlcatf(buf, sizeof(buf), " %dx%d", layered_video->width, layered_video->height);
         }
         avcodec_free_context(&avctx);
         if (ptr)
-            av_log(NULL, AV_LOG_INFO, "%s", ptr);
-        av_log(NULL, AV_LOG_INFO, "\n");
-        for (int i = 0; i < stg->nb_streams; i++) {
-            const AVStream *st = stg->streams[i];
-            dump_stream_format(ic, st->index, i, index, is_output, AV_LOG_VERBOSE);
+            av_log(NULL, log_level, "%s", ptr);
+        dump_disposition(stg->disposition, log_level);
+        av_log(NULL, log_level, "\n");
+        dump_metadata(NULL, stg->metadata, extra_indent, log_level);
+        dump_sidedata(NULL, stg->coded_side_data, stg->nb_coded_side_data,
+                      layered_video->width, layered_video->height, (AVRational) {0,1},
+                      extra_indent, log_level);
+        for (int i = 0; i < stg->nb_entries; i++) {
+            const AVStreamGroupEntry *entry = stg->entries[i];
+            if (entry->type == AV_STREAM_GROUP_ENTRY_STREAM) {
+                const AVStream *st = entry->stream;
+                dump_stream_format(ic, st->index, i, index, is_output, log_level);
+                printed[st->index] = 1;
+            } else if (entry->type == AV_STREAM_GROUP_ENTRY_STREAM_GROUP)
+                dump_stream_group(ic, printed, entry->stream_group->index, index,
+                                  is_output, AV_LOG_VERBOSE);
+        }
+        break;
+    }
+    case AV_STREAM_GROUP_PARAMS_TREF: {
+        av_log(NULL, log_level, " Track Reference:\n");
+        for (int i = 0; i < stg->nb_entries; i++) {
+            const AVStreamGroupEntry *entry = stg->entries[i];
+            if (entry->type != AV_STREAM_GROUP_ENTRY_STREAM)
+                continue;
+            const AVStream *st = entry->stream;
+            dump_stream_format(ic, st->index, i, index, is_output, log_level);
             printed[st->index] = 1;
         }
         break;
@@ -943,7 +1016,7 @@ void av_dump_format(AVFormatContext *ic, int index,
     }
 
     for (i = 0; i < ic->nb_stream_groups; i++)
-         dump_stream_group(ic, printed, i, index, is_output);
+         dump_stream_group(ic, printed, i, index, is_output, AV_LOG_INFO);
 
     for (i = 0; i < ic->nb_streams; i++)
         if (!printed[i])

@@ -99,8 +99,8 @@ typedef struct VVCPPS {
     uint16_t width;
     uint16_t height;
 
-    uint16_t slice_start_offset[VVC_MAX_SLICES];
-    uint16_t num_ctus_in_slice [VVC_MAX_SLICES];
+    uint32_t slice_start_offset[VVC_MAX_SLICES];
+    uint32_t num_ctus_in_slice [VVC_MAX_SLICES];
 
     uint16_t min_cb_width;
     uint16_t min_cb_height;
@@ -266,8 +266,9 @@ typedef struct VVCSH {
 } VVCSH;
 
 struct VVCContext;
+struct VVCFrameContext;
 
-int ff_vvc_decode_frame_ps(VVCFrameParamSets *fps, struct VVCContext *s);
+int ff_vvc_decode_frame_ps(struct VVCFrameContext *fc, struct VVCContext *s);
 int ff_vvc_decode_aps(VVCParamSets *ps, const CodedBitstreamUnit *unit);
 int ff_vvc_decode_sh(VVCSH *sh, const VVCFrameParamSets *ps, const CodedBitstreamUnit *unit);
 void ff_vvc_frame_ps_free(VVCFrameParamSets *fps);

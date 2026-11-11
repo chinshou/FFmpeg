@@ -32,6 +32,7 @@
 
 #include "bytestream.h"
 #include "codec_id.h"
+#include "parser_internal.h"
 #define UNCHECKED_BITSTREAM_READER 0
 #define BITSTREAM_READER_LE
 #include "get_bits.h"
@@ -1074,6 +1075,11 @@ static void populate_fields(AVCodecParserContext *s, AVCodecContext *avctx, cons
         else
             s->format = meta->have_alpha ? AV_PIX_FMT_RGBAF32 : AV_PIX_FMT_RGBF32;
     }
+
+    if (meta->have_alpha) {
+        avctx->alpha_mode = meta->alpha_associated ? AVALPHA_MODE_PREMULTIPLIED
+                                                   : AVALPHA_MODE_STRAIGHT;
+    }
 }
 
 static int skip_icc_profile(void *avctx, JXLParseContext *ctx, GetBitContext *gb)
@@ -1311,6 +1317,10 @@ static int parse_frame_header(void *avctx, JXLParseContext *ctx, GetBitContext *
     else
         toc_count = 2 + num_lf_groups + num_groups * num_passes;
 
+    /* each TOC entry takes at least 12 bits */
+    if ((int64_t)toc_count * 12 > get_bits_left(gb))
+        return AVERROR_BUFFER_TOO_SMALL;
+
     // permuted toc
     if (get_bits1(gb)) {
         JXLEntropyDecoder dec;
@@ -1387,12 +1397,15 @@ static int skip_boxes(JXLParseContext *ctx, const uint8_t *buf, int buf_size)
                 return AVERROR_BUFFER_TOO_SMALL;
             size = bytestream2_get_be64(&gb);
             head_size = 16;
+        } else if (!size) {
+            /* the box extends to the end of the file */
+            return END_NOT_FOUND;
         }
-        if (!size)
-            return AVERROR_INVALIDDATA;
         /* invalid ISOBMFF size */
-        if (size <= head_size || size > INT_MAX - ctx->skip)
+        if (size < head_size)
             return AVERROR_INVALIDDATA;
+        if (size > INT_MAX - ctx->skip)
+            return END_NOT_FOUND;
 
         ctx->skip += size;
         bytestream2_skip(&gb, size - head_size);
@@ -1506,12 +1519,19 @@ static int jpegxl_parse(AVCodecParserContext *s, AVCodecContext *avctx,
 
     if (ctx->container && ctx->next >= 0) {
         ret = skip_boxes(ctx, pbuf, pindex);
-        if (ret < 0) {
-            if (ret == AVERROR_INVALIDDATA)
-                ctx->next = -1;
+        if (ret == END_NOT_FOUND) {
+            /* the rest of the stream belongs to this image */
+            ctx->next = -1;
             goto flush;
+        } else if (ret == AVERROR_INVALIDDATA) {
+            /* end the image at the invalid box */
+            av_log(avctx, AV_LOG_ERROR, "Invalid ISOBMFF box size\n");
+            ctx->next = ctx->skip;
+        } else if (ret < 0) {
+            goto flush;
+        } else {
+            ctx->next = ret + ctx->skip;
         }
-        ctx->next = ret + ctx->skip;
     }
 
     if (ctx->next >= 0)
@@ -1540,9 +1560,9 @@ flush:
     return next;
 }
 
-const AVCodecParser ff_jpegxl_parser = {
-    .codec_ids      = { AV_CODEC_ID_JPEGXL, AV_CODEC_ID_JPEGXL_ANIM },
+const FFCodecParser ff_jpegxl_parser = {
+    PARSER_CODEC_LIST(AV_CODEC_ID_JPEGXL, AV_CODEC_ID_JPEGXL_ANIM),
     .priv_data_size = sizeof(JXLParseContext),
-    .parser_parse   = jpegxl_parse,
-    .parser_close   = ff_parse_close,
+    .parse          = jpegxl_parse,
+    .close          = ff_parse_close,
 };

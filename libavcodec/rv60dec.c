@@ -33,6 +33,8 @@
 #include "unary.h"
 #include "videodsp.h"
 
+#include "libavutil/attributes.h"
+
 static const int8_t frame_types[4] = {AV_PICTURE_TYPE_I, AV_PICTURE_TYPE_P, AV_PICTURE_TYPE_B, AV_PICTURE_TYPE_NONE};
 
 enum CUType {
@@ -309,6 +311,7 @@ static int update_dimensions_clear_info(RV60Context *s, int width, int height)
         return ret;
 
     memset(s->pu_info, 0, s->pu_stride * (s->cu_height << 3) * sizeof(s->pu_info[0]));
+    memset(s->blk_info, 0, s->blk_stride * (s->cu_height << 4) * sizeof(s->blk_info[0]));
 
     for (int j = 0; j < s->cu_height << 4; j++)
         for (int i = 0; i < s->cu_width << 4; i++)
@@ -392,14 +395,14 @@ static int read_frame_header(RV60Context *s, GetBitContext *gb, int * width, int
 static int read_slice_sizes(RV60Context *s, GetBitContext *gb)
 {
     int nbits = get_bits(gb, 5) + 1;
-    int last_size;
+    int64_t last_size;
 
     for (int i = 0; i < s->cu_height; i++)
         s->slice[i].sign = get_bits1(gb);
 
     s->slice[0].size = last_size = get_bits_long(gb, nbits);
 
-    if (last_size < 0)
+    if (last_size < 0 || last_size > INT32_MAX)
         return AVERROR_INVALIDDATA;
 
     for (int i = 1; i < s->cu_height; i++) {
@@ -408,7 +411,7 @@ static int read_slice_sizes(RV60Context *s, GetBitContext *gb)
             last_size += diff;
         else
             last_size -= diff;
-        if (last_size <= 0)
+        if (last_size <= 0 || last_size > INT32_MAX)
             return AVERROR_INVALIDDATA;
         s->slice[i].size = last_size;
     }
@@ -659,6 +662,9 @@ static int pred_angle(const IntraPredContext * p, uint8_t * dst, int stride, int
 {
     uint8_t filtered1[96], filtered2[96];
 
+    if (size < 4 || size > 64 || (size & (size - 1)))
+        return AVERROR_INVALIDDATA;
+
     if (!imode) {
         pred_plane(p, dst, stride, size);
     } else if (imode == 1) {
@@ -667,8 +673,13 @@ static int pred_angle(const IntraPredContext * p, uint8_t * dst, int stride, int
         int ang_weight = rv60_ipred_angle[10 - imode];
         int add_size = (size * ang_weight + 31) >> 5;
         if (size <= 16) {
-            filter_weak(filtered1 + 32, &p->l[1], size + add_size);
+            const int filtered_size = size + add_size;
+            if (filtered_size < 1 || filtered_size > 64)
+                return AVERROR_INVALIDDATA;
+            filter_weak(filtered1 + 32, &p->l[1], filtered_size);
         } else {
+            if (add_size < 0 || add_size > 32)
+                return AVERROR_INVALIDDATA;
             filter_bilin32(filtered1 + 32, p->l[1], p->l[33], 32);
             filter_bilin32(filtered1 + 64, p->l[32], p->l[64], add_size);
         }
@@ -743,9 +754,14 @@ static int pred_angle(const IntraPredContext * p, uint8_t * dst, int stride, int
     } else if (imode <= 34) {
         int ang_weight = rv60_ipred_angle[imode - 26];
         int add_size = (size * ang_weight + 31) >> 5;
-        if (size <= 16)
-            filter_weak(&filtered1[32], &p->t[1], size + add_size);
-        else {
+        if (size <= 16) {
+            const int filtered_size = size + add_size;
+            if (filtered_size < 1 || filtered_size > 64)
+                return AVERROR_INVALIDDATA;
+            filter_weak(&filtered1[32], &p->t[1], filtered_size);
+        } else {
+            if (add_size < 0 || add_size > 32)
+                return AVERROR_INVALIDDATA;
             filter_bilin32(filtered1 + 32, p->t[1], p->t[33], 32);
             filter_bilin32(filtered1 + 64, p->t[32], p->t[64], add_size);
         }
@@ -2263,7 +2279,7 @@ static int decode_slice(AVCodecContext *avctx, void *tdata, int cu_y, int thread
             ff_thread_progress_await(&s->progress[cu_y - 1], cu_x + 2);
 
         qp = s->qp + read_qp_offset(&gb, s->qp_off_type);
-        if (qp < 0) {
+        if (qp < 0 || qp >= 64) {
             ret = AVERROR_INVALIDDATA;
             break;
         }
@@ -2396,7 +2412,7 @@ static int rv60_decode_frame(AVCodecContext *avctx, AVFrame * frame,
     return avpkt->size;
 }
 
-static void rv60_flush(AVCodecContext *avctx)
+static av_cold void rv60_flush(AVCodecContext *avctx)
 {
     RV60Context *s = avctx->priv_data;
 

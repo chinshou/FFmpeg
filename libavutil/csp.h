@@ -134,6 +134,22 @@ enum AVColorPrimaries av_csp_primaries_id_from_desc(const AVColorPrimariesDesc *
 double av_csp_approximate_trc_gamma(enum AVColorTransferCharacteristic trc);
 
 /**
+ * Determine a suitable EOTF 'gamma' value to match the supplied
+ * AVColorTransferCharacteristic.
+ *
+ * This function returns the gamma value (exponent) for a simple pure power
+ * function approximation of the supplied AVColorTransferCharacteristic, or 0.
+ * if no reasonable approximation exists.
+ *
+ * EOTF(v) = (L_w - L_b) * v^gamma + L_b
+ *
+ * @return Will return an approximation to the simple gamma function matching
+ *         the supplied Transfer Characteristic EOTF, Will return 0.0 for any
+ *         we cannot reasonably match against.
+ */
+double av_csp_approximate_eotf_gamma(enum AVColorTransferCharacteristic trc);
+
+/**
  * Determine the function needed to apply the given
  * AVColorTransferCharacteristic to linear input.
  *
@@ -164,8 +180,9 @@ typedef void (*av_csp_eotf_function)(double Lw, double Lb, double c[3]);
 /**
  * Returns the ITU EOTF corresponding to a given TRC. This converts from the
  * signal level [0,1] to the raw output display luminance in nits (cd/m^2).
- * This is done per channel in RGB space, except for AVCOL_TRC_SMPTE428, which
- * assumes CIE XYZ in- and output.
+ * This is done per channel in RGB space. For X'Y'Z' with AVCOL_TRC_SMPTE428,
+ * pass Lb = 0 and apply the black level after the conversion to RGB for correct
+ * white point scaling.
  *
  * @return A pointer to the function implementing the given TRC, or NULL if no
  *         such function is defined.

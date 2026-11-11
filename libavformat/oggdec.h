@@ -85,6 +85,7 @@ struct ogg_stream {
     int nsegs, segp;
     uint8_t segments[255];
     int incomplete; ///< whether we're expecting a continuation in the next page
+    int page_start; ///< current packet is the first one starting in the page
     int page_end;   ///< current packet is the last one completed in the page
     int keyframe_seek;
     int got_start;
@@ -92,6 +93,7 @@ struct ogg_stream {
     int nb_header; ///< set to the number of parsed headers
     int start_trimming; ///< set the number of packets to drop from the start
     int end_trimming; ///< set the number of packets to drop from the end
+    int replace; // < set to 1 after initializing a new chained stream
     uint8_t *new_metadata;
     size_t new_metadata_size;
     uint8_t *new_extradata;
@@ -122,7 +124,6 @@ struct ogg {
 
 #define OGG_NOGRANULE_VALUE (-1ull)
 
-extern const struct ogg_codec ff_celt_codec;
 extern const struct ogg_codec ff_dirac_codec;
 extern const struct ogg_codec ff_flac_codec;
 extern const struct ogg_codec ff_ogm_audio_codec;
@@ -159,6 +160,20 @@ int ff_vorbis_comment(AVFormatContext *ms, AVDictionary **m,
  */
 int ff_vorbis_stream_comment(AVFormatContext *as, AVStream *st,
                              const uint8_t *buf, int size);
+
+/**
+ * Parse Vorbis comments, add metadata to an AVStream
+ *
+ * This function also attaches the metadata to the next decoded
+ * packet as AV_PKT_DATA_STRINGS_METADATA
+ *
+ * @note  The buffer will be temporarily modified by this function,
+ *        so it needs to be writable. Furthermore it must be padded
+ *        by a single byte (not counted in size).
+ *        All changes will have been reverted upon return.
+ */
+int ff_vorbis_update_metadata(AVFormatContext *s, AVStream *st,
+                              const uint8_t *buf, int size);
 
 static inline int
 ogg_find_stream (struct ogg * ogg, int serial)

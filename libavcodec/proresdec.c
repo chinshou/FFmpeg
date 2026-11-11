@@ -31,10 +31,12 @@
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
+#include "libavutil/pixdesc.h"
 
 #include "avcodec.h"
 #include "codec_internal.h"
 #include "decode.h"
+#define CACHED_BITSTREAM_READER 1
 #include "get_bits.h"
 #include "hwaccel_internal.h"
 #include "hwconfig.h"
@@ -136,6 +138,10 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     avctx->bits_per_raw_sample = 10;
 
+    ctx->container_color_primaries = avctx->color_primaries;
+    ctx->container_color_trc       = avctx->color_trc;
+    ctx->container_colorspace      = avctx->colorspace;
+
     switch (avctx->codec_tag) {
     case MKTAG('a','p','c','o'):
         avctx->profile = AV_PROFILE_PRORES_PROXY;
@@ -182,13 +188,25 @@ static av_cold int decode_init(AVCodecContext *avctx)
     return 0;
 }
 
+/**
+ * Whether a frame header colour value describes a colour. 0 and 2 both mean
+ * unknown in all three fields (RDD 36), unlike 0 in H.273; 3 is reserved.
+ *
+ * @param name FFmpeg name of the value, NULL if it has none
+ */
+static int describes_colour(int value, const char *name)
+{
+    return value != 0 && value != 2 && value != 3 && name;
+}
+
 static int decode_frame_header(ProresContext *ctx, const uint8_t *buf,
                                const int data_size, AVCodecContext *avctx)
 {
-    int hdr_size, width, height, flags;
+    int hdr_size, width, height, flags, dimensions_changed = 0;
     int version;
     const uint8_t *ptr;
     enum AVPixelFormat pix_fmt;
+    int old_frame_type = ctx->frame_type;
 
     hdr_size = AV_RB16(buf);
     ff_dlog(avctx, "header size %d\n", hdr_size);
@@ -214,6 +232,7 @@ static int decode_frame_header(ProresContext *ctx, const uint8_t *buf,
                avctx->width, avctx->height, width, height);
         if ((ret = ff_set_dimensions(avctx, width, height)) < 0)
             return ret;
+        dimensions_changed = 1;
     }
 
     ctx->frame_type = (buf[12] >> 2) & 3;
@@ -250,8 +269,9 @@ static int decode_frame_header(ProresContext *ctx, const uint8_t *buf,
         }
     }
 
-    if (pix_fmt != ctx->pix_fmt) {
-#define HWACCEL_MAX (CONFIG_PRORES_VIDEOTOOLBOX_HWACCEL)
+    if (pix_fmt != ctx->pix_fmt || dimensions_changed ||
+        ctx->frame_type != old_frame_type) {
+#define HWACCEL_MAX (CONFIG_PRORES_VIDEOTOOLBOX_HWACCEL + CONFIG_PRORES_VULKAN_HWACCEL)
 #if HWACCEL_MAX
         enum AVPixelFormat pix_fmts[HWACCEL_MAX + 2], *fmtp = pix_fmts;
         int ret;
@@ -260,6 +280,9 @@ static int decode_frame_header(ProresContext *ctx, const uint8_t *buf,
 
 #if CONFIG_PRORES_VIDEOTOOLBOX_HWACCEL
         *fmtp++ = AV_PIX_FMT_VIDEOTOOLBOX;
+#endif
+#if CONFIG_PRORES_VULKAN_HWACCEL
+        *fmtp++ = AV_PIX_FMT_VULKAN;
 #endif
         *fmtp++ = ctx->pix_fmt;
         *fmtp = AV_PIX_FMT_NONE;
@@ -273,10 +296,13 @@ static int decode_frame_header(ProresContext *ctx, const uint8_t *buf,
 #endif
     }
 
-    ctx->frame->color_primaries = buf[14];
-    ctx->frame->color_trc       = buf[15];
-    ctx->frame->colorspace      = buf[16];
-    ctx->frame->color_range     = AVCOL_RANGE_MPEG;
+    avctx->color_primaries = describes_colour(buf[14], av_color_primaries_name(buf[14])) ?
+                             buf[14] : ctx->container_color_primaries;
+    avctx->color_trc       = describes_colour(buf[15], av_color_transfer_name(buf[15])) ?
+                             buf[15] : ctx->container_color_trc;
+    avctx->colorspace      = describes_colour(buf[16], av_color_space_name(buf[16])) ?
+                             buf[16] : ctx->container_colorspace;
+    avctx->color_range     = AVCOL_RANGE_MPEG;
 
     ptr   = buf + 20;
     flags = buf[19];
@@ -335,6 +361,9 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
         return AVERROR_INVALIDDATA;
     }
 
+    ctx->slice_mb_width  = 1 << log2_slice_mb_width;
+    ctx->slice_mb_height = 1 << log2_slice_mb_height;
+
     ctx->mb_width  = (avctx->width  + 15) >> 4;
     if (ctx->frame_type)
         ctx->mb_height = (avctx->height + 31) >> 5;
@@ -344,7 +373,7 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
     // QT ignores the written value
     // slice_count = AV_RB16(buf + 5);
     slice_count = ctx->mb_height * ((ctx->mb_width >> log2_slice_mb_width) +
-                                    av_popcount(ctx->mb_width & (1 << log2_slice_mb_width) - 1));
+                                    av_popcount(ctx->mb_width & ctx->slice_mb_width - 1));
 
     if (ctx->slice_count != slice_count || !ctx->slices) {
         av_freep(&ctx->slices);
@@ -367,7 +396,7 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
     index_ptr = buf + hdr_size;
     data_ptr  = index_ptr + slice_count*2;
 
-    slice_mb_count = 1 << log2_slice_mb_width;
+    slice_mb_count = ctx->slice_mb_width;
     mb_x = 0;
     mb_y = 0;
 
@@ -392,7 +421,7 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
 
         mb_x += slice_mb_count;
         if (mb_x == ctx->mb_width) {
-            slice_mb_count = 1 << log2_slice_mb_width;
+            slice_mb_count = ctx->slice_mb_width;
             mb_x = 0;
             mb_y++;
         }
@@ -411,13 +440,12 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
     return pic_data_size;
 }
 
-#define DECODE_CODEWORD(val, codebook, SKIP)                            \
+#define DECODE_CODEWORD(val, codebook, gb)                              \
     do {                                                                \
         unsigned int rice_order, exp_order, switch_bits;                \
         unsigned int q, buf, bits;                                      \
                                                                         \
-        UPDATE_CACHE_32(re, gb); /* We really need 32 bits */           \
-        buf = GET_CACHE(re, gb);                                        \
+        buf = show_bits(gb, 32); /* We really need 32 bits */           \
                                                                         \
         /* number of bits to switch between rice and exp golomb */      \
         switch_bits =  codebook & 3;                                    \
@@ -430,16 +458,17 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
             bits = exp_order - switch_bits + (q<<1);                    \
             if (bits > 31)                                              \
                 return AVERROR_INVALIDDATA;                             \
-            val = SHOW_UBITS(re, gb, bits) - (1 << exp_order) +         \
+            val = (buf >> (32 - bits)) - (1 << exp_order) +             \
                 ((switch_bits + 1) << rice_order);                      \
-            SKIP(re, gb, bits);                                         \
+            skip_bits(gb, bits);                                        \
         } else if (rice_order) {                                        \
-            SKIP_BITS(re, gb, q+1);                                     \
-            val = (q << rice_order) + SHOW_UBITS(re, gb, rice_order);   \
-            SKIP(re, gb, rice_order);                                   \
+            bits = q + 1 + rice_order;                                  \
+            val = (q << rice_order) +                                   \
+                ((buf >> (32 - bits)) & ((1u << rice_order) - 1));      \
+            skip_bits(gb, bits);                                        \
         } else {                                                        \
             val = q;                                                    \
-            SKIP(re, gb, q+1);                                          \
+            skip_bits(gb, q + 1);                                       \
         }                                                               \
     } while (0)
 
@@ -455,9 +484,7 @@ static av_always_inline int decode_dc_coeffs(GetBitContext *gb, int16_t *out,
     int16_t prev_dc;
     int code, i, sign;
 
-    OPEN_READER(re, gb);
-
-    DECODE_CODEWORD(code, FIRST_DC_CB, LAST_SKIP_BITS);
+    DECODE_CODEWORD(code, FIRST_DC_CB, gb);
     prev_dc = TOSIGNED(code);
     out[0] = prev_dc;
 
@@ -466,13 +493,12 @@ static av_always_inline int decode_dc_coeffs(GetBitContext *gb, int16_t *out,
     code = 5;
     sign = 0;
     for (i = 1; i < blocks_per_slice; i++, out += 64) {
-        DECODE_CODEWORD(code, dc_codebook[FFMIN(code, 6U)], LAST_SKIP_BITS);
+        DECODE_CODEWORD(code, dc_codebook[FFMIN(code, 6U)], gb);
         if(code) sign ^= -(code & 1);
         else     sign  = 0;
         prev_dc += (((code + 1) >> 1) ^ sign) - sign;
         out[0] = prev_dc;
     }
-    CLOSE_READER(re, gb);
     return 0;
 }
 
@@ -486,11 +512,9 @@ static av_always_inline int decode_ac_coeffs(AVCodecContext *avctx, GetBitContex
     const ProresContext *ctx = avctx->priv_data;
     int block_mask, sign;
     unsigned pos, run, level;
-    int max_coeffs, i, bits_left;
+    int max_coeffs, i, left_bits;
     int log2_block_count = av_log2(blocks_per_slice);
 
-    OPEN_READER(re, gb);
-    UPDATE_CACHE_32(re, gb);
     run   = 4;
     level = 2;
 
@@ -498,28 +522,26 @@ static av_always_inline int decode_ac_coeffs(AVCodecContext *avctx, GetBitContex
     block_mask = blocks_per_slice - 1;
 
     for (pos = block_mask;;) {
-        bits_left = gb->size_in_bits - re_index;
-        if (bits_left <= 0 || (bits_left < 32 && !SHOW_UBITS(re, gb, bits_left)))
+        left_bits = get_bits_left(gb);
+        if (left_bits <= 0 || (left_bits < 32 && !show_bits(gb, left_bits)))
             break;
 
-        DECODE_CODEWORD(run, run_to_cb[FFMIN(run,  15)], LAST_SKIP_BITS);
+        DECODE_CODEWORD(run, run_to_cb[FFMIN(run,  15)], gb);
         pos += run + 1;
         if (pos >= max_coeffs) {
             av_log(avctx, AV_LOG_ERROR, "ac tex damaged %d, %d\n", pos, max_coeffs);
             return AVERROR_INVALIDDATA;
         }
 
-        DECODE_CODEWORD(level, lev_to_cb[FFMIN(level, 9)], SKIP_BITS);
+        DECODE_CODEWORD(level, lev_to_cb[FFMIN(level, 9)], gb);
         level += 1;
 
         i = pos >> log2_block_count;
 
-        sign = SHOW_SBITS(re, gb, 1);
-        SKIP_BITS(re, gb, 1);
+        sign = -(int)get_bits1(gb);
         out[((pos & block_mask) << 6) + ctx->scan[i]] = ((level ^ sign) - sign);
     }
 
-    CLOSE_READER(re, gb);
     return 0;
 }
 
@@ -756,6 +778,7 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     int frame_hdr_size, pic_size, ret;
+    int i;
 
     if (buf_size < 28 || AV_RL32(buf + 4) != AV_RL32("icpf")) {
         av_log(avctx, AV_LOG_ERROR, "invalid frame header\n");
@@ -772,26 +795,21 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
     if (frame_hdr_size < 0)
         return frame_hdr_size;
 
+    if (avctx->skip_frame == AVDISCARD_ALL)
+        return 0;
+
     buf += frame_hdr_size;
     buf_size -= frame_hdr_size;
 
     if ((ret = ff_thread_get_buffer(avctx, frame, 0)) < 0)
         return ret;
-    ff_thread_finish_setup(avctx);
 
-    if (HWACCEL_MAX && avctx->hwaccel) {
-        const FFHWAccel *hwaccel = ffhwaccel(avctx->hwaccel);
-        ret = hwaccel->start_frame(avctx, avpkt->buf, avpkt->data, avpkt->size);
-        if (ret < 0)
-            return ret;
-        ret = hwaccel->decode_slice(avctx, avpkt->data, avpkt->size);
-        if (ret < 0)
-            return ret;
-        ret = hwaccel->end_frame(avctx);
-        if (ret < 0)
-            return ret;
-        goto finish;
-    }
+    av_refstruct_unref(&ctx->hwaccel_picture_private);
+
+    if ((ret = ff_hwaccel_frame_priv_alloc(avctx, &ctx->hwaccel_picture_private)) < 0)
+        return ret;
+
+    ff_thread_finish_setup(avctx);
 
  decode_picture:
     pic_size = decode_picture_header(avctx, buf, buf_size);
@@ -800,7 +818,23 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
         return pic_size;
     }
 
-    if ((ret = decode_picture(avctx)) < 0) {
+    if (HWACCEL_MAX && avctx->hwaccel) {
+        const FFHWAccel *hwaccel = ffhwaccel(avctx->hwaccel);
+
+        ret = hwaccel->start_frame(avctx, avpkt->buf, avpkt->data, avpkt->size);
+        if (ret < 0)
+            return ret;
+
+        for (i = 0; i < ctx->slice_count; ++i) {
+            ret = hwaccel->decode_slice(avctx, ctx->slices[i].data, ctx->slices[i].data_size);
+            if (ret < 0)
+                return ret;
+        }
+
+        ret = hwaccel->end_frame(avctx);
+        if (ret < 0)
+            return ret;
+    } else if ((ret = decode_picture(avctx)) < 0) {
         av_log(avctx, AV_LOG_ERROR, "error decoding picture\n");
         return ret;
     }
@@ -813,7 +847,8 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
         goto decode_picture;
     }
 
-finish:
+    av_refstruct_unref(&ctx->hwaccel_picture_private);
+
     *got_frame      = 1;
 
     return avpkt->size;
@@ -824,6 +859,7 @@ static av_cold int decode_close(AVCodecContext *avctx)
     ProresContext *ctx = avctx->priv_data;
 
     av_freep(&ctx->slices);
+    av_refstruct_unref(&ctx->hwaccel_picture_private);
 
     return 0;
 }
@@ -835,6 +871,7 @@ static int update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
     ProresContext *cdst = dst->priv_data;
 
     cdst->pix_fmt = csrc->pix_fmt;
+    cdst->frame_type = csrc->frame_type;
 
     return 0;
 }
@@ -851,11 +888,15 @@ const FFCodec ff_prores_decoder = {
     FF_CODEC_DECODE_CB(decode_frame),
     UPDATE_THREAD_CONTEXT(update_thread_context),
     .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS,
+    .caps_internal  = FF_CODEC_CAP_SKIP_FRAME_FILL_PARAM,
     .p.profiles     = NULL_IF_CONFIG_SMALL(ff_prores_profiles),
 #if HWACCEL_MAX
     .hw_configs     = (const AVCodecHWConfigInternal *const []) {
 #if CONFIG_PRORES_VIDEOTOOLBOX_HWACCEL
         HWACCEL_VIDEOTOOLBOX(prores),
+#endif
+#if CONFIG_PRORES_VULKAN_HWACCEL
+        HWACCEL_VULKAN(prores),
 #endif
         NULL
     },

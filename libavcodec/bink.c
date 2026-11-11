@@ -21,7 +21,6 @@
  */
 
 #include "libavutil/attributes.h"
-#include "libavutil/emms.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/mem.h"
 #include "libavutil/mem_internal.h"
@@ -673,6 +672,7 @@ static int read_dct_coeffs(BinkContext *c, GetBitContext *gb, int32_t block[64],
             case 0:
                 coef_list[list_pos] = ccoef + 4;
                 mode_list[list_pos] = 1;
+                av_fallthrough;
             case 2:
                 if (mode == 2) {
                     coef_list[list_pos]   = 0;
@@ -793,6 +793,7 @@ static int read_residue(GetBitContext *gb, int16_t block[64], int masks_count)
             case 0:
                 coef_list[list_pos] = ccoef + 4;
                 mode_list[list_pos] = 1;
+                av_fallthrough;
             case 2:
                 if (mode == 2) {
                     coef_list[list_pos]   = 0;
@@ -1259,7 +1260,6 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
     BinkContext * const c = avctx->priv_data;
     GetBitContext gb;
     int plane, plane_idx, ret;
-    int bits_count = pkt->size << 3;
 
     if (c->version > 'b') {
         if ((ret = ff_get_buffer(avctx, frame, AV_GET_BUFFER_FLAG_REF)) < 0)
@@ -1271,7 +1271,8 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
             return ret;
     }
 
-    init_get_bits(&gb, pkt->data, bits_count);
+    if ((ret = init_get_bits8(&gb, pkt->data, pkt->size)) < 0)
+        return ret;
     if (c->has_alpha) {
         if (c->version >= 'i')
             skip_bits_long(&gb, 32);
@@ -1294,10 +1295,9 @@ static int decode_frame(AVCodecContext *avctx, AVFrame *frame,
                                           c->frame_num == 1, !!plane)) < 0)
                 return ret;
         }
-        if (get_bits_count(&gb) >= bits_count)
+        if (get_bits_left(&gb) <= 0)
             break;
     }
-    emms_c();
 
     if (c->version > 'b') {
         if ((ret = av_frame_replace(c->last, frame)) < 0)
@@ -1411,7 +1411,7 @@ static av_cold int decode_end(AVCodecContext *avctx)
     return 0;
 }
 
-static void flush(AVCodecContext *avctx)
+static av_cold void flush(AVCodecContext *avctx)
 {
     BinkContext * const c = avctx->priv_data;
 

@@ -165,7 +165,8 @@ typedef struct MIContext {
     const AVClass *class;
     AVMotionEstContext me_ctx;
     AVRational frame_rate;
-    enum MIMode mi_mode;
+    /* enum MIMode */
+    int mi_mode;
     int mc_mode;
     int me_mode;
     int me_method;
@@ -250,7 +251,8 @@ static uint64_t get_sbad(AVMotionEstContext *me_ctx, int x, int y, int x_mv, int
 {
     uint8_t *data_cur = me_ctx->data_cur;
     uint8_t *data_next = me_ctx->data_ref;
-    int linesize = me_ctx->linesize;
+    int linesize_cur  = me_ctx->linesize_cur;
+    int linesize_next = me_ctx->linesize_ref;
     int mv_x1 = x_mv - x;
     int mv_y1 = y_mv - y;
     int mv_x, mv_y, i, j;
@@ -261,12 +263,12 @@ static uint64_t get_sbad(AVMotionEstContext *me_ctx, int x, int y, int x_mv, int
     mv_x = av_clip(x_mv - x, -FFMIN(x - me_ctx->x_min, me_ctx->x_max - x), FFMIN(x - me_ctx->x_min, me_ctx->x_max - x));
     mv_y = av_clip(y_mv - y, -FFMIN(y - me_ctx->y_min, me_ctx->y_max - y), FFMIN(y - me_ctx->y_min, me_ctx->y_max - y));
 
-    data_cur += (y + mv_y) * linesize;
-    data_next += (y - mv_y) * linesize;
+    data_cur += (y + mv_y) * linesize_cur;
+    data_next += (y - mv_y) * linesize_next;
 
     for (j = 0; j < me_ctx->mb_size; j++)
         for (i = 0; i < me_ctx->mb_size; i++)
-            sbad += FFABS(data_cur[x + mv_x + i + j * linesize] - data_next[x - mv_x + i + j * linesize]);
+            sbad += FFABS(data_cur[x + mv_x + i + j * linesize_cur] - data_next[x - mv_x + i + j * linesize_next]);
 
     return sbad + (FFABS(mv_x1 - me_ctx->pred_x) + FFABS(mv_y1 - me_ctx->pred_y)) * COST_PRED_SCALE;
 }
@@ -275,7 +277,8 @@ static uint64_t get_sbad_ob(AVMotionEstContext *me_ctx, int x, int y, int x_mv, 
 {
     uint8_t *data_cur = me_ctx->data_cur;
     uint8_t *data_next = me_ctx->data_ref;
-    int linesize = me_ctx->linesize;
+    int linesize_cur  = me_ctx->linesize_cur;
+    int linesize_next = me_ctx->linesize_ref;
     int x_min = me_ctx->x_min + me_ctx->mb_size / 2;
     int x_max = me_ctx->x_max - me_ctx->mb_size / 2;
     int y_min = me_ctx->y_min + me_ctx->mb_size / 2;
@@ -292,7 +295,7 @@ static uint64_t get_sbad_ob(AVMotionEstContext *me_ctx, int x, int y, int x_mv, 
 
     for (j = -me_ctx->mb_size / 2; j < me_ctx->mb_size * 3 / 2; j++)
         for (i = -me_ctx->mb_size / 2; i < me_ctx->mb_size * 3 / 2; i++)
-            sbad += FFABS(data_cur[x + mv_x + i + (y + mv_y + j) * linesize] - data_next[x - mv_x + i + (y - mv_y + j) * linesize]);
+            sbad += FFABS(data_cur[x + mv_x + i + (y + mv_y + j) * linesize_cur] - data_next[x - mv_x + i + (y - mv_y + j) * linesize_next]);
 
     return sbad + (FFABS(mv_x1 - me_ctx->pred_x) + FFABS(mv_y1 - me_ctx->pred_y)) * COST_PRED_SCALE;
 }
@@ -301,7 +304,8 @@ static uint64_t get_sad_ob(AVMotionEstContext *me_ctx, int x, int y, int x_mv, i
 {
     uint8_t *data_ref = me_ctx->data_ref;
     uint8_t *data_cur = me_ctx->data_cur;
-    int linesize = me_ctx->linesize;
+    int linesize_ref = me_ctx->linesize_ref;
+    int linesize_cur = me_ctx->linesize_cur;
     int x_min = me_ctx->x_min + me_ctx->mb_size / 2;
     int x_max = me_ctx->x_max - me_ctx->mb_size / 2;
     int y_min = me_ctx->y_min + me_ctx->mb_size / 2;
@@ -318,7 +322,7 @@ static uint64_t get_sad_ob(AVMotionEstContext *me_ctx, int x, int y, int x_mv, i
 
     for (j = -me_ctx->mb_size / 2; j < me_ctx->mb_size * 3 / 2; j++)
         for (i = -me_ctx->mb_size / 2; i < me_ctx->mb_size * 3 / 2; i++)
-            sad += FFABS(data_ref[x_mv + i + (y_mv + j) * linesize] - data_cur[x + i + (y + j) * linesize]);
+            sad += FFABS(data_ref[x_mv + i + (y_mv + j) * linesize_ref] - data_cur[x + i + (y + j) * linesize_cur]);
 
     return sad + (FFABS(mv_x - me_ctx->pred_x) + FFABS(mv_y - me_ctx->pred_y)) * COST_PRED_SCALE;
 }
@@ -752,7 +756,8 @@ static int inject_frame(AVFilterLink *inlink, AVFrame *avf_in)
 
             if (mi_ctx->frames[1].avf) {
                 for (dir = 0; dir < 2; dir++) {
-                    mi_ctx->me_ctx.linesize = mi_ctx->frames[2].avf->linesize[0];
+                    mi_ctx->me_ctx.linesize_cur = mi_ctx->frames[2].avf->linesize[0];
+                    mi_ctx->me_ctx.linesize_ref = mi_ctx->frames[dir ? 3 : 1].avf->linesize[0];
                     mi_ctx->me_ctx.data_cur = mi_ctx->frames[2].avf->data[0];
                     mi_ctx->me_ctx.data_ref = mi_ctx->frames[dir ? 3 : 1].avf->data[0];
 
@@ -769,7 +774,8 @@ static int inject_frame(AVFilterLink *inlink, AVFrame *avf_in)
             if (!mi_ctx->frames[0].avf)
                 return 0;
 
-            mi_ctx->me_ctx.linesize = mi_ctx->frames[0].avf->linesize[0];
+            mi_ctx->me_ctx.linesize_cur = mi_ctx->frames[1].avf->linesize[0];
+            mi_ctx->me_ctx.linesize_ref = mi_ctx->frames[2].avf->linesize[0];
             mi_ctx->me_ctx.data_cur = mi_ctx->frames[1].avf->data[0];
             mi_ctx->me_ctx.data_ref = mi_ctx->frames[2].avf->data[0];
 
@@ -918,9 +924,9 @@ static void set_frame_data(MIContext *mi_ctx, int alpha, AVFrame *avf_out)
                 int x_mv, y_mv;
                 int weight_sum = 0;
                 int i, val = 0;
-                PixelMVS *pixel_mvs = &mi_ctx->pixel_mvs[x + y * avf_out->width];
-                PixelWeights *pixel_weights = &mi_ctx->pixel_weights[x + y * avf_out->width];
-                PixelRefs *pixel_refs = &mi_ctx->pixel_refs[x + y * avf_out->width];
+                PixelMVS *pixel_mvs = &mi_ctx->pixel_mvs[x + y * width];
+                PixelWeights *pixel_weights = &mi_ctx->pixel_weights[x + y * width];
+                PixelRefs *pixel_refs = &mi_ctx->pixel_refs[x + y * width];
 
                 for (i = 0; i < pixel_refs->nb; i++)
                     weight_sum += pixel_weights->weights[i];
@@ -939,17 +945,20 @@ static void set_frame_data(MIContext *mi_ctx, int alpha, AVFrame *avf_out)
                     weight_sum = ALPHA_MAX;
                 }
 
-                for (i = 0; i < pixel_refs->nb; i++) {
-                    Frame *frame = &mi_ctx->frames[pixel_refs->refs[i]];
-                    if (chroma) {
+                if (chroma) {
+                    for (i = 0; i < pixel_refs->nb; i++) {
+                        Frame *frame = &mi_ctx->frames[pixel_refs->refs[i]];
                         x_mv = (x >> mi_ctx->log2_chroma_w) + pixel_mvs->mvs[i][0] / (1 << mi_ctx->log2_chroma_w);
                         y_mv = (y >> mi_ctx->log2_chroma_h) + pixel_mvs->mvs[i][1] / (1 << mi_ctx->log2_chroma_h);
-                    } else {
+                        val += pixel_weights->weights[i] * frame->avf->data[plane][x_mv + y_mv * frame->avf->linesize[plane]];
+                    }
+                } else {
+                    for (i = 0; i < pixel_refs->nb; i++) {
+                        Frame *frame = &mi_ctx->frames[pixel_refs->refs[i]];
                         x_mv = x + pixel_mvs->mvs[i][0];
                         y_mv = y + pixel_mvs->mvs[i][1];
+                        val += pixel_weights->weights[i] * frame->avf->data[plane][x_mv + y_mv * frame->avf->linesize[plane]];
                     }
-
-                    val += pixel_weights->weights[i] * frame->avf->data[plane][x_mv + y_mv * frame->avf->linesize[plane]];
                 }
 
                 val = ROUNDED_DIV(val, weight_sum);
@@ -1049,7 +1058,7 @@ static void bilateral_obmc(MIContext *mi_ctx, Block *block, int mb_x, int mb_y, 
                 nb_x = (((x - start_x) >> (mi_ctx->log2_mb_size - 1)) * 2 - 3) / 2;
                 nb_y = (((y - start_y) >> (mi_ctx->log2_mb_size - 1)) * 2 - 3) / 2;
 
-                if (nb_x || nb_y) {
+                if ((nb_x || nb_y) && mb_x + nb_x < mi_ctx->b_width && mb_y + nb_y < mi_ctx->b_height) {
                     uint64_t sbad = sbads[nb_x + 1 + (nb_y + 1) * 3];
                     nb = &mi_ctx->int_blocks[mb_x + nb_x + (mb_y + nb_y) * mi_ctx->b_width];
 
@@ -1204,12 +1213,12 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *avf_in)
     return 0;
 }
 
-static av_cold void free_blocks(Block *block, int sb)
+static av_cold void free_blocks(Block *block)
 {
     if (block->subs)
-        free_blocks(block->subs, 1);
-    if (sb)
-        av_freep(&block);
+        for (int i = 0; i < 4; i++)
+            free_blocks(&block->subs[i]);
+    av_freep(&block->subs);
 }
 
 static av_cold void uninit(AVFilterContext *ctx)
@@ -1222,7 +1231,7 @@ static av_cold void uninit(AVFilterContext *ctx)
     av_freep(&mi_ctx->pixel_refs);
     if (mi_ctx->int_blocks)
         for (m = 0; m < mi_ctx->b_count; m++)
-            free_blocks(&mi_ctx->int_blocks[m], 0);
+            free_blocks(&mi_ctx->int_blocks[m]);
     av_freep(&mi_ctx->int_blocks);
 
     for (i = 0; i < NB_FRAMES; i++) {

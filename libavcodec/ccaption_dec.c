@@ -23,6 +23,7 @@
 #include "avcodec.h"
 #include "ass.h"
 #include "codec_internal.h"
+#include "libavutil/attributes.h"
 #include "libavutil/opt.h"
 
 #define SCREEN_ROWS 15
@@ -107,10 +108,10 @@ enum cc_charset {
         ENTRY(0x23, "\u00da")                            \
         ENTRY(0x24, "\u00dc")                            \
         ENTRY(0x25, "\u00fc")                            \
-        ENTRY(0x26, "\u00b4")                            \
+        ENTRY(0x26, "\u2018")                            \
         ENTRY(0x27, "\u00a1")                            \
         ENTRY(0x28, "*")                                 \
-        ENTRY(0x29, "\u2018")                            \
+        ENTRY(0x29, "'")                                 \
         ENTRY(0x2a, "-")                                 \
         ENTRY(0x2b, "\u00a9")                            \
         ENTRY(0x2c, "\u2120")                            \
@@ -309,7 +310,7 @@ static av_cold int close_decoder(AVCodecContext *avctx)
     return 0;
 }
 
-static void flush_decoder(AVCodecContext *avctx)
+static av_cold void flush_decoder(AVCodecContext *avctx)
 {
     CCaptionSubContext *ctx = avctx->priv_data;
     ctx->screen[0].row_used = 0;

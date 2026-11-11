@@ -19,6 +19,7 @@
  */
 
 #include <stdlib.h>
+#include "libavutil/mem.h"
 #include "libavcodec/avcodec.h"
 #include "libavcodec/bytestream.h"
 #include "libavcodec/flac.h"
@@ -29,6 +30,7 @@
 #define OGG_FLAC_METADATA_TYPE_STREAMINFO 0x7F
 #define OGG_FLAC_MAGIC "\177FLAC"
 #define OGG_FLAC_MAGIC_SIZE sizeof(OGG_FLAC_MAGIC)-1
+#define OGG_FLAC_STREAMINFO_OFFSET (OGG_FLAC_MAGIC_SIZE + 1 + 1 + 2 + 4 + 4)
 
 static int
 flac_header (AVFormatContext * s, int idx)
@@ -85,16 +87,33 @@ flac_packet (AVFormatContext * s, int idx)
 {
     struct ogg *ogg = s->priv_data;
     struct ogg_stream *os = ogg->streams + idx;
+    AVStream *st = s->streams[idx];
+    int ret;
 
     if (os->psize > OGG_FLAC_MAGIC_SIZE &&
         !memcmp(
             os->buf + os->pstart,
             OGG_FLAC_MAGIC,
-            OGG_FLAC_MAGIC_SIZE))
+            OGG_FLAC_MAGIC_SIZE)) {
+        /* A later link's STREAMINFO: the decoder is still set up for the previous one. */
+        if (os->psize >= OGG_FLAC_STREAMINFO_OFFSET + FLAC_STREAMINFO_SIZE) {
+            av_freep(&os->new_extradata);
+            os->new_extradata = av_memdup(os->buf + os->pstart + OGG_FLAC_STREAMINFO_OFFSET,
+                                          FLAC_STREAMINFO_SIZE);
+            if (!os->new_extradata)
+                return AVERROR(ENOMEM);
+            os->new_extradata_size = FLAC_STREAMINFO_SIZE;
+        }
         return 1;
+    }
 
     if (os->psize > 0 &&
         ((os->buf[os->pstart] & 0x7F) == FLAC_METADATA_TYPE_VORBIS_COMMENT)) {
+        ret = ff_vorbis_update_metadata(s, st, os->buf + os->pstart + 4,
+                                        os->psize - 4);
+        if (ret < 0)
+            return ret;
+
         return 1;
     }
 

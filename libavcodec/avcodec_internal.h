@@ -27,9 +27,22 @@
 
 #include "libavutil/frame.h"
 
+#include "avcodec.h"
 #include "packet.h"
 
-struct AVCodecContext;
+typedef struct FFCodecContext {
+    /**
+     * The public context.
+     */
+    AVCodecContext pub;
+
+    struct AVDictionary *lcevc_params;
+} FFCodecContext;
+
+static av_always_inline FFCodecContext *ffcodeccontext(AVCodecContext *avctx)
+{
+    return (FFCodecContext*)avctx;
+}
 
 typedef struct SideDataMap {
     enum AVPacketSideDataType packet;
@@ -45,7 +58,8 @@ extern const SideDataMap ff_sd_global_map[];
 /**
  * avcodec_receive_frame() implementation for decoders.
  */
-int ff_decode_receive_frame(struct AVCodecContext *avctx, struct AVFrame *frame);
+int ff_decode_receive_frame(struct AVCodecContext *avctx, struct AVFrame *frame,
+                            unsigned flags);
 
 /**
  * avcodec_receive_frame() implementation for encoders.
@@ -91,9 +105,10 @@ void ff_thread_flush(struct AVCodecContext *avctx);
  * Submit available packets for decoding to worker threads, return a
  * decoded frame if available. Returns AVERROR(EAGAIN) if none is available.
  *
- * Parameters are the same as FFCodec.receive_frame.
+ * Parameters are the same as FFCodec.receive_frame, plus flags.
  */
-int ff_thread_receive_frame(struct AVCodecContext *avctx, AVFrame *frame);
+int ff_thread_receive_frame(struct AVCodecContext *avctx, AVFrame *frame,
+                            unsigned flags);
 
 /**
  * Do the actual decoding and obtain a decoded frame from the decoder, if

@@ -85,6 +85,8 @@ static int decode_hybrid(const uint8_t *sptr, const uint8_t *sptr_end, uint8_t *
             if (sptr >= sptr_end)
                 return AVERROR_INVALIDDATA;
             if (*sptr & 0x80) {
+                if (sptr + 2 > sptr_end)
+                    return AVERROR_INVALIDDATA;
                 /* 15-bit color */
                 unsigned c = AV_RB16(sptr) & ~0x8000;
                 unsigned b =  c        & 0x1F;
@@ -227,11 +229,7 @@ static int flashsv_decode_block(AVCodecContext *avctx, const AVPacket *avpkt,
     if (ret == Z_DATA_ERROR) {
         av_log(avctx, AV_LOG_ERROR, "Zlib resync occurred\n");
         inflateSync(zstream);
-        ret = inflate(zstream, Z_FINISH);
-    }
-
-    if (ret != Z_OK && ret != Z_STREAM_END) {
-        //return -1;
+        inflate(zstream, Z_FINISH);
     }
 
     if (s->is_keyframe) {
@@ -242,6 +240,13 @@ static int flashsv_decode_block(AVCodecContext *avctx, const AVPacket *avpkt,
     y_pos += s->diff_start;
 
     if (!s->color_depth) {
+        int inflated = s->block_size * 3 - zstream->avail_out;
+
+        if (inflated < width * 3 * s->diff_height) {
+            av_log(avctx, AV_LOG_ERROR, "Inflated %d bytes, but %d are needed\n",
+                   inflated, width * 3 * s->diff_height);
+            return AVERROR_INVALIDDATA;
+        }
         /* Flash Screen Video stores the image upside down, so copy
          * lines to destination in reverse order. */
         for (k = 1; k <= s->diff_height; k++) {
@@ -263,7 +268,6 @@ static int flashsv_decode_block(AVCodecContext *avctx, const AVPacket *avpkt,
             return ret;
         }
     }
-    skip_bits_long(gb, 8 * block_size); /* skip the consumed bits */
     return 0;
 }
 
@@ -313,6 +317,9 @@ static int flashsv_decode_frame(AVCodecContext *avctx, AVFrame *rframe,
     h_part   = s->image_width  % s->block_width;
     v_blocks = s->image_height / s->block_height;
     v_part   = s->image_height % s->block_height;
+
+    if (h_blocks * v_blocks * 16 > get_bits_left(&gb))
+        return AVERROR_INVALIDDATA;
 
     /* the block size could change between frames, make sure the buffer
      * is large enough, if not, get a larger one */
@@ -472,6 +479,7 @@ static int flashsv_decode_frame(AVCodecContext *avctx, AVFrame *rframe,
                                          i + j * (h_blocks + !!h_part)))
                     av_log(avctx, AV_LOG_ERROR,
                            "error in decompression of block %dx%d\n", i, j);
+                skip_bits_long(&gb, 8 * size);
             }
         }
     }

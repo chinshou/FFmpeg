@@ -7,7 +7,7 @@ export PKG_CONFIG_PATH=/usr/x86_64-mingw32/lib/pkgconfig/
  --enable-libmp3lame  --enable-libtheora --enable-sdl \
  --enable-libopencore-amrnb --enable-libopencore-amrwb \
  --enable-libass --enable-libx264 --enable-libbluray --enable-libvo-amrwbenc \
- --enable-openssl  --disable-ffplay --enable-libcelt \
+ --enable-openssl  --disable-ffplay  \
  --enable-libwebp --enable-libxml2  --enable-libharfbuzz \
  --disable-muxer=encx --enable-libdav1d --enable-w32threads --disable-pthreads \
  --disable-muxer=encx_audio \
@@ -17,7 +17,7 @@ export PKG_CONFIG_PATH=/usr/x86_64-mingw32/lib/pkgconfig/
  --enable-libxavs --disable-outdev=sdl --extra-cflags="-I/usr/x86_64-mingw32/include "  \
  --extra-ldflags="-L/usr/x86_64-mingw32/lib -static -static-libgcc -static-libstdc++ "  \
  --extra-cxxflags="-I/home/hubdog/Projects/ffmpeg-win/BlackmagicDeckLinkSDK11.0/Win/include "  \
- --extra-libs="-lstdc++ -lwinmm -liconv -lws2_32 -lssl -lcrypto  -lwldap32 -lgdi32 -lwsock32 -lexpat -lpthread -lrpcrt4 -lole32 -loleaut32 -limm32 -lversion -luuid "  
+ --extra-libs="-lstdc++ -lwinmm -liconv -lws2_32 -lssl -lcrypto  -lwldap32 -lgdi32 -lwsock32 -lexpat -lrpcrt4 -lole32 -loleaut32 -limm32 -lversion -luuid "  
  #--extra-libs="-lstdc++ -lwinmm -liconv -lws2_32 -lssl -lcrypto -lwldap32 -lgdi32 -lwsock32 -lexpat -lpthread" 
 # --enable-avisynth --enable-pthreads --enable-zlib --enable-bzlib --enable-libxvid  --enable-libutvideo --enable-frei0r --enable-libmodplug --enable-libilbc --enable-libflite --enable-libvo-aacenc  --enable-libsox \
 # --enable-libsrt --enable-decklink

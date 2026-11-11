@@ -26,6 +26,7 @@
  */
 
 #include "avfilter.h"
+#include "libavutil/pixfmt.h"
 
 /**
  * Special return code when activate() did not do anything.
@@ -205,6 +206,21 @@ static inline FilterLink* ff_filter_link(AVFilterLink *link)
  * should not be automatically propagated through it.
  */
 #define FF_FILTER_FLAG_HWFRAME_AWARE (1 << 0)
+
+/**
+ * The filter handles input frames whose size differs from the one its input
+ * link was configured with.
+ */
+#define FF_FILTER_FLAG_DYNAMIC_FRAME_SIZE   (1 << 1)
+
+/**
+ * The filter handles input frames whose pixel format differs from the one its
+ * input link was configured with.
+ */
+#define FF_FILTER_FLAG_DYNAMIC_FRAME_FORMAT (1 << 2)
+
+#define FF_FILTER_FLAG_DYNAMIC_FRAME_PARAMS (FF_FILTER_FLAG_DYNAMIC_FRAME_SIZE | \
+                                             FF_FILTER_FLAG_DYNAMIC_FRAME_FORMAT)
 
 /**
  * Find the index of a link.
@@ -556,6 +572,17 @@ int ff_inlink_consume_samples(AVFilterLink *link, unsigned min, unsigned max,
 AVFrame *ff_inlink_peek_frame(AVFilterLink *link, size_t idx);
 
 /**
+ * Check that a video frame has the size and pixel format its link was
+ * configured with.
+ *
+ * @param dynamic_flags FF_FILTER_FLAG_DYNAMIC_* flags of the parameters
+ *                      allowed to differ
+ * @return 0 if the frame matches, AVERROR(EINVAL) otherwise
+ */
+int ff_inlink_check_frame_params(AVFilterLink *link, const AVFrame *frame,
+                                 int dynamic_flags);
+
+/**
  * Make sure a frame is writable.
  * This is similar to av_frame_make_writable() except it uses the link's
  * buffer allocation callback, and therefore allows direct rendering.
@@ -750,6 +777,21 @@ int ff_filter_process_command(AVFilterContext *ctx, const char *cmd,
 int ff_filter_get_nb_threads(AVFilterContext *ctx) av_pure;
 
 /**
+ * Compute the boundary index for a slice when work of size total is split
+ * into nb_jobs slices. Returns the first index of slice jobnr, so the slice
+ * jobnr covers [ff_slice_pos(total, jobnr, nb_jobs),
+ * ff_slice_pos(total, jobnr + 1, nb_jobs)).
+ *
+ * The multiplication is performed in 64bit to avoid signed overflow of the
+ * total * jobnr intermediate that would occur for large dimensions and many
+ * slice threads.
+ */
+static inline int ff_slice_pos(int total, int jobnr, int nb_jobs)
+{
+    return (int)((int64_t)total * jobnr / nb_jobs);
+}
+
+/**
  * Send a frame of data to the next filter.
  *
  * @param link   the output link over which the data is being sent
@@ -807,15 +849,13 @@ int ff_append_inpad_free_name (AVFilterContext *f, AVFilterPad *p);
 int ff_append_outpad_free_name(AVFilterContext *f, AVFilterPad *p);
 
 /**
- * Tell if an integer is contained in the provided -1-terminated list of integers.
- * This is useful for determining (for instance) if an AVPixelFormat is in an
- * array of supported formats.
+ * Tell if a pixel format is contained in the provided AV_PIX_FMT_NONE-terminated list.
  *
  * @param fmt provided format
- * @param fmts -1-terminated list of formats
+ * @param fmts AV_PIX_FMT_NONE-terminated list of pixel formats
  * @return 1 if present, 0 if absent
  */
-int ff_fmt_is_in(int fmt, const int *fmts);
+int ff_pixfmt_is_in(enum AVPixelFormat fmt, const enum AVPixelFormat *fmts);
 
 int ff_filter_execute(AVFilterContext *ctx, avfilter_action_func *func,
                       void *arg, int *ret, int nb_jobs);

@@ -32,15 +32,25 @@ void ff_h26x_sao_band_filter_16x16_8_neon(uint8_t *_dst, const uint8_t *_src,
                                         ptrdiff_t stride_dst, ptrdiff_t stride_src,
                                         const int16_t *sao_offset_val, int sao_left_class,
                                         int width, int height);
-void ff_hevc_sao_edge_filter_16x16_8_neon(uint8_t *dst, const uint8_t *src, ptrdiff_t stride_dst,
-                                          const int16_t *sao_offset_val, int eo, int width, int height);
-void ff_hevc_sao_edge_filter_8x8_8_neon(uint8_t *dst, const uint8_t *src, ptrdiff_t stride_dst,
-                                        const int16_t *sao_offset_val, int eo, int width, int height);
+#define SAO_EDGE_FILTER_PROTO(codec, size, depth)                          \
+    void ff_##codec##_sao_edge_filter_##size##_##depth##_neon(             \
+        uint8_t *dst, const uint8_t *src, ptrdiff_t stride_dst,            \
+        const int16_t *sao_offset_val, int eo, int width, int height)
 
-void ff_vvc_sao_edge_filter_16x16_8_neon(uint8_t *dst, const uint8_t *src, ptrdiff_t stride_dst,
-                                         const int16_t *sao_offset_val, int eo, int width, int height);
-void ff_vvc_sao_edge_filter_8x8_8_neon(uint8_t *dst, const uint8_t *src, ptrdiff_t stride_dst,
-                                       const int16_t *sao_offset_val, int eo, int width, int height);
+SAO_EDGE_FILTER_PROTO(hevc, 16x16, 8);
+SAO_EDGE_FILTER_PROTO(hevc, 8x8,   8);
+SAO_EDGE_FILTER_PROTO(hevc, 16x16, 10);
+SAO_EDGE_FILTER_PROTO(hevc, 8x8,   10);
+SAO_EDGE_FILTER_PROTO(hevc, 16x16, 12);
+SAO_EDGE_FILTER_PROTO(hevc, 8x8,   12);
+SAO_EDGE_FILTER_PROTO(vvc,  16x16, 8);
+SAO_EDGE_FILTER_PROTO(vvc,  8x8,   8);
+SAO_EDGE_FILTER_PROTO(vvc,  16x16, 10);
+SAO_EDGE_FILTER_PROTO(vvc,  8x8,   10);
+SAO_EDGE_FILTER_PROTO(vvc,  16x16, 12);
+SAO_EDGE_FILTER_PROTO(vvc,  8x8,   12);
+
+#undef SAO_EDGE_FILTER_PROTO
 
 #define NEON8_FNPROTO_PARTIAL_6(fn, args, ext) \
     void ff_hevc_put_hevc_##fn##_h4_8_neon##ext args;  \
@@ -95,7 +105,7 @@ NEON8_FNPROTO(pel_bi_pixels, (uint8_t *dst, ptrdiff_t dststride,
 NEON8_FNPROTO(pel_bi_w_pixels, (uint8_t *_dst, ptrdiff_t _dststride,
         const uint8_t *_src, ptrdiff_t _srcstride, const int16_t *src2,
         int height, int denom, int wx0, int wx1,
-        int ox0, int ox1, intptr_t mx, intptr_t my, int width),);
+        int ox, intptr_t mx, intptr_t my, int width),);
 
 NEON8_FNPROTO(epel_bi_h, (uint8_t *dst, ptrdiff_t dststride,
         const uint8_t *src, ptrdiff_t srcstride, const int16_t *src2,
@@ -130,6 +140,10 @@ NEON8_FNPROTO(epel_uni_v, (uint8_t *dst,  ptrdiff_t dststride,
         const uint8_t *src, ptrdiff_t srcstride,
         int height, intptr_t mx, intptr_t my, int width),);
 
+NEON8_FNPROTO(epel_uni_h, (uint8_t *dst,  ptrdiff_t dststride,
+        const uint8_t *src, ptrdiff_t srcstride,
+        int height, intptr_t mx, intptr_t my, int width),);
+
 NEON8_FNPROTO(epel_uni_hv, (uint8_t *dst, ptrdiff_t _dststride,
         const uint8_t *src, ptrdiff_t srcstride,
         int height, intptr_t mx, intptr_t my, int width),);
@@ -143,7 +157,7 @@ NEON8_FNPROTO(epel_uni_w_v, (uint8_t *_dst,  ptrdiff_t _dststride,
         int height, int denom, int wx, int ox,
         intptr_t mx, intptr_t my, int width),);
 
-NEON8_FNPROTO_PARTIAL_4(qpel_uni_w_v, (uint8_t *_dst,  ptrdiff_t _dststride,
+NEON8_FNPROTO(qpel_uni_w_v, (uint8_t *_dst,  ptrdiff_t _dststride,
         const uint8_t *_src, ptrdiff_t _srcstride,
         int height, int denom, int wx, int ox,
         intptr_t mx, intptr_t my, int width),);
@@ -222,12 +236,12 @@ NEON8_FNPROTO(epel_uni_w_hv, (uint8_t *_dst,  ptrdiff_t _dststride,
         int height, int denom, int wx, int ox,
         intptr_t mx, intptr_t my, int width), _i8mm);
 
-NEON8_FNPROTO_PARTIAL_5(qpel_uni_w_hv, (uint8_t *_dst,  ptrdiff_t _dststride,
+NEON8_FNPROTO(qpel_uni_w_hv, (uint8_t *_dst,  ptrdiff_t _dststride,
         const uint8_t *_src, ptrdiff_t _srcstride,
         int height, int denom, int wx, int ox,
         intptr_t mx, intptr_t my, int width),);
 
-NEON8_FNPROTO_PARTIAL_5(qpel_uni_w_hv, (uint8_t *_dst,  ptrdiff_t _dststride,
+NEON8_FNPROTO(qpel_uni_w_hv, (uint8_t *_dst,  ptrdiff_t _dststride,
         const uint8_t *_src, ptrdiff_t _srcstride,
         int height, int denom, int wx, int ox,
         intptr_t mx, intptr_t my, int width), _i8mm);

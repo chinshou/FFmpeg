@@ -39,6 +39,30 @@ struct AVDeviceInfoList;
  */
 #define FF_INFMT_FLAG_PREFER_CODEC_FRAMERATE                   (1 << 1)
 
+/**
+ * Automatically parse ID3v2 metadata
+ */
+#define FF_INFMT_FLAG_ID3V2_AUTO                               (1 << 2)
+
+/**
+ * Input format stream state
+ * The stream states to be used for FFInputFormat::read_set_state
+ */
+enum FFInputFormatStreamState {
+     FF_INFMT_STATE_PLAY,
+     FF_INFMT_STATE_PAUSE,
+ };
+
+/**
+ * Command handling options
+ * Different options influencing the behaviour of
+ * the FFInputFormat::handle_command callback.
+ */
+enum FFInputFormatCommandOption {
+    FF_INFMT_COMMAND_SUBMIT,
+    FF_INFMT_COMMAND_GET_REPLY,
+};
+
 typedef struct FFInputFormat {
     /**
      * The public AVInputFormat. See avformat.h for it.
@@ -64,6 +88,15 @@ typedef struct FFInputFormat {
      * Tell if a given file has a chance of being parsed as this format.
      * The buffer provided is guaranteed to be AVPROBE_PADDING_SIZE bytes
      * big so you do not have to check for that unless you need more.
+     *
+     * If the final score is not yet resolvable, the special return value
+     * AVERROR(EAGAIN) can be used to signal to the caller that probing must
+     * be tried again with more bytes.
+     *
+     * This is distinct from AVPROBE_SCORE_RETRY, which means "possibly mine,
+     * but if another format is more confident, let it have the file", whereas
+     * AVERROR(EAGAIN) means "possibly mine, don't let another format claim
+     * it until I've seen enough data to make a decision".
      */
     int (*read_probe)(const AVProbeData *);
 
@@ -109,16 +142,40 @@ typedef struct FFInputFormat {
                               int64_t *pos, int64_t pos_limit);
 
     /**
-     * Start/resume playing - only meaningful if using a network-based format
+     * Change the stream state - only meaningful if using a network-based format
      * (RTSP).
      */
-    int (*read_play)(struct AVFormatContext *);
+    int (*read_set_state)(struct AVFormatContext *,
+                          enum FFInputFormatStreamState state);
 
     /**
-     * Pause playing - only meaningful if using a network-based format
-     * (RTSP).
+     * Handle demuxer commands
+     * This callback is used to either send a command to a demuxer
+     * (FF_INFMT_COMMAND_SUBMIT), or to retrieve the reply for
+     * a previously sent command (FF_INFMT_COMMAND_GET_REPLY).
+     *
+     * Demuxers implementing this must return AVERROR(ENOTSUP)
+     * if the provided \p id is not handled by the demuxer.
+     * Demuxers should return AVERROR(EAGAIN) if they can handle
+     * a specific command but are not able to at the moment.
+     * When a reply is requested that is not available yet, the
+     * demuxer should also return AVERROR(EAGAIN).
+     *
+     * Depending on \p opt, the \p data will be either a pointer
+     * to the command payload structure for the specified ID, or
+     * a pointer to the buffer for the command reply for the
+     * specified ID.
+     *
+     * When a command is submitted, before a previous reply
+     * was requested from the demuxer, the demuxer should discard
+     * the old reply.
+     *
+     * @see avformat_send_command()
+     * @see avformat_receive_command_reply()
      */
-    int (*read_pause)(struct AVFormatContext *);
+    int (*handle_command)(struct AVFormatContext *,
+                          enum FFInputFormatCommandOption opt,
+                          enum AVFormatCommandID id, void *data);
 
     /**
      * Seek to timestamp ts.
@@ -261,8 +318,8 @@ void ff_rfps_calculate(AVFormatContext *ic);
  *
  * The upper (lower) bound of the output interval is rounded up (down) such that
  * the output interval always falls within the input interval. The timestamp is
- * rounded to the nearest integer and halfway cases away from zero, and can
- * therefore fall outside of the output interval.
+ * rounded to the nearest integer and halfway cases away from zero, then
+ * clamped to the output interval.
  *
  * Useful to simplify the rescaling of the arguments of FFInputFormat::read_seek2()
  *
@@ -335,6 +392,28 @@ int ff_get_extradata(void *logctx, AVCodecParameters *par, AVIOContext *pb, int 
  * @return stream index, or < 0 on error
  */
 int ff_find_stream_index(const AVFormatContext *s, int id);
+
+/**
+ * Parse the gapless playback information Apple encoders store in an iTunSMPB
+ * tag. The tag is a list of hexadecimal fields; the ones of interest are
+ *
+ *   <reserved> <priming> <remainder> <valid samples>
+ *
+ * The decoded stream holds the three sample counts back to back, the priming
+ * and remainder samples being encoder artifacts.
+ *
+ * The counts are returned small enough to be added and rescaled without
+ * overflowing.
+ *
+ * @param value     tag contents
+ * @param priming   number of samples to discard at the start of the stream
+ * @param remainder number of samples to discard at the end of the stream
+ * @param samples   number of valid samples between the two
+ * @return >= 0 if OK, AVERROR_INVALIDDATA if the tag could not be parsed or
+ *         holds counts too large to be sample counts
+ */
+int ff_itunes_parse_smpb(const char *value, int64_t *priming,
+                         int64_t *remainder, int64_t *samples);
 
 int ff_buffer_packet(AVFormatContext *s, AVPacket *pkt);
 void av_register_input_format(FFInputFormat *format);

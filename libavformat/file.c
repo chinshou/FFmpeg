@@ -19,9 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include <string.h>
+
 #include "config_components.h"
 
 #include "libavutil/avstring.h"
+#include "libavutil/error.h"
 #include "libavutil/file_open.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"
@@ -94,10 +97,14 @@ typedef struct FileContext {
     int fd;
     int trunc;
     int blocksize;
+    int pkt_size;
     int follow;
     int seekable;
 #if HAVE_DIRENT_H
     DIR *dir;
+#endif
+#if CONFIG_WINDOWS_HANDLE_PROTOCOL
+    int64_t handle;
 #endif
 } FileContext;
 
@@ -106,6 +113,7 @@ static const AVOption file_options[] = {
     { "blocksize", "set I/O operation maximum block size", offsetof(FileContext, blocksize), AV_OPT_TYPE_INT, { .i64 = INT_MAX }, 1, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM },
     { "follow", "Follow a file as it is being written", offsetof(FileContext, follow), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, AV_OPT_FLAG_DECODING_PARAM },
     { "seekable", "Sets if the file is seekable", offsetof(FileContext, seekable), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 0, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_ENCODING_PARAM },
+    { "pkt_size", "Maximum packet size", offsetof(FileContext, pkt_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, AV_OPT_FLAG_DECODING_PARAM | AV_OPT_FLAG_ENCODING_PARAM },
     { NULL }
 };
 
@@ -218,6 +226,15 @@ static int fd_dup(URLContext *h, int oldfd)
 }
 #endif
 
+#if CONFIG_FD_PROTOCOL || CONFIG_PIPE_PROTOCOL || CONFIG_WINDOWS_HANDLE_PROTOCOL
+/* Without a check, avio_check() would open the descriptor, rewinding seekable
+ * output. It cannot pass the option selecting the descriptor, so just fail. */
+static int fd_check(URLContext *h, int mask)
+{
+    return AVERROR(ENOSYS);
+}
+#endif
+
 static int file_close(URLContext *h)
 {
     FileContext *c = h->priv_data;
@@ -230,6 +247,9 @@ static int64_t file_seek(URLContext *h, int64_t pos, int whence)
 {
     FileContext *c = h->priv_data;
     int64_t ret;
+
+    if (c->follow && (whence == SEEK_END || whence == AVSEEK_SIZE))
+        return AVERROR(ENOSYS); /* true size is not known */
 
     if (whence == AVSEEK_SIZE) {
         struct stat st;
@@ -310,10 +330,18 @@ static int file_open(URLContext *h, const char *filename, int flags)
 
     h->is_streamed = !fstat(fd, &st) && S_ISFIFO(st.st_mode);
 
-    /* Buffer writes more than the default 32k to improve throughput especially
+    if (c->pkt_size) {
+        h->max_packet_size = c->pkt_size;
+    } else {
+        /* Buffer writes more than the default 32k to improve throughput especially
+         * with networked file systems */
+        if (!h->is_streamed && flags & AVIO_FLAG_WRITE)
+             h->max_packet_size = 262144;
+    }
+    /* Disable per-packet flushing by default to improve throughput especially
      * with networked file systems */
     if (!h->is_streamed && flags & AVIO_FLAG_WRITE)
-        h->min_packet_size = h->max_packet_size = 262144;
+        h->min_packet_size = h->max_packet_size;
 
     if (c->seekable >= 0)
         h->is_streamed = !c->seekable;
@@ -388,7 +416,7 @@ static int file_read_dir(URLContext *h, AVIODirEntry **next)
     }
 
     (*next)->name = av_strdup(dir->d_name);
-    return 0;
+    return (*next)->name ? 0 : AVERROR(ENOMEM);
 #else
     return AVERROR(ENOSYS);
 #endif /* HAVE_LSTAT */
@@ -465,7 +493,7 @@ const URLProtocol ff_pipe_protocol = {
     .url_write           = file_write,
     .url_close           = file_close,
     .url_get_file_handle = file_get_handle,
-    .url_check           = file_check,
+    .url_check           = fd_check,
     .priv_data_size      = sizeof(FileContext),
     .priv_data_class     = &pipe_class,
     .default_whitelist   = "crypto,data"
@@ -511,13 +539,92 @@ const URLProtocol ff_fd_protocol = {
     .url_seek            = file_seek,
     .url_close           = file_close,
     .url_get_file_handle = file_get_handle,
-    .url_check           = file_check,
+    .url_check           = fd_check,
     .priv_data_size      = sizeof(FileContext),
     .priv_data_class     = &fd_class,
     .default_whitelist   = "crypto,data"
 };
 
 #endif /* CONFIG_FD_PROTOCOL */
+
+#if CONFIG_WINDOWS_HANDLE_PROTOCOL
+
+#include <windows.h>
+
+static const AVOption windows_handle_options[] = {
+    { "blocksize", "set I/O operation maximum block size", offsetof(FileContext, blocksize), AV_OPT_TYPE_INT, { .i64 = INT_MAX }, 1, INT_MAX, AV_OPT_FLAG_ENCODING_PARAM },
+    { "handle", "set Windows handle", offsetof(FileContext, handle), AV_OPT_TYPE_INT64, { .i64 = -1 }, -1, INT64_MAX, AV_OPT_FLAG_ENCODING_PARAM },
+    { NULL }
+};
+
+static const AVClass windows_handle_class = {
+    .class_name = "windows_handle",
+    .item_name  = av_default_item_name,
+    .option     = windows_handle_options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
+static int windows_handle_open(URLContext *h, const char *filename, int flags)
+{
+    FileContext *c = h->priv_data;
+    HANDLE handle = (HANDLE)(intptr_t)c->handle;
+    HANDLE dup_handle;
+    int fd;
+    struct stat st;
+
+    if (strcmp(filename, "handle:") != 0) {
+        av_log(h, AV_LOG_ERROR, "Doesn't support passing Windows handles via URL,"
+                                " please set it via -handle {num}\n");
+        return AVERROR(EINVAL);
+    }
+
+    if (handle == INVALID_HANDLE_VALUE || !handle) {
+        if (flags & AVIO_FLAG_WRITE)
+            handle = GetStdHandle(STD_OUTPUT_HANDLE);
+        else
+            handle = GetStdHandle(STD_INPUT_HANDLE);
+        if (handle == INVALID_HANDLE_VALUE || !handle)
+            return AVERROR(EBADF);
+    }
+
+    if (!DuplicateHandle(GetCurrentProcess(), handle,
+                         GetCurrentProcess(), &dup_handle,
+                         0, FALSE, DUPLICATE_SAME_ACCESS))
+        return GetLastError() == ERROR_INVALID_HANDLE ? AVERROR(EBADF)
+                                                      : AVERROR(EIO);
+
+    fd = _open_osfhandle((intptr_t)dup_handle, O_BINARY);
+    if (fd == -1) {
+        CloseHandle(dup_handle);
+        return AVERROR(errno);
+    }
+
+    if (fstat(fd, &st) < 0) {
+        close(fd);
+        return AVERROR(errno);
+    }
+
+    c->fd = fd;
+    h->is_streamed = !(S_ISREG(st.st_mode) || S_ISBLK(st.st_mode));
+
+    return 0;
+}
+
+const URLProtocol ff_windows_handle_protocol = {
+    .name                = "handle",
+    .url_open            = windows_handle_open,
+    .url_read            = file_read,
+    .url_write           = file_write,
+    .url_seek            = file_seek,
+    .url_close           = file_close,
+    .url_get_file_handle = file_get_handle,
+    .url_check           = fd_check,
+    .priv_data_size      = sizeof(FileContext),
+    .priv_data_class     = &windows_handle_class,
+    .default_whitelist   = "crypto,data"
+};
+
+#endif /* CONFIG_WINDOWS_HANDLE_PROTOCOL */
 
 #if CONFIG_ANDROID_CONTENT_PROTOCOL
 #include <jni.h>
@@ -633,8 +740,9 @@ static int android_content_open(URLContext *h, const char *filename, int flags)
         goto done;
 
     if (fstat(fd, &st) < 0) {
+        ret = AVERROR(errno);
         close(fd);
-        return AVERROR(errno);
+        goto done;
     }
 
     c->fd = fd;
@@ -671,7 +779,6 @@ const URLProtocol ff_android_content_protocol = {
     .url_seek            = file_seek,
     .url_close           = file_close,
     .url_get_file_handle = file_get_handle,
-    .url_check           = NULL,
     .priv_data_size      = sizeof(FileContext),
     .priv_data_class     = &android_content_class,
 };

@@ -39,7 +39,7 @@ static inline int get_random_number(const int bits, unsigned *const state) {
     unsigned bit = ((r >> 0) ^ (r >> 1) ^ (r >> 3) ^ (r >> 12)) & 1;
     *state = (r >> 1) | (bit << 15);
 
-    return (*state >> (16 - bits)) & ((1 << bits) - 1);
+    return av_zero_extend(*state >> (16 - bits), bits);
 }
 
 static inline int round2(const int x, const uint64_t shift) {
@@ -152,8 +152,9 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
         payload_4byte = get_bits1(gb);
         payload_size = get_bits(gb, payload_4byte ? 2 : 8);
         set_idx = get_bits(gb, 3);
+
         fgp = av_film_grain_params_alloc(&fgp_size);
-        if (!fgp)
+        if (!fgp || s->sets[set_idx])
             goto error;
         aom = &fgp->codec.aom;
 
@@ -199,20 +200,20 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
                 fgp->color_trc = get_bits(gb, 8);
                 fgp->color_space = get_bits(gb, 8);
                 fgp->color_range = get_bits1(gb) ? AVCOL_RANGE_JPEG : AVCOL_RANGE_MPEG;
-                if (fgp->color_primaries > AVCOL_PRI_NB ||
+                if (fgp->color_primaries >= AVCOL_PRI_NB ||
                     fgp->color_primaries == AVCOL_PRI_RESERVED ||
                     fgp->color_primaries == AVCOL_PRI_RESERVED0 ||
-                    fgp->color_trc > AVCOL_TRC_NB ||
+                    fgp->color_trc >= AVCOL_TRC_NB ||
                     fgp->color_trc == AVCOL_TRC_RESERVED ||
                     fgp->color_trc == AVCOL_TRC_RESERVED0 ||
-                    fgp->color_space > AVCOL_SPC_NB ||
+                    fgp->color_space >= AVCOL_SPC_NB ||
                     fgp->color_space == AVCOL_SPC_RESERVED)
                     goto error;
             }
         }
 
         predict_scaling = get_bits1(gb);
-        if (predict_scaling && (!ref || ref == fgp))
+        if (predict_scaling && !ref)
             goto error; // prediction must be from valid, different set
 
         predict_y_scaling = predict_scaling ? get_bits1(gb) : 0;
@@ -246,7 +247,7 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
                 bits_scaling = get_bits(gb, 2) + 5;
                 for (i = 0; i < aom->num_y_points; i++) {
                     y_value += get_bits(gb, bits_inc);
-                    if (y_value > UINT8_MAX)
+                    if (y_value > UINT8_MAX || i && y_value == aom->y_points[i - 1][0])
                         goto error;
                     aom->y_points[i][0] = y_value;
                     aom->y_points[i][1] = get_bits(gb, bits_scaling);
@@ -297,7 +298,7 @@ int ff_aom_parse_film_grain_sets(AVFilmGrainAFGS1Params *s,
                         uv_offset = get_bits(gb, 8);
                         for (i = 0; i < aom->num_uv_points[uv]; i++) {
                             uv_value += get_bits(gb, bits_inc);
-                            if (uv_value > UINT8_MAX)
+                            if (uv_value > UINT8_MAX || i && uv_value == aom->uv_points[uv][i - 1][0])
                                 goto error;
                             aom->uv_points[uv][i][0] = uv_value;
                             aom->uv_points[uv][i][1] = get_bits(gb, bits_scaling) + uv_offset;

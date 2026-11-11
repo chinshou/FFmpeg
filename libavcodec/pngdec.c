@@ -23,6 +23,7 @@
 
 #include "config_components.h"
 
+#include "libavutil/attributes.h"
 #include "libavutil/avassert.h"
 #include "libavutil/bprint.h"
 #include "libavutil/crc.h"
@@ -125,6 +126,9 @@ typedef struct PNGDecContext {
     int row_size; /* decompressed row size */
     int pass_row_size; /* decompress row size of the current pass */
     int y;
+    /* sub-8-bit samples of an APNG frame are decoded packed at the start of
+     * the frame row and only moved to the frame position once unpacked */
+    int subframe_packed;
     FFZStream zstream;
 
     AVBufferRef *exif_data;
@@ -218,34 +222,6 @@ static void png_put_interlaced_row(uint8_t *dst, int width,
     }
 }
 
-void ff_add_png_paeth_prediction(uint8_t *dst, uint8_t *src, uint8_t *top,
-                                 int w, int bpp)
-{
-    int i;
-    for (i = 0; i < w; i++) {
-        int a, b, c, p, pa, pb, pc;
-
-        a = dst[i - bpp];
-        b = top[i];
-        c = top[i - bpp];
-
-        p  = b - c;
-        pc = a - c;
-
-        pa = abs(p);
-        pb = abs(pc);
-        pc = abs(p + pc);
-
-        if (pa <= pb && pa <= pc)
-            p = a;
-        else if (pb <= pc)
-            p = b;
-        else
-            p = c;
-        dst[i] = p + src[i];
-    }
-}
-
 #define UNROLL1(bpp, op)                                                      \
     {                                                                         \
         r = dst[0];                                                           \
@@ -285,7 +261,7 @@ void ff_add_png_paeth_prediction(uint8_t *dst, uint8_t *src, uint8_t *top,
 
 /* NOTE: 'dst' can be equal to 'last' */
 void ff_png_filter_row(PNGDSPContext *dsp, uint8_t *dst, int filter_type,
-                       uint8_t *src, uint8_t *last, int size, int bpp)
+                       const uint8_t *src, const uint8_t *last, int size, int bpp)
 {
     int i, p, r, g, b, a;
 
@@ -299,7 +275,7 @@ void ff_png_filter_row(PNGDSPContext *dsp, uint8_t *dst, int filter_type,
         if (bpp == 4) {
             p = *(int *)dst;
             for (; i < size; i += bpp) {
-                unsigned s = *(int *)(src + i);
+                unsigned s = *(const int *)(src + i);
                 p = ((s & 0x7f7f7f7f) + (p & 0x7f7f7f7f)) ^ ((s ^ p) & 0x80808080);
                 *(int *)(dst + i) = p;
             }
@@ -334,7 +310,7 @@ void ff_png_filter_row(PNGDSPContext *dsp, uint8_t *dst, int filter_type,
                 i = w;
             }
         }
-        ff_add_png_paeth_prediction(dst + i, src + i, last + i, size - i, bpp);
+        ff_png_add_paeth_prediction(dst + i, src + i, last + i, size - i, bpp);
         break;
     }
 }
@@ -371,7 +347,8 @@ static void png_handle_row(PNGDecContext *s, uint8_t *dst, ptrdiff_t dst_stride)
     int got_line;
 
     if (!s->interlace_type) {
-        ptr = dst + dst_stride * (s->y + s->y_offset) + s->x_offset * s->bpp;
+        ptr = dst + dst_stride * (s->y + s->y_offset) +
+              (s->subframe_packed ? 0 : s->x_offset * s->bpp);
         if (s->y == 0)
             last_row = s->last_row;
         else
@@ -477,6 +454,9 @@ static int png_decode_idat(PNGDecContext *s, GetByteContext *gb,
     return 0;
 }
 
+/* Hard cap on decompressed zTXt/iCCP payloads to defeat decompression bombs. */
+#define PNG_ZBUF_MAX_DECOMPRESSED (16 * 1024 * 1024)
+
 static int decode_zbuf(AVBPrint *bp, const uint8_t *data,
                        const uint8_t *data_end, void *logctx)
 {
@@ -493,6 +473,13 @@ static int decode_zbuf(AVBPrint *bp, const uint8_t *data,
     av_bprint_init(bp, 0, AV_BPRINT_SIZE_UNLIMITED);
 
     while (zstream->avail_in > 0) {
+        if (bp->len > PNG_ZBUF_MAX_DECOMPRESSED) {
+            av_log(logctx, AV_LOG_ERROR,
+                   "Compressed PNG chunk expands beyond %d bytes, aborting\n",
+                   PNG_ZBUF_MAX_DECOMPRESSED);
+            ret = AVERROR_INVALIDDATA;
+            goto fail;
+        }
         av_bprint_get_buffer(bp, 2, &buf, &buf_size);
         if (buf_size < 2) {
             ret = AVERROR(ENOMEM);
@@ -533,7 +520,7 @@ static char *iso88591_to_utf8(const char *in, size_t size_in)
         return NULL;
     for (i = 0; i < size_in; i++) {
         if (in[i] & 0x80) {
-            *(q++) = 0xC0 | (in[i] >> 6);
+            *(q++) = 0xC0 | ((in[i] >> 6) & 0x3);
             *(q++) = 0x80 | (in[i] & 0x3F);
         } else {
             *(q++) = in[i];
@@ -586,7 +573,7 @@ static int decode_text_to_exif(PNGDecContext *s, const char *txt_utf8)
     }
 
     // first condition checks for overflow in 2 * exif_len
-    if ((exif_len & ~SIZE_MAX) || end - ptr < 2 * exif_len)
+    if (exif_len > SIZE_MAX / 2 || end - ptr < 2 * exif_len)
         return AVERROR_INVALIDDATA;
     if (exif_len < 10)
         return AVERROR_INVALIDDATA;
@@ -934,6 +921,12 @@ static int decode_idat_chunk(AVCodecContext *avctx, PNGDecContext *s,
         s->bpp            = (s->bits_per_pixel + 7) >> 3;
         s->row_size       = (s->cur_w * s->bits_per_pixel + 7) >> 3;
 
+        /* Packed rows of sub-8-bit frames cannot be placed at the frame
+         * offset, as that one is a pixel and not a byte offset. */
+        s->subframe_packed = CONFIG_APNG_DECODER &&
+                             avctx->codec_id == AV_CODEC_ID_APNG &&
+                             s->bits_per_pixel <= 4 && !s->interlace_type;
+
         if ((s->bit_depth == 2 || s->bit_depth == 4 || s->bit_depth == 8) &&
                 s->color_type == PNG_COLOR_TYPE_RGB) {
             avctx->pix_fmt = AV_PIX_FMT_RGB24;
@@ -997,6 +990,11 @@ static int decode_idat_chunk(AVCodecContext *avctx, PNGDecContext *s,
 
             s->bpp += byte_depth;
         }
+
+        /* PNG spec mandates independent alpha channel */
+        if (s->color_type == PNG_COLOR_TYPE_RGB_ALPHA ||
+            s->color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
+            avctx->alpha_mode = AVALPHA_MODE_STRAIGHT;
 
         ff_progress_frame_unref(&s->picture);
         if (s->dispose_op == APNG_DISPOSE_OP_PREVIOUS) {
@@ -1231,76 +1229,96 @@ static int decode_sbit_chunk(AVCodecContext *avctx, PNGDecContext *s,
     return 0;
 }
 
-static void handle_small_bpp(PNGDecContext *s, AVFrame *p)
+/* expand one row of packed sub-8-bit samples to one byte per sample, in place */
+static void unpack_small_row(PNGDecContext *s, uint8_t *pd, int width)
 {
     if (s->bits_per_pixel == 1 && s->color_type == PNG_COLOR_TYPE_PALETTE) {
-        int i, j, k;
-        uint8_t *pd = p->data[0];
-        for (j = 0; j < s->height; j++) {
-            i = s->width / 8;
-            for (k = 7; k >= 1; k--)
-                if ((s->width&7) >= k)
-                    pd[8*i + k - 1] = (pd[i]>>8-k) & 1;
-            for (i--; i >= 0; i--) {
-                pd[8*i + 7]=  pd[i]     & 1;
-                pd[8*i + 6]= (pd[i]>>1) & 1;
-                pd[8*i + 5]= (pd[i]>>2) & 1;
-                pd[8*i + 4]= (pd[i]>>3) & 1;
-                pd[8*i + 3]= (pd[i]>>4) & 1;
-                pd[8*i + 2]= (pd[i]>>5) & 1;
-                pd[8*i + 1]= (pd[i]>>6) & 1;
-                pd[8*i + 0]=  pd[i]>>7;
-            }
-            pd += p->linesize[0];
+        int i, k;
+
+        i = width / 8;
+        for (k = 7; k >= 1; k--)
+            if ((width&7) >= k)
+                pd[8*i + k - 1] = (pd[i]>>8-k) & 1;
+        for (i--; i >= 0; i--) {
+            pd[8*i + 7]=  pd[i]     & 1;
+            pd[8*i + 6]= (pd[i]>>1) & 1;
+            pd[8*i + 5]= (pd[i]>>2) & 1;
+            pd[8*i + 4]= (pd[i]>>3) & 1;
+            pd[8*i + 3]= (pd[i]>>4) & 1;
+            pd[8*i + 2]= (pd[i]>>5) & 1;
+            pd[8*i + 1]= (pd[i]>>6) & 1;
+            pd[8*i + 0]=  pd[i]>>7;
         }
     } else if (s->bits_per_pixel == 2) {
-        int i, j;
-        uint8_t *pd = p->data[0];
-        for (j = 0; j < s->height; j++) {
-            i = s->width / 4;
-            if (s->color_type == PNG_COLOR_TYPE_PALETTE) {
-                if ((s->width&3) >= 3) pd[4*i + 2]= (pd[i] >> 2) & 3;
-                if ((s->width&3) >= 2) pd[4*i + 1]= (pd[i] >> 4) & 3;
-                if ((s->width&3) >= 1) pd[4*i + 0]=  pd[i] >> 6;
-                for (i--; i >= 0; i--) {
-                    pd[4*i + 3]=  pd[i]     & 3;
-                    pd[4*i + 2]= (pd[i]>>2) & 3;
-                    pd[4*i + 1]= (pd[i]>>4) & 3;
-                    pd[4*i + 0]=  pd[i]>>6;
-                }
-            } else {
-                if ((s->width&3) >= 3) pd[4*i + 2]= ((pd[i]>>2) & 3)*0x55;
-                if ((s->width&3) >= 2) pd[4*i + 1]= ((pd[i]>>4) & 3)*0x55;
-                if ((s->width&3) >= 1) pd[4*i + 0]= ( pd[i]>>6     )*0x55;
-                for (i--; i >= 0; i--) {
-                    pd[4*i + 3]= ( pd[i]     & 3)*0x55;
-                    pd[4*i + 2]= ((pd[i]>>2) & 3)*0x55;
-                    pd[4*i + 1]= ((pd[i]>>4) & 3)*0x55;
-                    pd[4*i + 0]= ( pd[i]>>6     )*0x55;
-                }
+        int i;
+
+        i = width / 4;
+        if (s->color_type == PNG_COLOR_TYPE_PALETTE) {
+            if ((width&3) >= 3) pd[4*i + 2]= (pd[i] >> 2) & 3;
+            if ((width&3) >= 2) pd[4*i + 1]= (pd[i] >> 4) & 3;
+            if ((width&3) >= 1) pd[4*i + 0]=  pd[i] >> 6;
+            for (i--; i >= 0; i--) {
+                pd[4*i + 3]=  pd[i]     & 3;
+                pd[4*i + 2]= (pd[i]>>2) & 3;
+                pd[4*i + 1]= (pd[i]>>4) & 3;
+                pd[4*i + 0]=  pd[i]>>6;
             }
-            pd += p->linesize[0];
+        } else {
+            if ((width&3) >= 3) pd[4*i + 2]= ((pd[i]>>2) & 3)*0x55;
+            if ((width&3) >= 2) pd[4*i + 1]= ((pd[i]>>4) & 3)*0x55;
+            if ((width&3) >= 1) pd[4*i + 0]= ( pd[i]>>6     )*0x55;
+            for (i--; i >= 0; i--) {
+                pd[4*i + 3]= ( pd[i]     & 3)*0x55;
+                pd[4*i + 2]= ((pd[i]>>2) & 3)*0x55;
+                pd[4*i + 1]= ((pd[i]>>4) & 3)*0x55;
+                pd[4*i + 0]= ( pd[i]>>6     )*0x55;
+            }
         }
     } else if (s->bits_per_pixel == 4) {
-        int i, j;
-        uint8_t *pd = p->data[0];
-        for (j = 0; j < s->height; j++) {
-            i = s->width/2;
-            if (s->color_type == PNG_COLOR_TYPE_PALETTE) {
-                if (s->width&1) pd[2*i+0]= pd[i]>>4;
-                for (i--; i >= 0; i--) {
-                    pd[2*i + 1] = pd[i] & 15;
-                    pd[2*i + 0] = pd[i] >> 4;
-                }
-            } else {
-                if (s->width & 1) pd[2*i + 0]= (pd[i] >> 4) * 0x11;
-                for (i--; i >= 0; i--) {
-                    pd[2*i + 1] = (pd[i] & 15) * 0x11;
-                    pd[2*i + 0] = (pd[i] >> 4) * 0x11;
-                }
+        int i;
+
+        i = width/2;
+        if (s->color_type == PNG_COLOR_TYPE_PALETTE) {
+            if (width&1) pd[2*i+0]= pd[i]>>4;
+            for (i--; i >= 0; i--) {
+                pd[2*i + 1] = pd[i] & 15;
+                pd[2*i + 0] = pd[i] >> 4;
             }
-            pd += p->linesize[0];
+        } else {
+            if (width & 1) pd[2*i + 0]= (pd[i] >> 4) * 0x11;
+            for (i--; i >= 0; i--) {
+                pd[2*i + 1] = (pd[i] & 15) * 0x11;
+                pd[2*i + 0] = (pd[i] >> 4) * 0x11;
+            }
         }
+    }
+}
+
+static void handle_small_bpp(PNGDecContext *s, AVFrame *p)
+{
+    uint8_t *pd = p->data[0];
+
+    for (int j = 0; j < s->height; j++) {
+        unpack_small_row(s, pd, s->width);
+        pd += p->linesize[0];
+    }
+}
+
+/* The offsets of an APNG frame are pixel offsets, so they cannot be applied
+ * to the packed rows: those are decoded at the start of the frame row and
+ * moved to their position within the frame once unpacked. */
+static void handle_small_bpp_apng(PNGDecContext *s, AVFrame *p)
+{
+    /* one byte per sample once unpacked, that is one palette index or one
+     * gray sample per pixel */
+    const int bpp = s->channels;
+    uint8_t *pd = p->data[0] + s->y_offset * p->linesize[0];
+
+    for (int j = 0; j < s->cur_h; j++) {
+        unpack_small_row(s, pd, s->cur_w);
+        if (s->x_offset)
+            memmove(pd + s->x_offset * bpp, pd, s->cur_w * bpp);
+        pd += p->linesize[0];
     }
 }
 
@@ -1606,7 +1624,7 @@ static int decode_frame_common(AVCodecContext *avctx, PNGDecContext *s,
                 goto fail;
             }
             bytestream2_get_be32(&gb_chunk);
-            /* fallthrough */
+            av_fallthrough;
         case MKTAG('I', 'D', 'A', 'T'):
             if (CONFIG_APNG_DECODER && avctx->codec_id == AV_CODEC_ID_APNG && !decode_next_dat)
                 continue;
@@ -1747,21 +1765,22 @@ exit_loop:
         goto fail;
     }
 
-    if (s->bits_per_pixel <= 4)
-        handle_small_bpp(s, p);
+    if (s->bits_per_pixel <= 4) {
+        if (CONFIG_APNG_DECODER && s->subframe_packed)
+            handle_small_bpp_apng(s, p);
+        else
+            handle_small_bpp(s, p);
+    }
 
     if (s->exif_data) {
         // we swap because ff_decode_exif_attach_buffer adds to p->metadata
         FFSWAP(AVDictionary *, p->metadata, s->frame_metadata);
-        ret = ff_decode_exif_attach_buffer(avctx, p, s->exif_data, AV_EXIF_TIFF_HEADER);
+        ret = ff_decode_exif_attach_buffer(avctx, p, &s->exif_data, AV_EXIF_TIFF_HEADER);
         FFSWAP(AVDictionary *, p->metadata, s->frame_metadata);
         if (ret < 0) {
             av_log(avctx, AV_LOG_WARNING, "unable to attach EXIF buffer\n");
             return ret;
         }
-        // ff_decode_exif_attach_buffer takes ownership so
-        // we do not want to call av_buffer_unref here
-        s->exif_data = NULL;
     }
 
     if (s->color_type == PNG_COLOR_TYPE_PALETTE && avctx->codec_id == AV_CODEC_ID_APNG) {
@@ -1880,7 +1899,11 @@ static int output_frame(PNGDecContext *s, AVFrame *f)
         stereo3d->flags = s->stereo_mode ? 0 : AV_STEREO3D_FLAG_INVERT;
     }
 
-    FFSWAP(AVDictionary*, f->metadata, s->frame_metadata);
+    ret = av_dict_copy(&f->metadata, s->frame_metadata, 0);
+    if (ret < 0)
+        goto fail;
+
+    av_dict_free(&s->frame_metadata);
 
     return 0;
 fail:

@@ -24,6 +24,7 @@
  * JPEG XL encoder using libjxl
  */
 
+#include <math.h>
 #include <string.h>
 
 #include "libavutil/avutil.h"
@@ -31,7 +32,6 @@
 #include "libavutil/display.h"
 #include "libavutil/error.h"
 #include "libavutil/frame.h"
-#include "libavutil/libm.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
@@ -59,6 +59,7 @@ typedef struct LibJxlEncodeContext {
     uint8_t *buffer;
     size_t buffer_size;
     JxlPixelFormat jxl_fmt;
+    AVBufferRef *exif_buffer;
 
     /* animation stuff */
     AVFrame *frame;
@@ -228,6 +229,10 @@ static int libjxl_populate_primaries(void *avctx, JxlColorEncoding *jxl_color, e
         jxl_color->primaries = JXL_PRIMARIES_SRGB;
         jxl_color->white_point = JXL_WHITE_POINT_D65;
         return 0;
+    case AVCOL_PRI_SMPTE428:
+        av_log(avctx, AV_LOG_ERROR, "SMPTE ST 428-1 XYZ cannot be described by "
+                                    "a JXL color encoding, use an ICC profile instead.\n");
+        return AVERROR(EINVAL);
     }
 
     desc = av_csp_primaries_desc_from_id(prm);
@@ -316,6 +321,40 @@ static int libjxl_populate_colorspace(AVCodecContext *avctx, const AVFrame *fram
     return 0;
 }
 
+static int libjxl_add_boxes(AVCodecContext *avctx)
+{
+    LibJxlEncodeContext *ctx = avctx->priv_data;
+    JxlEncoderStatus jret = JXL_ENC_SUCCESS;
+    int ret = 0, opened = 0;
+
+    /* no boxes need to be added */
+    if (!ctx->exif_buffer)
+        goto end;
+
+    jret = JxlEncoderUseBoxes(ctx->encoder);
+    if (jret != JXL_ENC_SUCCESS) {
+        av_log(avctx, AV_LOG_WARNING, "Could not enable UseBoxes\n");
+        ret = AVERROR_EXTERNAL;
+        goto end;
+    }
+    opened = 1;
+
+    jret = JxlEncoderAddBox(ctx->encoder, "Exif", ctx->exif_buffer->data, ctx->exif_buffer->size, JXL_TRUE);
+    if (jret != JXL_ENC_SUCCESS)
+        jret = JxlEncoderAddBox(ctx->encoder, "Exif", ctx->exif_buffer->data, ctx->exif_buffer->size, JXL_FALSE);
+    if (jret != JXL_ENC_SUCCESS) {
+        av_log(avctx, AV_LOG_WARNING, "Failed to add Exif box\n");
+        ret = AVERROR_EXTERNAL;
+        goto end;
+    }
+
+end:
+    if (opened)
+        JxlEncoderCloseBoxes(ctx->encoder);
+
+    return ret;
+}
+
 /**
  * Sends metadata to libjxl based on the first frame of the stream, such as pixel format,
  * orientation, bit depth, and that sort of thing.
@@ -325,13 +364,13 @@ static int libjxl_preprocess_stream(AVCodecContext *avctx, const AVFrame *frame,
     LibJxlEncodeContext *ctx = avctx->priv_data;
     AVFrameSideData *sd;
     int32_t *matrix = (int32_t[9]){ 0 };
-    int ret = 0;
+    int ret = 0, have_matrix = 0;
+    JxlEncoderStatus jret = JXL_ENC_SUCCESS;
     const AVPixFmtDescriptor *pix_desc = av_pix_fmt_desc_get(frame->format);
     JxlBasicInfo info;
     JxlPixelFormat *jxl_fmt = &ctx->jxl_fmt;
     int bits_per_sample;
     int orientation;
-    AVBufferRef *exif_buffer = NULL;
 #if JPEGXL_NUMERIC_VERSION >= JPEGXL_COMPUTE_NUMERIC_VERSION(0, 8, 0)
     JxlBitDepth jxl_bit_depth;
 #endif
@@ -357,6 +396,15 @@ static int libjxl_preprocess_stream(AVCodecContext *avctx, const AVFrame *frame,
         jxl_fmt->data_type = info.bits_per_sample <= 8 ? JXL_TYPE_UINT8 : JXL_TYPE_UINT16;
     }
 
+    if (info.alpha_bits) {
+        if (avctx->alpha_mode == AVALPHA_MODE_PREMULTIPLIED ||
+            avctx->alpha_mode == AVALPHA_MODE_UNSPECIFIED && frame->alpha_mode == AVALPHA_MODE_PREMULTIPLIED) {
+            info.alpha_premultiplied = 1;
+        } else if (avctx->alpha_mode != AVALPHA_MODE_STRAIGHT && frame->alpha_mode != AVALPHA_MODE_STRAIGHT) {
+            av_log(avctx, AV_LOG_WARNING, "Unknown alpha mode, assuming straight (independent)\n");
+        }
+    }
+
 #if JPEGXL_NUMERIC_VERSION >= JPEGXL_COMPUTE_NUMERIC_VERSION(0, 8, 0)
     jxl_bit_depth.bits_per_sample = bits_per_sample;
     jxl_bit_depth.type = JXL_BIT_DEPTH_FROM_PIXEL_FORMAT;
@@ -374,6 +422,11 @@ static int libjxl_preprocess_stream(AVCodecContext *avctx, const AVFrame *frame,
     /* bitexact lossless requires there to be no XYB transform */
     info.uses_original_profile = ctx->distance == 0.0 || !ctx->xyb;
 
+    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_DISPLAYMATRIX);
+    if (sd) {
+        matrix = (int32_t *) sd->data;
+        have_matrix = 1;
+    }
     sd = av_frame_get_side_data(frame, AV_FRAME_DATA_EXIF);
     if (sd) {
         AVExifMetadata ifd = { 0 };
@@ -384,27 +437,30 @@ static int libjxl_preprocess_stream(AVCodecContext *avctx, const AVFrame *frame,
             ret = ff_exif_sanitize_ifd(avctx, frame, &ifd);
         if (ret >= 0)
             ret = av_exif_get_entry(avctx, &ifd, tag, 0, &orient);
-        if (ret >= 0 && orient && orient->value.uint[0] >= 1 && orient->value.uint[0] <= 8) {
-            av_exif_orientation_to_matrix(matrix, orient->value.uint[0]);
+        if (ret >= 0 && orient) {
+            if (!have_matrix && orient->type == AV_TIFF_SHORT && orient->count
+                    && orient->value.uint[0] >= 1 && orient->value.uint[0] <= 8) {
+                av_exif_orientation_to_matrix(matrix, orient->value.uint[0]);
+                have_matrix = 1;
+            }
+            /* pop the orientation tag anyway, because it only creates */
+            /* ambiguity with the codestream orientation taking precdence */
             ret = av_exif_remove_entry(avctx, &ifd, tag, 0);
-        } else {
-            av_exif_orientation_to_matrix(matrix, 1);
         }
         if (ret >= 0)
-            ret = av_exif_write(avctx, &ifd, &exif_buffer, AV_EXIF_TIFF_HEADER);
+            ret = av_exif_write(avctx, &ifd, &ctx->exif_buffer, AV_EXIF_T_OFF);
         if (ret < 0)
             av_log(avctx, AV_LOG_WARNING, "unable to process EXIF frame data\n");
-    } else {
-        sd = av_frame_get_side_data(frame, AV_FRAME_DATA_DISPLAYMATRIX);
-        if (sd)
-            matrix = (int32_t *) sd->data;
-        else
-            av_exif_orientation_to_matrix(matrix, 1);
+        av_exif_free(&ifd);
     }
+
+    /* use identity matrix as default */
+    if (!have_matrix)
+        av_exif_orientation_to_matrix(matrix, 1);
 
     /* av_display_matrix_flip is a right-multipilcation */
     /* i.e. flip is applied before the previous matrix */
-    if (frame->linesize < 0)
+    if (frame->linesize[0] < 0)
         av_display_matrix_flip(matrix, 0, 1);
 
     orientation = av_exif_matrix_to_orientation(matrix);
@@ -417,7 +473,7 @@ static int libjxl_preprocess_stream(AVCodecContext *avctx, const AVFrame *frame,
     }
 
     /* restore the previous value */
-    if (frame->linesize < 0)
+    if (frame->linesize[0] < 0)
         av_display_matrix_flip(matrix, 0, 1);
 
     if (animated) {
@@ -429,40 +485,59 @@ static int libjxl_preprocess_stream(AVCodecContext *avctx, const AVFrame *frame,
         info.animation.tps_denominator = avctx->time_base.num;
     }
 
-    if (JxlEncoderSetBasicInfo(ctx->encoder, &info) != JXL_ENC_SUCCESS) {
+    jret = JxlEncoderSetBasicInfo(ctx->encoder, &info);
+    if (jret != JXL_ENC_SUCCESS) {
         av_log(avctx, AV_LOG_ERROR, "Failed to set JxlBasicInfo\n");
         ret = AVERROR_EXTERNAL;
         goto end;
     }
 
-    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_ICC_PROFILE);
-    if (sd && sd->size && JxlEncoderSetICCProfile(ctx->encoder, sd->data, sd->size) != JXL_ENC_SUCCESS) {
-        av_log(avctx, AV_LOG_WARNING, "Could not set ICC Profile\n");
-        sd = NULL;
+    if (info.alpha_bits) {
+        JxlExtraChannelInfo extra_info;
+        JxlEncoderInitExtraChannelInfo(JXL_CHANNEL_ALPHA, &extra_info);
+        extra_info.bits_per_sample = info.alpha_bits;
+        extra_info.exponent_bits_per_sample = info.alpha_exponent_bits;
+        extra_info.alpha_premultiplied = info.alpha_premultiplied;
+        jret = JxlEncoderSetExtraChannelInfo(ctx->encoder, 0, &extra_info);
+        if (jret != JXL_ENC_SUCCESS) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to set JxlExtraChannelInfo for alpha!\n");
+            ret = AVERROR_EXTERNAL;
+            goto end;
+        }
     }
 
-    if (!sd || !sd->size)
-        libjxl_populate_colorspace(avctx, frame, pix_desc, &info);
+    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_ICC_PROFILE);
+    if (sd && sd->size) {
+        jret = JxlEncoderSetICCProfile(ctx->encoder, sd->data, sd->size);
+        if (jret != JXL_ENC_SUCCESS)
+            av_log(avctx, AV_LOG_WARNING, "Could not set ICC Profile\n");
+    }
+
+    /* jret != JXL_ENC_SUCCESS means fallthrough from above */
+    if (!sd || !sd->size || jret != JXL_ENC_SUCCESS) {
+        ret = libjxl_populate_colorspace(avctx, frame, pix_desc, &info);
+        if (ret < 0)
+            goto end;
+    }
 
 #if JPEGXL_NUMERIC_VERSION >= JPEGXL_COMPUTE_NUMERIC_VERSION(0, 8, 0)
-    if (JxlEncoderSetFrameBitDepth(ctx->options, &jxl_bit_depth) != JXL_ENC_SUCCESS)
+    jret = JxlEncoderSetFrameBitDepth(ctx->options, &jxl_bit_depth);
+    if (jret != JXL_ENC_SUCCESS)
         av_log(avctx, AV_LOG_WARNING, "Failed to set JxlBitDepth\n");
 #endif
-
-    if (exif_buffer) {
-        if (JxlEncoderUseBoxes(ctx->encoder) != JXL_ENC_SUCCESS)
-            av_log(avctx, AV_LOG_WARNING, "Couldn't enable UseBoxes\n");
-    }
 
     /* depending on basic info, level 10 might
      * be required instead of level 5 */
     if (JxlEncoderGetRequiredCodestreamLevel(ctx->encoder) > 5) {
-        if (JxlEncoderSetCodestreamLevel(ctx->encoder, 10) != JXL_ENC_SUCCESS)
+        jret = JxlEncoderSetCodestreamLevel(ctx->encoder, 10);
+        if (jret != JXL_ENC_SUCCESS)
             av_log(avctx, AV_LOG_WARNING, "Could not increase codestream level\n");
     }
 
+    libjxl_add_boxes(avctx);
+
 end:
-    av_buffer_unref(&exif_buffer);
+    av_buffer_unref(&ctx->exif_buffer);
     return ret;
 }
 
@@ -770,6 +845,7 @@ const FFCodec ff_libjxl_encoder = {
                         FF_CODEC_CAP_AUTO_THREADS | FF_CODEC_CAP_INIT_CLEANUP |
                         FF_CODEC_CAP_ICC_PROFILES,
     CODEC_PIXFMTS_ARRAY(libjxl_supported_pixfmts),
+    .alpha_modes      = AVALPHA_MODE_STRAIGHT | AVALPHA_MODE_PREMULTIPLIED,
     .p.priv_class     = &libjxl_encode_class,
     .p.wrapper_name   = "libjxl",
 };
@@ -790,6 +866,7 @@ const FFCodec ff_libjxl_anim_encoder = {
                         FF_CODEC_CAP_AUTO_THREADS | FF_CODEC_CAP_INIT_CLEANUP |
                         FF_CODEC_CAP_ICC_PROFILES,
     CODEC_PIXFMTS_ARRAY(libjxl_supported_pixfmts),
+    .alpha_modes      = AVALPHA_MODE_STRAIGHT | AVALPHA_MODE_PREMULTIPLIED,
     .p.priv_class     = &libjxl_encode_class,
     .p.wrapper_name   = "libjxl",
 };

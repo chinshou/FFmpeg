@@ -296,7 +296,7 @@ static int cbs_jpeg_write_scan(CodedBitstreamContext *ctx,
         return err;
 
     if (scan->data) {
-        if (scan->data_size * 8 > put_bits_left(pbc))
+        if (scan->data_size > put_bits_left(pbc) / 8)
             return AVERROR(ENOSPC);
 
         av_assert0(put_bits_count(pbc) % 8 == 0);
@@ -362,7 +362,7 @@ static int cbs_jpeg_assemble_fragment(CodedBitstreamContext *ctx,
         unit = &frag->units[i];
         size += 2 + unit->data_size;
         if (unit->type == JPEG_MARKER_SOS) {
-            for (sp = 0; sp < unit->data_size; sp++) {
+            for (sp = AV_RB16(unit->data); sp < unit->data_size; sp++) {
                 if (unit->data[sp] == 0xff)
                     ++size;
             }
@@ -417,7 +417,7 @@ static int cbs_jpeg_assemble_fragment(CodedBitstreamContext *ctx,
     return 0;
 }
 
-static const CodedBitstreamUnitTypeDescriptor cbs_jpeg_unit_types[] = {
+static CodedBitstreamUnitTypeDescriptor cbs_jpeg_unit_types[] = {
     CBS_UNIT_RANGE_POD(JPEG_MARKER_SOF0, JPEG_MARKER_SOF3, JPEGRawFrameHeader),
 
     CBS_UNIT_RANGE_INTERNAL_REF(JPEG_MARKER_APPN, JPEG_MARKER_APPN + 15,

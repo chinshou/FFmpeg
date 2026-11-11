@@ -23,7 +23,9 @@
 
 #include "avio_internal.h"
 #include "rtpdec_formats.h"
+#include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
+#include "libavutil/imgutils.h"
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/parseutils.h"
@@ -128,7 +130,7 @@ static int rfc4175_parse_fmtp(AVFormatContext *s, AVStream *stream,
         data->width = atoi(value);
     else if (!strncmp(attr, "height", 6))
         data->height = atoi(value);
-    else if (!strncmp(attr, "sampling", 8))
+    else if (data->sampling == NULL && !strncmp(attr, "sampling", 8))
         data->sampling = av_strdup(value);
     else if (!strncmp(attr, "depth", 5))
         data->depth = atoi(value);
@@ -172,30 +174,39 @@ static int rfc4175_parse_fmtp(AVFormatContext *s, AVStream *stream,
 }
 
 static int rfc4175_parse_sdp_line(AVFormatContext *s, int st_index,
-                                  PayloadContext *data, const char *line)
+                                  PayloadContext *data_arg, const char *line)
 {
     const char *p;
 
     if (st_index < 0)
         return 0;
 
+    av_assert0(!data_arg->sampling);
+
     if (av_strstart(line, "fmtp:", &p)) {
         AVStream *stream = s->streams[st_index];
+        PayloadContext data0 = *data_arg, *data = &data0;
         int ret = ff_parse_fmtp(s, stream, data, p, rfc4175_parse_fmtp);
 
-        if (ret < 0)
-            return ret;
-
-
         if (!data->sampling || !data->depth || !data->width || !data->height)
-            return AVERROR(EINVAL);
+            ret =  AVERROR(EINVAL);
+
+        if (ret < 0)
+            goto fail;
+
+        ret = av_image_check_size(data->width, data->height, 0, s);
+        if (ret < 0)
+            goto fail;
 
         stream->codecpar->width = data->width;
         stream->codecpar->height = data->height;
 
         ret = rfc4175_parse_format(stream, data);
         av_freep(&data->sampling);
-
+        if (ret >= 0)
+            *data_arg = *data;
+fail:
+        av_freep(&data->sampling);
         return ret;
     }
 
@@ -205,7 +216,7 @@ static int rfc4175_parse_sdp_line(AVFormatContext *s, int st_index,
 static int rfc4175_finalize_packet(PayloadContext *data, AVPacket *pkt,
                                    int stream_index)
 {
-    int ret = 0;
+    int ret = AVERROR(EAGAIN);
 
     pkt->stream_index = stream_index;
     if (!data->interlaced || data->field) {
@@ -227,12 +238,20 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
                                  uint16_t seq, int flags)
 {
     int length, line, offset, cont, field;
-    const uint8_t *headers = buf + 2; /* skip extended seqnum */
-    const uint8_t *payload = buf + 2;
-    int payload_len = len - 2;
+    const uint8_t *headers, *payload;
+    int payload_len;
     int missed_last_packet = 0;
 
     uint8_t *dest;
+
+    if (!buf) {
+        *timestamp = data->timestamp;
+        return rfc4175_finalize_packet(data, pkt, st->index);
+    }
+
+    headers = buf + 2; /* skip extended seqnum */
+    payload = buf + 2;
+    payload_len = len - 2;
 
     if (*timestamp != data->timestamp) {
         if (data->frame && (!data->interlaced || data->field)) {
@@ -244,18 +263,20 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
              * previous frame (or pair of fields) anyway by filling the AVPacket.
              */
             av_log(ctx, AV_LOG_ERROR, "Missed previous RTP Marker\n");
-            missed_last_packet = 1;
-            rfc4175_finalize_packet(data, pkt, st->index);
+            missed_last_packet = rfc4175_finalize_packet(data, pkt, st->index) >= 0;
         }
 
         if (!data->frame)
-            data->frame = av_malloc(data->frame_size);
+            data->frame = av_mallocz(data->frame_size + AV_INPUT_BUFFER_PADDING_SIZE);
 
-        data->timestamp = *timestamp;
+        if (missed_last_packet)
+            FFSWAP(uint32_t, data->timestamp, *timestamp);
+        else
+            data->timestamp = *timestamp;
 
         if (!data->frame) {
             av_log(ctx, AV_LOG_ERROR, "Out of memory.\n");
-            return AVERROR(ENOMEM);
+            return missed_last_packet ? 0 : AVERROR(ENOMEM);
         }
     }
 
@@ -265,7 +286,7 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
      */
     do {
         if (payload_len < 6)
-            return AVERROR_INVALIDDATA;
+            goto invalid;
 
         cont = payload[4] & 0x80;
         payload += 6;
@@ -277,7 +298,7 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
         int copy_offset;
 
         if (payload_len < data->pgroup)
-            return AVERROR_INVALIDDATA;
+            goto invalid;
 
         length = (headers[0] << 8) | headers[1];
         field = (headers[2] & 0x80) >> 7;
@@ -288,7 +309,7 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
         data->field = field;
 
         if (!data->pgroup || length % data->pgroup)
-            return AVERROR_INVALIDDATA;
+            goto invalid;
 
         if (length > payload_len)
             length = payload_len;
@@ -296,10 +317,13 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
         if (data->interlaced)
             line = 2 * line + field;
 
+        if (line >= data->height)
+            goto invalid;
+
         /* prevent ill-formed packets to write after buffer's end */
         copy_offset = (line * data->width + offset) * data->pgroup / data->xinc;
         if (copy_offset + length > data->frame_size || !data->frame)
-            return AVERROR_INVALIDDATA;
+            goto invalid;
 
         dest = data->frame + copy_offset;
         memcpy(dest, payload, length);
@@ -308,13 +332,21 @@ static int rfc4175_handle_packet(AVFormatContext *ctx, PayloadContext *data,
         payload_len -= length;
     } while (cont);
 
-    if ((flags & RTP_FLAG_MARKER)) {
+    if (missed_last_packet) {
+        return !!(flags & RTP_FLAG_MARKER);
+    } else if ((flags & RTP_FLAG_MARKER)) {
         return rfc4175_finalize_packet(data, pkt, st->index);
-    } else if (missed_last_packet) {
-        return 0;
     }
 
     return AVERROR(EAGAIN);
+
+invalid:
+    return missed_last_packet ? 0 : AVERROR_INVALIDDATA;
+}
+
+static void rfc4175_close_context(PayloadContext *data)
+{
+    av_freep(&data->frame);
 }
 
 const RTPDynamicProtocolHandler ff_rfc4175_rtp_handler = {
@@ -324,4 +356,5 @@ const RTPDynamicProtocolHandler ff_rfc4175_rtp_handler = {
     .priv_data_size     = sizeof(PayloadContext),
     .parse_sdp_a_line   = rfc4175_parse_sdp_line,
     .parse_packet       = rfc4175_handle_packet,
+    .close              = rfc4175_close_context,
 };

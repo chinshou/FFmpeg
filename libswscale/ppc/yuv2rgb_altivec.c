@@ -95,12 +95,37 @@
 #include "libswscale/swscale.h"
 #include "libswscale/swscale_internal.h"
 #include "libavutil/attributes.h"
-#include "libavutil/cpu.h"
 #include "libavutil/mem_internal.h"
 #include "libavutil/pixdesc.h"
 #include "yuv2rgb_altivec.h"
 
-#if HAVE_ALTIVEC
+// util_altivec.h includes the system header altivec.h which redefines bool,
+// making it incompatible with stdbool.h. It therefore must not be included
+// before another one of our headers that may use bool.
+#include "libavutil/ppc/util_altivec.h"
+#include <assert.h>
+
+typedef struct SwsInternalAltivec {
+    SwsInternal c;
+
+    vector signed short   CY;
+    vector signed short   CRV;
+    vector signed short   CBU;
+    vector signed short   CGU;
+    vector signed short   CGV;
+    vector signed short   OY;
+    vector unsigned short CSHIFT;
+} SwsInternalAltivec;
+// Check that the sizes of the types match.
+// Note that given that SwsInternal is always allocated via av_malloc,
+// every pointer to an SwsInternal is always sufficiently aligned.
+static_assert(sizeof(SwsInternalAltivec) <= sizeof(SwsInternal) + SWSINTERNAL_ADDITIONAL_ASM_SIZE,
+              "SWSINTERNAL_ADDITIONAL_ASM_SIZE needs to be increased");
+
+static inline SwsInternalAltivec *sws_internal_altivec(SwsInternal *c)
+{
+    return (SwsInternalAltivec*)c;
+}
 
 #undef PROFILE_THE_BEAST
 #undef INC_SCALING
@@ -257,25 +282,26 @@ static inline void cvtyuvtoRGB(SwsInternal *c, vector signed short Y,
                                vector signed short *R, vector signed short *G,
                                vector signed short *B)
 {
+    SwsInternalAltivec *const a = sws_internal_altivec(c);
     vector signed short vx, ux, uvx;
 
-    Y = vec_mradds(Y, c->CY, c->OY);
+    Y = vec_mradds(Y, a->CY, a->OY);
     U = vec_sub(U, (vector signed short)
                        vec_splat((vector signed short) { 128 }, 0));
     V = vec_sub(V, (vector signed short)
                        vec_splat((vector signed short) { 128 }, 0));
 
-    // ux  = (CBU * (u << c->CSHIFT) + 0x4000) >> 15;
-    ux = vec_sl(U, c->CSHIFT);
-    *B = vec_mradds(ux, c->CBU, Y);
+    // ux  = (CBU * (u << a->CSHIFT) + 0x4000) >> 15;
+    ux = vec_sl(U, a->CSHIFT);
+    *B = vec_mradds(ux, a->CBU, Y);
 
-    // vx  = (CRV * (v << c->CSHIFT) + 0x4000) >> 15;
-    vx = vec_sl(V, c->CSHIFT);
-    *R = vec_mradds(vx, c->CRV, Y);
+    // vx  = (CRV * (v << a->CSHIFT) + 0x4000) >> 15;
+    vx = vec_sl(V, a->CSHIFT);
+    *R = vec_mradds(vx, a->CRV, Y);
 
     // uvx = ((CGU * u) + (CGV * v)) >> 15;
-    uvx = vec_mradds(U, c->CGU, Y);
-    *G  = vec_mradds(V, c->CGV, uvx);
+    uvx = vec_mradds(U, a->CGU, Y);
+    *G  = vec_mradds(V, a->CGV, uvx);
 }
 
 /*
@@ -299,6 +325,7 @@ static int altivec_ ## name(SwsInternal *c, const unsigned char *const *in,   \
                             const int *instrides, int srcSliceY, int srcSliceH,   \
                             unsigned char *const *oplanes, const int *outstrides) \
 {                                                                             \
+    SwsInternalAltivec *const a = sws_internal_altivec(c);                    \
     int w = c->opts.src_w;                                                    \
     int h = srcSliceH;                                                        \
     int i, j;                                                                 \
@@ -316,13 +343,13 @@ static int altivec_ ## name(SwsInternal *c, const unsigned char *const *in,   \
     vector signed short R1, G1, B1;                                           \
     vector unsigned char R, G, B;                                             \
                                                                               \
-    vector signed short lCY       = c->CY;                                    \
-    vector signed short lOY       = c->OY;                                    \
-    vector signed short lCRV      = c->CRV;                                   \
-    vector signed short lCBU      = c->CBU;                                   \
-    vector signed short lCGU      = c->CGU;                                   \
-    vector signed short lCGV      = c->CGV;                                   \
-    vector unsigned short lCSHIFT = c->CSHIFT;                                \
+    vector signed short lCY       = a->CY;                                    \
+    vector signed short lOY       = a->OY;                                    \
+    vector signed short lCRV      = a->CRV;                                   \
+    vector signed short lCBU      = a->CBU;                                   \
+    vector signed short lCGU      = a->CGU;                                   \
+    vector signed short lCGV      = a->CGV;                                   \
+    vector unsigned short lCSHIFT = a->CSHIFT;                                \
                                                                               \
     const ubyte *y1i = in[0];                                                 \
     const ubyte *y2i = in[0] + instrides[0];                                  \
@@ -524,20 +551,14 @@ static int altivec_uyvy_rgb32(SwsInternal *c, const unsigned char *const *in,
     return srcSliceH;
 }
 
-#endif /* HAVE_ALTIVEC */
-
 /* Ok currently the acceleration routine only supports
  * inputs of widths a multiple of 16
  * and heights a multiple 2
  *
  * So we just fall back to the C codes for this.
  */
-av_cold SwsFunc ff_yuv2rgb_init_ppc(SwsInternal *c)
+av_cold SwsFunc ff_yuv2rgb_init_altivec(SwsInternal *c)
 {
-#if HAVE_ALTIVEC
-    if (!(av_get_cpu_flags() & AV_CPU_FLAG_ALTIVEC))
-        return NULL;
-
     /*
      * and this seems not to matter too much I tried a bunch of
      * videos with abnormal widths and MPlayer crashes elsewhere.
@@ -598,25 +619,22 @@ av_cold SwsFunc ff_yuv2rgb_init_ppc(SwsInternal *c)
         }
         break;
     }
-#endif /* HAVE_ALTIVEC */
 
     return NULL;
 }
 
-av_cold void ff_yuv2rgb_init_tables_ppc(SwsInternal *c,
-                                        const int inv_table[4],
-                                        int brightness,
-                                        int contrast,
-                                        int saturation)
+av_cold void ff_yuv2rgb_init_tables_altivec(SwsInternal *c,
+                                            const int inv_table[4],
+                                            int brightness,
+                                            int contrast,
+                                            int saturation)
 {
-#if HAVE_ALTIVEC
+    SwsInternalAltivec *const a = sws_internal_altivec(c);
+
     union {
         DECLARE_ALIGNED(16, signed short, tmp)[8];
         vector signed short vec;
     } buf;
-
-    if (!(av_get_cpu_flags() & AV_CPU_FLAG_ALTIVEC))
-        return;
 
     buf.tmp[0] = ((0xffffLL) * contrast >> 8) >> 9;                               // cy
     buf.tmp[1] = -256 * brightness;                                               // oy
@@ -625,18 +643,15 @@ av_cold void ff_yuv2rgb_init_tables_ppc(SwsInternal *c,
     buf.tmp[4] = -((inv_table[2] >> 1) * (contrast >> 16) * (saturation >> 16));  // cgu
     buf.tmp[5] = -((inv_table[3] >> 1) * (contrast >> 16) * (saturation >> 16));  // cgv
 
-    c->CSHIFT = (vector unsigned short) vec_splat_u16(2);
-    c->CY     = vec_splat((vector signed short) buf.vec, 0);
-    c->OY     = vec_splat((vector signed short) buf.vec, 1);
-    c->CRV    = vec_splat((vector signed short) buf.vec, 2);
-    c->CBU    = vec_splat((vector signed short) buf.vec, 3);
-    c->CGU    = vec_splat((vector signed short) buf.vec, 4);
-    c->CGV    = vec_splat((vector signed short) buf.vec, 5);
+    a->CSHIFT = (vector unsigned short) vec_splat_u16(2);
+    a->CY     = vec_splat((vector signed short) buf.vec, 0);
+    a->OY     = vec_splat((vector signed short) buf.vec, 1);
+    a->CRV    = vec_splat((vector signed short) buf.vec, 2);
+    a->CBU    = vec_splat((vector signed short) buf.vec, 3);
+    a->CGU    = vec_splat((vector signed short) buf.vec, 4);
+    a->CGV    = vec_splat((vector signed short) buf.vec, 5);
     return;
-#endif /* HAVE_ALTIVEC */
 }
-
-#if HAVE_ALTIVEC
 
 static av_always_inline void yuv2packedX_altivec(SwsInternal *c,
                                                  const int16_t *lumFilter,
@@ -664,12 +679,12 @@ static av_always_inline void yuv2packedX_altivec(SwsInternal *c,
 
     vector signed short *YCoeffs, *CCoeffs;
 
-    YCoeffs = c->vYCoeffsBank + dstY * lumFilterSize;
-    CCoeffs = c->vCCoeffsBank + dstY * chrFilterSize;
+    YCoeffs = (vector signed short *)(c->vYCoeffsBank + dstY * lumFilterSize);
+    CCoeffs = (vector signed short *)(c->vCCoeffsBank + dstY * chrFilterSize);
 
     out = (vector unsigned char *) dest;
 
-    for (i = 0; i < dstW; i += 16) {
+    for (i = 0; i < dstW - 15; i += 16) {
         Y0 = RND;
         Y1 = RND;
         /* extract 16 coeffs from lumSrc */
@@ -759,8 +774,6 @@ static av_always_inline void yuv2packedX_altivec(SwsInternal *c,
     }
 
     if (i < dstW) {
-        i -= 16;
-
         Y0 = RND;
         Y1 = RND;
         /* extract 16 coeffs from lumSrc */
@@ -842,7 +855,8 @@ static av_always_inline void yuv2packedX_altivec(SwsInternal *c,
             return;
         }
 
-        memcpy(&((uint32_t *) dest)[i], scratch, (dstW - i) / 4);
+        int pixel_stride = av_pix_fmt_desc_get(target)->comp[0].step;
+        memcpy(&dest[i * pixel_stride], scratch, (dstW - i) * pixel_stride);
     }
 }
 
@@ -870,5 +884,3 @@ YUV2PACKEDX_WRAPPER(argb,  AV_PIX_FMT_ARGB);
 YUV2PACKEDX_WRAPPER(rgba,  AV_PIX_FMT_RGBA);
 YUV2PACKEDX_WRAPPER(rgb24, AV_PIX_FMT_RGB24);
 YUV2PACKEDX_WRAPPER(bgr24, AV_PIX_FMT_BGR24);
-
-#endif /* HAVE_ALTIVEC */

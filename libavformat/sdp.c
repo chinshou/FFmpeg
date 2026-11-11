@@ -121,6 +121,7 @@ static int resolve_destination(char *dest_addr, int size, char *type,
 static int resolve_destination(char *dest_addr, int size, char *type,
                                int type_size)
 {
+    av_strlcpy(type, "IP4", type_size);
     return 0;
 }
 #endif
@@ -235,7 +236,7 @@ static int extradata2psets(AVFormatContext *s, const AVCodecParameters *par,
             sps_end = r1;
         }
         if (!av_base64_encode(p, MAX_PSET_SIZE - (p - psets), r, r1 - r)) {
-            av_log(s, AV_LOG_ERROR, "Cannot Base64-encode %"PTRDIFF_SPECIFIER" %"PTRDIFF_SPECIFIER"!\n",
+            av_log(s, AV_LOG_ERROR, "Cannot Base64-encode %td %td!\n",
                    MAX_PSET_SIZE - (p - psets), r1 - r);
 fail_in_loop:
             av_free(psets);

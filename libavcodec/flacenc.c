@@ -57,7 +57,7 @@ enum CodingMode {
 typedef struct CompressionOptions {
     int compression_level;
     int block_time_ms;
-    enum FFLPCType lpc_type;
+    int /* enum FFLPCType */ lpc_type;
     int lpc_passes;
     int lpc_coeff_precision;
     int min_prediction_order;
@@ -401,6 +401,11 @@ static av_cold int flac_encode_init(AVCodecContext *avctx)
                    s->options.max_prediction_order, MAX_FIXED_ORDER);
             s->options.max_prediction_order = MAX_FIXED_ORDER;
         }
+    } else if (s->options.min_prediction_order < MIN_LPC_ORDER) {
+        av_log(avctx, AV_LOG_WARNING,
+               "invalid min prediction order %d, clamped to %d\n",
+               s->options.min_prediction_order, MIN_LPC_ORDER);
+        s->options.min_prediction_order = MIN_LPC_ORDER;
     }
 
     if (s->options.max_prediction_order < s->options.min_prediction_order) {
@@ -1172,7 +1177,7 @@ static int encode_residual_ch(FlacEncodeContext *s, int ch)
 
 static int count_frame_header(FlacEncodeContext *s)
 {
-    uint8_t av_unused tmp;
+    av_unused uint8_t tmp;
     int count;
 
     /*

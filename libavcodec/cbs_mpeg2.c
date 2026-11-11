@@ -319,7 +319,7 @@ static int cbs_mpeg2_write_slice(CodedBitstreamContext *ctx,
         av_assert0(slice->data_bit_start >= 0 &&
                    slice->data_size > slice->data_bit_start / 8);
 
-        if (slice->data_size * 8 + 8 > put_bits_left(pbc))
+        if (slice->data_size + 1 > put_bits_left(pbc) / 8)
             return AVERROR(ENOSPC);
 
         // First copy the remaining bits of the first byte
@@ -397,7 +397,7 @@ static int cbs_mpeg2_assemble_fragment(CodedBitstreamContext *ctx,
     return 0;
 }
 
-static const CodedBitstreamUnitTypeDescriptor cbs_mpeg2_unit_types[] = {
+static CodedBitstreamUnitTypeDescriptor cbs_mpeg2_unit_types[] = {
     CBS_UNIT_TYPE_INTERNAL_REF(MPEG2_START_PICTURE, MPEG2RawPictureHeader,
                                extra_information_picture.extra_information),
 

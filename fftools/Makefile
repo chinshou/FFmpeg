@@ -51,7 +51,10 @@ OBJS-ffprobe +=                       \
     fftools/textformat/tw_buffer.o    \
     fftools/textformat/tw_stdout.o    \
 
+OBJS-ffmpeg += $(COMPAT_OBJS:%=compat/%)
 OBJS-ffplay += fftools/ffplay_renderer.o
+OBJS-ffplay += fftools/ffplay_dir.o
+OBJS-ffplay += fftools/ffplay_list.o
 
 define DOFFTOOL
 OBJS-$(1) += fftools/cmdutils.o fftools/opt_common.o fftools/$(1).o $(OBJS-$(1)-yes)
@@ -85,7 +88,7 @@ install-progs-$(CONFIG_SHARED): install-libs
 
 install-progs: install-progs-yes $(AVPROGS)
 	$(Q)mkdir -p "$(BINDIR)"
-	$(INSTALL) -c -m 755 $(AVPROGS) "$(BINDIR)"
+	$(call INSTALL_FILES,-c -m 755,$(AVPROGS),$(BINDIR))
 
 uninstall: uninstall-progs
 

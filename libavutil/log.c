@@ -34,6 +34,7 @@
 #endif
 #include <inttypes.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -55,13 +56,13 @@ static AVMutex mutex = AV_MUTEX_INITIALIZER;
 #define BACKTRACE_LOGLEVEL AV_LOG_ERROR
 #endif
 
-static int av_log_level = AV_LOG_INFO;
-static int flags;
+static atomic_int av_log_level = AV_LOG_INFO;
+static atomic_int av_log_flags = 0;
 
 #define NB_LEVELS 8
 #if defined(_WIN32) && HAVE_SETCONSOLETEXTATTRIBUTE && HAVE_GETSTDHANDLE
 #include <windows.h>
-static const uint8_t color[16 + AV_CLASS_CATEGORY_NB] = {
+static const uint8_t win_color[16 + AV_CLASS_CATEGORY_NB] = {
     [AV_LOG_PANIC  /8] = 12,
     [AV_LOG_FATAL  /8] = 12,
     [AV_LOG_ERROR  /8] = 12,
@@ -92,7 +93,7 @@ static const uint8_t color[16 + AV_CLASS_CATEGORY_NB] = {
 
 static int16_t background, attr_orig;
 static HANDLE con;
-#else
+#endif
 
 static const uint32_t color[16 + AV_CLASS_CATEGORY_NB] = {
     [AV_LOG_PANIC  /8] =  52 << 16 | 196 << 8 | 0x41,
@@ -123,7 +124,6 @@ static const uint32_t color[16 + AV_CLASS_CATEGORY_NB] = {
     [16+AV_CLASS_CATEGORY_DEVICE_INPUT        ] = 207 << 8 | 0x05,
 };
 
-#endif
 static int use_color = -1;
 
 #if defined(_WIN32) && HAVE_SETCONSOLETEXTATTRIBUTE && HAVE_GETSTDHANDLE
@@ -189,11 +189,17 @@ static void check_color_terminal(void)
 static void ansi_fputs(int level, int tint, const char *str, int local_use_color)
 {
     if (local_use_color == 1) {
+        uint32_t intensity = (color[level] >> 4) & 15;
+        uint32_t fg       = color[level] & 15;
+#if defined(_WIN32)
+        /* Piped stderr is 8-color ANSI. Linux keeps 0;33m; Windows console
+         * already uses win_color 14 (bright yellow), so match that here. */
+        if (level == AV_LOG_WARNING / 8)
+            intensity = 1;
+#endif
         fprintf(stderr,
                 "\033[%"PRIu32";3%"PRIu32"m%s\033[0m",
-                (color[level] >> 4) & 15,
-                color[level] & 15,
-                str);
+                intensity, fg, str);
     } else if (tint && use_color == 256) {
         fprintf(stderr,
                 "\033[48;5;%"PRIu32"m\033[38;5;%dm%s\033[0m",
@@ -225,7 +231,7 @@ static void colored_fputs(int level, int tint, const char *str)
 #if defined(_WIN32) && HAVE_SETCONSOLETEXTATTRIBUTE && HAVE_GETSTDHANDLE
     if (con != INVALID_HANDLE_VALUE) {
         if (local_use_color)
-            SetConsoleTextAttribute(con, background | color[level]);
+            SetConsoleTextAttribute(con, background | win_color[level]);
         win_console_puts(str);
         if (local_use_color)
             SetConsoleTextAttribute(con, attr_orig);
@@ -326,6 +332,7 @@ static void format_line(void *avcl, int level, const char *fmt, va_list vl,
     av_bprint_init(part+2, 0, AV_BPRINT_SIZE_AUTOMATIC);
     av_bprint_init(part+3, 0, 65536);
     av_bprint_init(part+4, 0, AV_BPRINT_SIZE_AUTOMATIC);
+    int flags = atomic_load_explicit(&av_log_flags, memory_order_relaxed);
 
     if(type) type[0] = type[1] = AV_CLASS_CATEGORY_NA + 16;
     if (*print_prefix && avc) {
@@ -391,7 +398,7 @@ void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
         level &= 0xff;
     }
 
-    if (level > av_log_level)
+    if (level > atomic_load_explicit(&av_log_level, memory_order_relaxed))
         return;
     ff_mutex_lock(&mutex);
 
@@ -403,7 +410,7 @@ void av_log_default_callback(void* ptr, int level, const char* fmt, va_list vl)
         is_atty = isatty(2) ? 1 : -1;
 #endif
 
-    if (print_prefix && (flags & AV_LOG_SKIP_REPEATED) && !strcmp(line, prev) &&
+    if (print_prefix && (atomic_load_explicit(&av_log_flags, memory_order_relaxed) & AV_LOG_SKIP_REPEATED) && !strcmp(line, prev) &&
         *line && line[strlen(line) - 1] != '\r'){
         count++;
         if (is_atty == 1)
@@ -436,8 +443,7 @@ end:
     ff_mutex_unlock(&mutex);
 }
 
-static void (*av_log_callback)(void*, int, const char*, va_list) =
-    av_log_default_callback;
+static void (*_Atomic av_log_callback)(void*, int, const char*, va_list) = av_log_default_callback;
 
 void av_log(void* avcl, int level, const char *fmt, ...)
 {
@@ -459,7 +465,8 @@ void av_log_once(void* avcl, int initial_level, int subsequent_level, int *state
 void av_vlog(void* avcl, int level, const char *fmt, va_list vl)
 {
     AVClass* avc = avcl ? *(AVClass **) avcl : NULL;
-    void (*log_callback)(void*, int, const char*, va_list) = av_log_callback;
+    void (*log_callback)(void*, int, const char*, va_list) =
+        atomic_load_explicit(&av_log_callback, memory_order_relaxed);
     if (avc && avc->version >= (50 << 16 | 15 << 8 | 2) &&
         avc->log_level_offset_offset && level >= AV_LOG_FATAL)
         level += *(int *) (((uint8_t *) avcl) + avc->log_level_offset_offset);
@@ -469,27 +476,27 @@ void av_vlog(void* avcl, int level, const char *fmt, va_list vl)
 
 int av_log_get_level(void)
 {
-    return av_log_level;
+    return atomic_load_explicit(&av_log_level, memory_order_relaxed);
 }
 
 void av_log_set_level(int level)
 {
-    av_log_level = level;
+    atomic_store_explicit(&av_log_level, level, memory_order_relaxed);
 }
 
 void av_log_set_flags(int arg)
 {
-    flags = arg;
+    atomic_store_explicit(&av_log_flags, arg, memory_order_relaxed);
 }
 
 int av_log_get_flags(void)
 {
-    return flags;
+    return atomic_load_explicit(&av_log_flags, memory_order_relaxed);
 }
 
 void av_log_set_callback(void (*callback)(void*, int, const char*, va_list))
 {
-    av_log_callback = callback;
+    atomic_store_explicit(&av_log_callback, callback, memory_order_relaxed);
 }
 
 static void missing_feature_sample(int sample, void *avc, const char *msg,

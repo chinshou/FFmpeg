@@ -100,6 +100,7 @@ typedef struct AMFEncoderContext {
     int                 qvbr_quality_level;
     int                 hw_high_motion_quality_boost;
     int                 forced_idr;
+    int                 qp_stats;
 
     // HEVC - specific options
 
@@ -115,8 +116,10 @@ typedef struct AMFEncoderContext {
 
     // AV1 - specific options
 
-    enum AMF_VIDEO_ENCODER_AV1_ALIGNMENT_MODE_ENUM                 align;
-    enum AMF_VIDEO_ENCODER_AV1_AQ_MODE_ENUM                        aq_mode;
+    /* enum AMF_VIDEO_ENCODER_AV1_ALIGNMENT_MODE_ENUM, use int for AVOption */
+    int                 align;
+    /* enum AMF_VIDEO_ENCODER_AV1_AQ_MODE_ENUM */
+    int                 aq_mode;
 
     // Preanalysis - specific options
 
@@ -160,8 +163,6 @@ int ff_amf_receive_packet(AVCodecContext *avctx, AVPacket *avpkt);
 * Supported formats
 */
 extern const enum AVPixelFormat ff_amf_pix_fmts[];
-
-int ff_amf_get_color_profile(AVCodecContext *avctx);
 
 /**
 * Error handling helper

@@ -127,6 +127,7 @@ typedef struct VVCFrameContext {
 
     struct AVFrame *frame;
     struct AVFrame *output_frame;
+    int output_error;
 
     VVCFrameParamSets ps;
     VVCSEI sei;
@@ -222,7 +223,6 @@ typedef struct VVCContext {
     CodedBitstreamFragment current_frame;
 
     VVCParamSets ps;
-    H274FilmGrainDatabase h274db;
 
     int temporal_id;        ///< temporal_id_plus1 - 1
     int poc_tid0;

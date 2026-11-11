@@ -37,6 +37,8 @@
 /**
  * program name, defined by the program for show_version().
  */
+struct FfmpegContext;
+
 extern const char program_name[];
 
 /**
@@ -70,12 +72,12 @@ void log_callback_help(void* ptr, int level, const char* fmt, va_list vl);
  * Fallback for options that are not explicitly handled, these will be
  * parsed through AVOptions.
  */
-int opt_default(void* ctx, void *optctx, const char *opt, const char *arg);
+int opt_default(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 /**
  * Limit the execution time.
  */
-int opt_timelimit(void* ctx, void *optctx, const char *opt, const char *arg);
+int opt_timelimit(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg);
 
 enum OptionType {
     OPT_TYPE_FUNC,
@@ -157,6 +159,10 @@ int stream_specifier_parse(StreamSpecifier *ss, const char *spec,
 unsigned stream_specifier_match(const StreamSpecifier *ss,
                                 const AVFormatContext *s, const AVStream *st,
                                 void *logctx);
+
+unsigned stream_group_specifier_match(const StreamSpecifier *ss,
+                                      const AVFormatContext *s, const AVStreamGroup *stg,
+                                      void *logctx);
 
 void stream_specifier_uninit(StreamSpecifier *ss);
 
@@ -245,7 +251,7 @@ typedef struct OptionDef {
 
      union {
         void *dst_ptr;
-        int (*func_arg)(void * , void *, const char *, const char *);
+        int (*func_arg)(struct FfmpegContext *, void *, const char *, const char *);
         size_t off;
     } u;
     const char *help;
@@ -535,7 +541,7 @@ void *allocate_array_elem(void *array, size_t elem_size, int *nb_elems);
 double get_rotation(const int32_t *displaymatrix);
 
 /* read file contents into a string */
-char *file_read(const char *filename);
+char *read_file_to_string(const char *filename);
 
 /* Remove keys in dictionary b from dictionary a */
 void remove_avoptions(AVDictionary **a, AVDictionary *b);
@@ -544,5 +550,13 @@ void remove_avoptions(AVDictionary **a, AVDictionary *b);
 int check_avoptions(AVDictionary *m);
 
 int cmdutils_isalnum(char c);
+
+/**
+ * This does the same as libavformat/dump.c corresponding function
+ * and should probably be kept in sync when the other one changes.
+ */
+void dump_dictionary(void *ctx, const AVDictionary *m,
+                     const char *name, const char *indent,
+                     int log_level);
 
 #endif /* FFTOOLS_CMDUTILS_H */

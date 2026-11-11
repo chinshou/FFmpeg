@@ -30,6 +30,7 @@
  * @see http://www.w3.org/Graphics/GIF/spec-gif89a.txt
  */
 
+#include "libavutil/attributes.h"
 #include "libavutil/imgutils_internal.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
@@ -299,6 +300,7 @@ static int gif_image_write_image(AVCodecContext *avctx,
     int x_start = 0, y_start = 0, trans = s->transparent_index;
     int bcid = -1, honor_transparency = (s->flags & GF_TRANSDIFF) && s->last_frame && !palette;
     const uint8_t *ptr;
+    int ptr_linesize = linesize;
     uint32_t shrunk_palette[AVPALETTE_COUNT];
     uint8_t map[AVPALETTE_COUNT] = { 0 };
     size_t shrunk_palette_count = 0;
@@ -401,14 +403,15 @@ static int gif_image_write_image(AVCodecContext *avctx,
 
     if (shrunk_palette_count) {
         if (!s->shrunk_buf) {
-            s->shrunk_buf = av_malloc(avctx->height * linesize);
+            s->shrunk_buf = av_malloc(avctx->height * avctx->width);
             if (!s->shrunk_buf) {
                 av_log(avctx, AV_LOG_ERROR, "Could not allocated remapped frame buffer.\n");
                 return AVERROR(ENOMEM);
             }
         }
-        remap_frame_to_palette(buf, linesize, s->shrunk_buf, linesize, avctx->width, avctx->height, map);
-        ptr = s->shrunk_buf + y_start*linesize + x_start;
+        remap_frame_to_palette(buf, linesize, s->shrunk_buf, avctx->width, avctx->width, avctx->height, map);
+        ptr = s->shrunk_buf + y_start*avctx->width + x_start;
+        ptr_linesize = avctx->width;
     } else {
         ptr = buf + y_start*linesize + x_start;
     }
@@ -422,13 +425,13 @@ static int gif_image_write_image(AVCodecContext *avctx,
                 if (ref[x] == ptr[x])
                     s->tmpl[x] = trans;
             len += ff_lzw_encode(s->lzw, s->tmpl, width);
-            ptr += linesize;
+            ptr += ptr_linesize;
             ref += ref_linesize;
         }
     } else {
         for (y = 0; y < height; y++) {
             len += ff_lzw_encode(s->lzw, ptr, width);
-            ptr += linesize;
+            ptr += ptr_linesize;
         }
     }
     len += ff_lzw_encode_flush(s->lzw);
@@ -491,13 +494,17 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
             memcpy(s->palette, palette, AVPALETTE_SIZE);
             s->transparent_index = get_palette_transparency_index(palette);
             s->palette_loaded = 1;
+            if (s->use_global_palette)
+                palette = NULL;
         } else if (!memcmp(s->palette, palette, AVPALETTE_SIZE)) {
             palette = NULL;
         }
     }
 
-    gif_image_write_image(avctx, &outbuf_ptr, end, palette,
-                          pict->data[0], pict->linesize[0], pkt);
+    ret = gif_image_write_image(avctx, &outbuf_ptr, end, palette,
+                                pict->data[0], pict->linesize[0], pkt);
+    if (ret < 0)
+        return ret;
     if (!s->last_frame && !s->image) {
         s->last_frame = av_frame_alloc();
         if (!s->last_frame)
@@ -518,7 +525,7 @@ static int gif_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     return 0;
 }
 
-static int gif_encode_close(AVCodecContext *avctx)
+static av_cold int gif_encode_close(AVCodecContext *avctx)
 {
     GIFContext *s = avctx->priv_data;
 

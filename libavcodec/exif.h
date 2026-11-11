@@ -36,7 +36,6 @@
 #include "libavutil/buffer.h"
 #include "libavutil/dict.h"
 #include "libavutil/rational.h"
-#include "version_major.h"
 
 /** Data type identifiers for TIFF tags */
 enum AVTiffDataType {
@@ -138,32 +137,49 @@ int32_t av_exif_get_tag_id(const char *name);
   * ID, it will set the existing one to have the other information provided. Otherwise, it
   * will allocate a new entry.
   *
-  * This function reallocates ifd->entries using av_realloc and allocates (using av_malloc)
+  * This function reallocates ifd->entries using av_fast_realloc and allocates (using av_malloc)
   * a new value member of the entry, then copies the contents of value into that buffer.
  */
 int av_exif_set_entry(void *logctx, AVExifMetadata *ifd, uint16_t id, enum AVTiffDataType type,
                       uint32_t count, const uint8_t *ifd_lead, uint32_t ifd_offset, const void *value);
 
 /**
- * Get an entry with the tagged ID from the EXIF metadata struct. A pointer to the entry
- * will be written into *value. If the recursive flag is set to true, this function will check
- * subdirectories as well.
- *
- * If the entry was present and returned successfully, a positive number is returned.
- * If the entry was not found, *value is left untouched and zero is returned.
- * If an error occurred, a negative number is returned.
+ * Also check subdirectories.
  */
-int av_exif_get_entry(void *logctx, AVExifMetadata *ifd, uint16_t id, int recursive, AVExifEntry **value);
+#define AV_EXIF_FLAG_RECURSIVE (1 << 0)
 
 /**
- * Remove an entry from the provided EXIF metadata struct. If the recursive flag is set
- * to true, then this function will check subdirectories as well.
+ * Get an entry with the tagged ID from the EXIF metadata struct. A pointer to the entry
+ * will be written into *value.
+ *
+ * If the entry was present and returned successfully, a positive number is returned.
+ *
+ * The positive number is equal to 1 plus the offset at which the entry was found. If the
+ * entry was found at the top level, this will be in the range of 1 to the number of entries
+ * in the IFD (inclusive). If the entry was found in a sub-IFD, then it will be a number greater
+ * than the number of entries in the top-level IFD.
+ *
+ * If the entry was not found, *value is left untouched and zero is returned.
+ * If an error occurred, a negative AVERROR is returned.
+ */
+int av_exif_get_entry(void *logctx, AVExifMetadata *ifd, uint16_t id, int flags, AVExifEntry **value);
+
+/**
+ * Remove an entry from the provided EXIF metadata struct.
  *
  * If the entry was present and removed successfully, a positive number is returned.
- * If the entry was not found, zero is returned.
- * If an error occurred, a negative number is returned.
+ *
+ * The positive number is equal to 1 plus the offset at which the entry was found. If the
+ * entry was found at the top level, this will be in the range of 1 to the number of entries
+ * in the IFD (inclusive). If the entry was found in a sub-IFD, then it will be a number greater
+ * than the number of entries in the top-level IFD. This refers to the state of the IFD before
+ * the entry was removed, e.g. if the last entry is removed, a 1 is returned, but the IFD has
+ * no entries anymore.
+ *
+ * If the entry was not found, zero is returned and the IFD is left untouched.
+ * If an error occurred, a negative AVERROR is returned.
  */
-int av_exif_remove_entry(void *logctx, AVExifMetadata *ifd, uint16_t id, int recursive);
+int av_exif_remove_entry(void *logctx, AVExifMetadata *ifd, uint16_t id, int flags);
 
 /**
  * Decodes the EXIF data provided in the buffer and writes it into the

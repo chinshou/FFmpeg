@@ -44,6 +44,7 @@ typedef struct {
     BlockDSPContext bdsp;
     ProresDSPContext prodsp;
     AVFrame *frame;
+    void *hwaccel_picture_private;
     int frame_type;              ///< 0 = progressive, 1 = tff, 2 = bff
     uint8_t qmat_luma[64];
     uint8_t qmat_chroma[64];
@@ -51,6 +52,8 @@ typedef struct {
     int slice_count;             ///< number of slices in the current picture
     unsigned mb_width;           ///< width of the current picture in mb
     unsigned mb_height;          ///< height of the current picture in mb
+    unsigned slice_mb_width;     ///< maximum width of a slice in mb
+    unsigned slice_mb_height;    ///< maximum height of a slice in mb
     uint8_t progressive_scan[64];
     uint8_t interlaced_scan[64];
     const uint8_t *scan;
@@ -58,6 +61,9 @@ typedef struct {
     int alpha_info;
     void (*unpack_alpha)(GetBitContext *gb, uint16_t *dst, int num_coeffs, const int num_bits);
     enum AVPixelFormat pix_fmt;
+    enum AVColorPrimaries container_color_primaries; ///< used when the frame header has none
+    enum AVColorTransferCharacteristic container_color_trc; ///< used when the frame header has none
+    enum AVColorSpace container_colorspace;          ///< used when the frame header has none
 } ProresContext;
 
 #endif /* AVCODEC_PRORESDEC_H */

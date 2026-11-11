@@ -205,6 +205,8 @@ int sch_add_dec_output(Scheduler *sch, unsigned dec_idx);
 int sch_add_filtergraph(Scheduler *sch, unsigned nb_inputs, unsigned nb_outputs,
                         SchThreadFunc func, void *ctx);
 
+void sch_remove_filtergraph(Scheduler *sch, int idx);
+
 /**
  * Add a muxer to the scheduler.
  *
@@ -252,12 +254,12 @@ int sch_add_mux(Scheduler *sch, SchThreadFunc func, int (*init)(void *),
  * Default size of a packet thread queue.  For muxing this can be overridden by
  * the thread_queue_size option as passed to a call to sch_add_mux().
  */
-#define DEFAULT_PACKET_THREAD_QUEUE_SIZE 8
+#define DEFAULT_PACKET_THREAD_QUEUE_SIZE 2
 
 /**
  * Default size of a frame thread queue.
  */
-#define DEFAULT_FRAME_THREAD_QUEUE_SIZE 8
+#define DEFAULT_FRAME_THREAD_QUEUE_SIZE 2
 
 /**
  * Add a muxed stream for a previously added muxer.
@@ -282,6 +284,14 @@ int sch_add_mux_stream(Scheduler *sch, unsigned mux_idx);
  */
 void sch_mux_stream_buffering(Scheduler *sch, unsigned mux_idx, unsigned stream_idx,
                               size_t data_threshold, int max_packets);
+
+/**
+ * Set the timestamp offset (in AV_TIME_BASE_Q) that the upstream pipeline
+ * subtracted from this stream's packets. The scheduler adds it back when
+ * comparing DTS across streams for pacing. Defaults to 0 (streamcopy).
+ */
+void sch_mux_stream_set_dts_pacing_offset(Scheduler *sch, unsigned mux_idx,
+                                          unsigned stream_idx, int64_t offset);
 
 /**
  * Signal to the scheduler that the specified muxed stream is initialized and
@@ -442,6 +452,13 @@ int sch_filter_send(Scheduler *sch, unsigned fg_idx, unsigned out_idx,
                     struct AVFrame *frame);
 
 int sch_filter_command(Scheduler *sch, unsigned fg_idx, struct AVFrame *frame);
+
+/**
+ * Called by filtergraph tasks to choke all filter inputs, preventing them from
+ * receiving more frames until woken up again by the scheduler. Used during
+ * initial graph configuration to avoid unnecessary buffering.
+ */
+void sch_filter_choke_inputs(Scheduler *sch, unsigned fg_idx);
 
 /**
  * Called by encoder tasks to obtain frames for encoding. Will wait for a frame

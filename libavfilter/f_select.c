@@ -444,6 +444,11 @@ static int activate(AVFilterContext *ctx)
     while ((ret = ff_inlink_consume_frame(inlink, &in))) {
         if (ret < 0)
             return ret;
+        if (select->do_scene_detect &&
+            (ret = ff_inlink_check_frame_params(inlink, in, 0)) < 0) {
+            av_frame_free(&in);
+            return ret;
+        }
         select_frame(ctx, in);
         if (select->select && !ff_outlink_get_status(ctx->outputs[select->select_out]))
             return ff_filter_frame(ctx->outputs[select->select_out], in);
@@ -504,6 +509,7 @@ const FFFilter ff_af_aselect = {
     .p.flags       = AVFILTER_FLAG_DYNAMIC_OUTPUTS,
     .init        = aselect_init,
     .uninit      = uninit,
+    .activate      = activate,
     .priv_size   = sizeof(SelectContext),
     FILTER_INPUTS(avfilter_af_aselect_inputs),
 };
@@ -526,7 +532,7 @@ static int query_formats(const AVFilterContext *ctx,
             AV_PIX_FMT_YUV420P10,
             AV_PIX_FMT_NONE
         };
-        return ff_set_common_formats_from_list2(ctx, cfg_in, cfg_out, pix_fmts);
+        return ff_set_pixel_formats_from_list2(ctx, cfg_in, cfg_out, pix_fmts);
     }
     return 0;
 }
@@ -563,5 +569,6 @@ const FFFilter ff_vf_select = {
     .priv_size     = sizeof(SelectContext),
     FILTER_INPUTS(avfilter_vf_select_inputs),
     FILTER_QUERY_FUNC2(query_formats),
+    .flags_internal = FF_FILTER_FLAG_DYNAMIC_FRAME_PARAMS,
 };
 #endif /* CONFIG_SELECT_FILTER */

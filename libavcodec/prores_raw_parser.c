@@ -20,6 +20,7 @@
 
 #include "parser.h"
 #include "bytestream.h"
+#include "parser_internal.h"
 
 static int prores_raw_parse(AVCodecParserContext *s, AVCodecContext *avctx,
                             const uint8_t **poutbuf, int *poutbuf_size,
@@ -46,7 +47,7 @@ static int prores_raw_parse(AVCodecParserContext *s, AVCodecContext *avctx,
     if (bytestream2_get_be32(&gb) != buf_size) /* Packet size */
         return buf_size;
 
-    if (bytestream2_get_le32(&gb) != MKTAG('p','r','r','f')) /* Frame header */
+    if (bytestream2_get_be32(&gb) != MKBETAG('p','r','r','f')) /* Frame header */
         return buf_size;
 
     int header_size = bytestream2_get_be16(&gb);
@@ -63,6 +64,9 @@ static int prores_raw_parse(AVCodecParserContext *s, AVCodecContext *avctx,
     /* Vendor header (e.g. "peac" for Panasonic or "atm0" for Atmos) */
     bytestream2_skip(&gb, 4);
 
+    avctx->colorspace = AVCOL_SPC_UNSPECIFIED;
+    avctx->color_primaries = AVCOL_PRI_UNSPECIFIED;
+    avctx->color_trc = AVCOL_TRC_LINEAR;
     s->width = bytestream2_get_be16(&gb);
     s->height = bytestream2_get_be16(&gb);
     s->coded_width  = FFALIGN(s->width, 16);
@@ -80,7 +84,7 @@ static int prores_raw_parse(AVCodecParserContext *s, AVCodecContext *avctx,
     return buf_size;
 }
 
-const AVCodecParser ff_prores_raw_parser = {
-    .codec_ids      = { AV_CODEC_ID_PRORES_RAW },
-    .parser_parse   = prores_raw_parse,
+const FFCodecParser ff_prores_raw_parser = {
+    PARSER_CODEC_LIST(AV_CODEC_ID_PRORES_RAW),
+    .parse          = prores_raw_parse,
 };

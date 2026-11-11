@@ -32,10 +32,9 @@ static void mpv_pic_reset(AVRefStructOpaque unused, void *obj)
 {
     MPVPicture *pic = obj;
 
+    av_refstruct_unref(&pic->hwaccel_picture_private);
     av_frame_unref(pic->f);
     ff_thread_progress_reset(&pic->progress);
-
-    av_refstruct_unref(&pic->hwaccel_picture_private);
 
     av_refstruct_unref(&pic->mbskip_table);
     av_refstruct_unref(&pic->qscale_table_base);
@@ -186,7 +185,7 @@ int ff_mpv_pic_check_linesize(void *logctx, const AVFrame *f,
     if ((linesize   &&   linesize != f->linesize[0]) ||
         (uvlinesize && uvlinesize != f->linesize[1])) {
         av_log(logctx, AV_LOG_ERROR, "Stride change unsupported: "
-               "linesize=%"PTRDIFF_SPECIFIER"/%d uvlinesize=%"PTRDIFF_SPECIFIER"/%d)\n",
+               "linesize=%td/%d uvlinesize=%td/%d)\n",
                linesize,   f->linesize[0],
                uvlinesize, f->linesize[1]);
         return AVERROR_PATCHWELCOME;

@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 #include "cmdutils.h"
+#include "fopen_utf8.h"
 #include "opt_common.h"
 
 #include "libavutil/avassert.h"
@@ -67,10 +68,15 @@ enum show_muxdemuxers {
     SHOW_MUXERS,
 };
 
+enum show_codec {
+    SHOW_DECODER,
+    SHOW_ENCODER,
+};
+
 static FILE *report_file;
 static int report_file_level = AV_LOG_DEBUG;
 
-int show_license(void *optctx, const char *opt, const char *arg)
+int show_license(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if 0
 #if CONFIG_NONFREE
@@ -197,14 +203,14 @@ static void print_program_info(int flags, int level)
 {
     const char *indent = flags & INDENT? "  " : "";
 
-    av_log(NULL, level, "%s version " FFMPEG_VERSION, program_name);
+    av_log(NULL, level, "%s version %s", program_name, FFMPEG_VERSION);
     if (flags & SHOW_COPYRIGHT)
         av_log(NULL, level, " Copyright (c) %d-%d the FFmpeg developers",
                program_birth_year, CONFIG_THIS_YEAR);
     av_log(NULL, level, "\n");
     av_log(NULL, level, "%sbuilt with %s\n", indent, CC_IDENT);
 
-    av_log(NULL, level, "%sconfiguration: " FFMPEG_CONFIGURATION "\n", indent);
+    av_log(NULL, level, "%sconfiguration: %s\n", indent, FFMPEG_CONFIGURATION);
 }
 
 static void print_buildconf(int flags, int level)
@@ -244,7 +250,7 @@ void show_banner(int argc, char **argv, const OptionDef *options)
     print_all_libs_info(INDENT|SHOW_VERSION, AV_LOG_INFO);
 }
 
-int show_version(void *optctx, const char *opt, const char *arg)
+int show_version(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if 0
     av_log_set_callback(log_callback_help);
@@ -255,7 +261,7 @@ int show_version(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_buildconf(void *optctx, const char *opt, const char *arg)
+int show_buildconf(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if 0
     av_log_set_callback(log_callback_help);
@@ -325,6 +331,12 @@ static void print_codec(const AVCodec *c)
         printf("hardware ");
     if (c->capabilities & AV_CODEC_CAP_HYBRID)
         printf("hybrid ");
+    if (c->capabilities & AV_CODEC_CAP_ENCODER_REORDERED_OPAQUE)
+        printf("reorderedopaque ");
+    if (c->capabilities & AV_CODEC_CAP_ENCODER_FLUSH)
+        printf("flush ");
+    if (c->capabilities & AV_CODEC_CAP_ENCODER_RECON_FRAME)
+        printf("reconframe ");
     if (!c->capabilities)
         printf("none");
     printf("\n");
@@ -580,7 +592,7 @@ static void show_help_bsf(const char *name)
         show_help_children(bsf->priv_class, AV_OPT_FLAG_BSF_PARAM);
 }
 
-int show_help(void *optctx, const char *opt, const char *arg)
+int show_help(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     char *topic, *par;
     av_log_set_callback(log_callback_help);
@@ -595,9 +607,9 @@ int show_help(void *optctx, const char *opt, const char *arg)
     if (!*topic) {
         show_help_default(topic, par);
     } else if (!strcmp(topic, "decoder")) {
-        show_help_codec(par, 0);
+        show_help_codec(par, SHOW_DECODER);
     } else if (!strcmp(topic, "encoder")) {
-        show_help_codec(par, 1);
+        show_help_codec(par, SHOW_ENCODER);
     } else if (!strcmp(topic, "demuxer")) {
         show_help_demuxer(par);
     } else if (!strcmp(topic, "muxer")) {
@@ -671,7 +683,7 @@ static char get_media_type_char(enum AVMediaType type)
     }
 }
 
-int show_codecs(void *optctx, const char *opt, const char *arg)
+int show_codecs(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVCodecDescriptor **codecs;
     unsigned i;
@@ -712,16 +724,16 @@ int show_codecs(void *optctx, const char *opt, const char *arg)
 
         /* print decoders/encoders when there's more than one or their
          * names are different from codec name */
-        while ((codec = next_codec_for_id(desc->id, &iter, 0))) {
+        while ((codec = next_codec_for_id(desc->id, &iter, SHOW_DECODER))) {
             if (strcmp(codec->name, desc->name)) {
-                print_codecs_for_id(desc->id, 0);
+                print_codecs_for_id(desc->id, SHOW_DECODER);
                 break;
             }
         }
         iter = NULL;
-        while ((codec = next_codec_for_id(desc->id, &iter, 1))) {
+        while ((codec = next_codec_for_id(desc->id, &iter, SHOW_ENCODER))) {
             if (strcmp(codec->name, desc->name)) {
-                print_codecs_for_id(desc->id, 1);
+                print_codecs_for_id(desc->id, SHOW_ENCODER);
                 break;
             }
         }
@@ -776,17 +788,17 @@ static int print_codecs(int encoder)
     return 0;
 }
 
-int show_decoders(void *optctx, const char *opt, const char *arg)
+int show_decoders(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return print_codecs(0);
+    return print_codecs(SHOW_DECODER);
 }
 
-int show_encoders(void *optctx, const char *opt, const char *arg)
+int show_encoders(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return print_codecs(1);
+    return print_codecs(SHOW_ENCODER);
 }
 
-int show_bsfs(void *optctx, const char *opt, const char *arg)
+int show_bsfs(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVBitStreamFilter *bsf = NULL;
     void *opaque = NULL;
@@ -798,7 +810,7 @@ int show_bsfs(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_filters(void *optctx, const char *opt, const char *arg)
+int show_filters(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
 #if CONFIG_AVFILTER
     const AVFilter *filter = NULL;
@@ -813,7 +825,8 @@ int show_filters(void *optctx, const char *opt, const char *arg)
            "  A = Audio input/output\n"
            "  V = Video input/output\n"
            "  N = Dynamic number and/or type of input/output\n"
-           "  | = Source or sink filter\n");
+           "  | = Source or sink filter\n"
+           "  ------\n");
     while ((filter = av_filter_iterate(&opaque))) {
         descr_cur = descr;
         for (i = 0; i < 2; i++) {
@@ -852,7 +865,7 @@ static int is_device(const AVClass *avclass)
     return AV_IS_INPUT_DEVICE(avclass->category) || AV_IS_OUTPUT_DEVICE(avclass->category);
 }
 
-static int show_formats_devices(void *optctx, const char *opt, const char *arg, int device_only, int muxdemuxers)
+static int show_formats_devices(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg, int device_only, int muxdemuxers)
 {
     void *ifmt_opaque = NULL;
     const AVInputFormat *ifmt  = NULL;
@@ -879,7 +892,7 @@ static int show_formats_devices(void *optctx, const char *opt, const char *arg, 
         const char *name      = NULL;
         const char *long_name = NULL;
 
-        if (muxdemuxers !=SHOW_DEMUXERS) {
+        if (muxdemuxers != SHOW_DEMUXERS) {
             ofmt_opaque = NULL;
             while ((ofmt = av_muxer_iterate(&ofmt_opaque))) {
                 is_dev = is_device(ofmt->priv_class);
@@ -927,27 +940,27 @@ static int show_formats_devices(void *optctx, const char *opt, const char *arg, 
     return 0;
 }
 
-int show_formats(void *optctx, const char *opt, const char *arg)
+int show_formats(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 0, SHOW_DEFAULT);
+    return show_formats_devices(ctx, optctx, opt, arg, 0, SHOW_DEFAULT);
 }
 
-int show_muxers(void *optctx, const char *opt, const char *arg)
+int show_muxers(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 0, SHOW_MUXERS);
+    return show_formats_devices(ctx, optctx, opt, arg, 0, SHOW_MUXERS);
 }
 
-int show_demuxers(void *optctx, const char *opt, const char *arg)
+int show_demuxers(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 0, SHOW_DEMUXERS);
+    return show_formats_devices(ctx, optctx, opt, arg, 0, SHOW_DEMUXERS);
 }
 
-int show_devices(void *optctx, const char *opt, const char *arg)
+int show_devices(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
-    return show_formats_devices(optctx, opt, arg, 1, SHOW_DEFAULT);
+    return show_formats_devices(ctx, optctx, opt, arg, 1, SHOW_DEFAULT);
 }
 
-int show_protocols(void *optctx, const char *opt, const char *arg)
+int show_protocols(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     void *opaque = NULL;
     const char *name;
@@ -962,7 +975,7 @@ int show_protocols(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_colors(void *optctx, const char *opt, const char *arg)
+int show_colors(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const char *name;
     const uint8_t *rgb;
@@ -976,7 +989,7 @@ int show_colors(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_pix_fmts(void *optctx, const char *opt, const char *arg)
+int show_pix_fmts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVPixFmtDescriptor *pix_desc = NULL;
 
@@ -995,7 +1008,7 @@ int show_pix_fmts(void *optctx, const char *opt, const char *arg)
 #endif
 
     while ((pix_desc = av_pix_fmt_desc_next(pix_desc))) {
-        enum AVPixelFormat av_unused pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
+        av_unused enum AVPixelFormat pix_fmt = av_pix_fmt_desc_get_id(pix_desc);
         printf("%c%c%c%c%c %-16s       %d            %3d      %d",
                sws_isSupportedInput (pix_fmt)              ? 'I' : '.',
                sws_isSupportedOutput(pix_fmt)              ? 'O' : '.',
@@ -1014,7 +1027,7 @@ int show_pix_fmts(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_layouts(void *optctx, const char *opt, const char *arg)
+int show_layouts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVChannelLayout *ch_layout;
     void *iter = NULL;
@@ -1047,7 +1060,7 @@ int show_layouts(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_sample_fmts(void *optctx, const char *opt, const char *arg)
+int show_sample_fmts(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     int i;
     char fmt_str[128];
@@ -1056,7 +1069,7 @@ int show_sample_fmts(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int show_dispositions(void *optctx, const char *opt, const char *arg)
+int show_dispositions(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     for (int i = 0; i < 32; i++) {
         const char *str = av_disposition_to_string(1U << i);
@@ -1066,7 +1079,7 @@ int show_dispositions(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int opt_cpuflags(void *optctx, const char *opt, const char *arg)
+int opt_cpuflags(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     int ret;
     unsigned flags = av_get_cpu_flags();
@@ -1078,7 +1091,7 @@ int opt_cpuflags(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int opt_cpucount(void *optctx, const char *opt, const char *arg)
+int opt_cpucount(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     int ret;
     int count;
@@ -1209,7 +1222,7 @@ int init_report(const char *env, FILE **file)
     if (!envlevel)
         report_file_level = FFMAX(report_file_level, prog_loglevel);
 
-    report_file = fopen(filename.str, "w");
+    report_file = fopen_utf8(filename.str, "w");
     if (!report_file) {
         int ret = AVERROR(errno);
         av_log(NULL, AV_LOG_ERROR, "Failed to open report \"%s\": %s\n",
@@ -1233,12 +1246,12 @@ int init_report(const char *env, FILE **file)
     return 0;
 }
 
-int opt_report(void *optctx, const char *opt, const char *arg)
+int opt_report(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     return init_report(NULL, NULL);
 }
 
-int opt_max_alloc(void *optctx, const char *opt, const char *arg)
+int opt_max_alloc(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     char *tail;
     size_t max;
@@ -1252,7 +1265,7 @@ int opt_max_alloc(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
-int opt_loglevel(void *optctx, const char *opt, const char *arg)
+int opt_loglevel(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const struct { const char *name; int level; } log_levels[] = {
         { "quiet"  , AV_LOG_QUIET   },
@@ -1432,7 +1445,7 @@ static int show_sinks_sources_parse_arg(const char *arg, char **dev, AVDictionar
     return 0;
 }
 
-int show_sources(void *optctx, const char *opt, const char *arg)
+int show_sources(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVInputFormat *fmt = NULL;
     char *dev = NULL;
@@ -1470,7 +1483,7 @@ int show_sources(void *optctx, const char *opt, const char *arg)
     return ret;
 }
 
-int show_sinks(void *optctx, const char *opt, const char *arg)
+int show_sinks(struct FfmpegContext *ctx, void *optctx, const char *opt, const char *arg)
 {
     const AVOutputFormat *fmt = NULL;
     char *dev = NULL;

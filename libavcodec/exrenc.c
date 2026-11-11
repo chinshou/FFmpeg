@@ -437,15 +437,17 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         /* nothing to do */
         break;
     case EXR_RLE:
-        encode_scanline_rle(s, frame);
+        ret = encode_scanline_rle(s, frame);
         break;
     case EXR_ZIP16:
     case EXR_ZIP1:
-        encode_scanline_zip(s, frame);
+        ret = encode_scanline_zip(s, frame);
         break;
     default:
         av_assert0(0);
     }
+    if (ret < 0)
+        return ret;
 
     switch (s->compression) {
     case EXR_RAW:
@@ -553,4 +555,5 @@ const FFCodec ff_exr_encoder = {
     FF_CODEC_ENCODE_CB(encode_frame),
     .close          = encode_close,
     CODEC_PIXFMTS(AV_PIX_FMT_GRAYF32, AV_PIX_FMT_GBRPF32, AV_PIX_FMT_GBRAPF32),
+    .alpha_modes    = AVALPHA_MODE_PREMULTIPLIED,
 };

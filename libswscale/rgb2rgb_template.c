@@ -389,7 +389,7 @@ static inline void yuvPlanartoyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
 #if HAVE_FAST_64BIT
         uint64_t *ldst = (uint64_t *)dst;
         const uint8_t *yc = ysrc, *uc = usrc, *vc = vsrc;
-        for (i = 0; i < chromWidth; i += 2) {
+        for (i = 0; i < (chromWidth & ~1); i += 2) {
             uint64_t k = yc[0] + (uc[0] << 8) +
                          (yc[1] << 16) + ((unsigned) vc[0] << 24);
             uint64_t l = yc[2] + (uc[1] << 8) +
@@ -399,6 +399,7 @@ static inline void yuvPlanartoyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
             uc     += 2;
             vc     += 2;
         }
+        ff_pack_yuv422_line(dst, ysrc, usrc, vsrc, chromWidth & ~1, chromWidth, 1);
 
 #else
         int *idst = (int32_t *)dst;
@@ -406,11 +407,11 @@ static inline void yuvPlanartoyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
 
         for (i = 0; i < chromWidth; i++) {
 #if HAVE_BIGENDIAN
-            *idst++ = (yc[0] << 24) + (uc[0] << 16) +
+            *idst++ = ((unsigned)yc[0] << 24) + (uc[0] << 16) +
                       (yc[1] <<  8) + (vc[0] <<  0);
 #else
             *idst++ = yc[0] + (uc[0] << 8) +
-                      (yc[1] << 16) + (vc[0] << 24);
+                      (yc[1] << 16) + ((unsigned)vc[0] << 24);
 #endif
             yc += 2;
             uc++;
@@ -426,10 +427,6 @@ static inline void yuvPlanartoyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
     }
 }
 
-/**
- * Height should be a multiple of 2 and width should be a multiple of 16.
- * (If this is a problem for anyone then tell me, and I will fix it.)
- */
 static inline void yv12toyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
                                 const uint8_t *vsrc, uint8_t *dst,
                                 int width, int height, int lumStride,
@@ -453,7 +450,7 @@ static inline void yuvPlanartouyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
 #if HAVE_FAST_64BIT
         uint64_t *ldst = (uint64_t *)dst;
         const uint8_t *yc = ysrc, *uc = usrc, *vc = vsrc;
-        for (i = 0; i < chromWidth; i += 2) {
+        for (i = 0; i < (chromWidth & ~1); i += 2) {
             uint64_t k = uc[0] + (yc[0] << 8) +
                          (vc[0] << 16) + ((unsigned) yc[1] << 24);
             uint64_t l = uc[1] + (yc[2] << 8) +
@@ -463,6 +460,7 @@ static inline void yuvPlanartouyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
             uc     += 2;
             vc     += 2;
         }
+        ff_pack_yuv422_line(dst, ysrc, usrc, vsrc, chromWidth & ~1, chromWidth, 0);
 
 #else
         int *idst = (int32_t *)dst;
@@ -470,11 +468,11 @@ static inline void yuvPlanartouyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
 
         for (i = 0; i < chromWidth; i++) {
 #if HAVE_BIGENDIAN
-            *idst++ = (uc[0] << 24) + (yc[0] << 16) +
+            *idst++ = ((unsigned)uc[0] << 24) + (yc[0] << 16) +
                       (vc[0] <<  8) + (yc[1] <<  0);
 #else
             *idst++ = uc[0] + (yc[0] << 8) +
-                      (vc[0] << 16) + (yc[1] << 24);
+                      (vc[0] << 16) + ((unsigned)yc[1] << 24);
 #endif
             yc += 2;
             uc++;
@@ -490,10 +488,6 @@ static inline void yuvPlanartouyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
     }
 }
 
-/**
- * Height should be a multiple of 2 and width should be a multiple of 16
- * (If this is a problem for anyone then tell me, and I will fix it.)
- */
 static inline void yv12touyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
                                 const uint8_t *vsrc, uint8_t *dst,
                                 int width, int height, int lumStride,
@@ -504,9 +498,6 @@ static inline void yv12touyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
                       chromStride, dstStride, 2);
 }
 
-/**
- * Width should be a multiple of 16.
- */
 static inline void yuv422ptouyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
                                    const uint8_t *vsrc, uint8_t *dst,
                                    int width, int height, int lumStride,
@@ -516,9 +507,6 @@ static inline void yuv422ptouyvy_c(const uint8_t *ysrc, const uint8_t *usrc,
                       chromStride, dstStride, 1);
 }
 
-/**
- * Width should be a multiple of 16.
- */
 static inline void yuv422ptoyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
                                    const uint8_t *vsrc, uint8_t *dst,
                                    int width, int height, int lumStride,
@@ -526,40 +514,6 @@ static inline void yuv422ptoyuy2_c(const uint8_t *ysrc, const uint8_t *usrc,
 {
     yuvPlanartoyuy2_c(ysrc, usrc, vsrc, dst, width, height, lumStride,
                       chromStride, dstStride, 1);
-}
-
-/**
- * Height should be a multiple of 2 and width should be a multiple of 16.
- * (If this is a problem for anyone then tell me, and I will fix it.)
- */
-static inline void yuy2toyv12_c(const uint8_t *src, uint8_t *ydst,
-                                uint8_t *udst, uint8_t *vdst,
-                                int width, int height, int lumStride,
-                                int chromStride, int srcStride)
-{
-    int y;
-    const int chromWidth = width >> 1;
-
-    for (y = 0; y < height; y += 2) {
-        int i;
-        for (i = 0; i < chromWidth; i++) {
-            ydst[2 * i + 0] = src[4 * i + 0];
-            udst[i]         = src[4 * i + 1];
-            ydst[2 * i + 1] = src[4 * i + 2];
-            vdst[i]         = src[4 * i + 3];
-        }
-        ydst += lumStride;
-        src  += srcStride;
-
-        for (i = 0; i < chromWidth; i++) {
-            ydst[2 * i + 0] = src[4 * i + 0];
-            ydst[2 * i + 1] = src[4 * i + 2];
-        }
-        udst += chromStride;
-        vdst += chromStride;
-        ydst += lumStride;
-        src  += srcStride;
-    }
 }
 
 static inline void planar2x_c(const uint8_t *src, uint8_t *dst, int srcWidth,
@@ -605,42 +559,6 @@ static inline void planar2x_c(const uint8_t *src, uint8_t *dst, int srcWidth,
         dst[2 * x + 2] = (src[x] + 3 * src[x + 1]) >> 2;
     }
     dst[2 * srcWidth - 1] = src[srcWidth - 1];
-}
-
-/**
- * Height should be a multiple of 2 and width should be a multiple of 16.
- * (If this is a problem for anyone then tell me, and I will fix it.)
- * Chrominance data is only taken from every second line, others are ignored.
- * FIXME: Write HQ version.
- */
-static inline void uyvytoyv12_c(const uint8_t *src, uint8_t *ydst,
-                                uint8_t *udst, uint8_t *vdst,
-                                int width, int height, int lumStride,
-                                int chromStride, int srcStride)
-{
-    int y;
-    const int chromWidth = width >> 1;
-
-    for (y = 0; y < height; y += 2) {
-        int i;
-        for (i = 0; i < chromWidth; i++) {
-            udst[i]         = src[4 * i + 0];
-            ydst[2 * i + 0] = src[4 * i + 1];
-            vdst[i]         = src[4 * i + 2];
-            ydst[2 * i + 1] = src[4 * i + 3];
-        }
-        ydst += lumStride;
-        src  += srcStride;
-
-        for (i = 0; i < chromWidth; i++) {
-            ydst[2 * i + 0] = src[4 * i + 1];
-            ydst[2 * i + 1] = src[4 * i + 3];
-        }
-        udst += chromStride;
-        vdst += chromStride;
-        ydst += lumStride;
-        src  += srcStride;
-    }
 }
 
 /**
@@ -746,59 +664,6 @@ static void deinterleaveBytes_c(const uint8_t *src, uint8_t *dst1, uint8_t *dst2
     }
 }
 
-static inline void vu9_to_vu12_c(const uint8_t *src1, const uint8_t *src2,
-                                 uint8_t *dst1, uint8_t *dst2,
-                                 int width, int height,
-                                 int srcStride1, int srcStride2,
-                                 int dstStride1, int dstStride2)
-{
-    int x, y;
-    int w = width  / 2;
-    int h = height / 2;
-
-    for (y = 0; y < h; y++) {
-        const uint8_t *s1 = src1 + srcStride1 * (y >> 1);
-        uint8_t *d        = dst1 + dstStride1 *  y;
-        for (x = 0; x < w; x++)
-            d[2 * x] = d[2 * x + 1] = s1[x];
-    }
-    for (y = 0; y < h; y++) {
-        const uint8_t *s2 = src2 + srcStride2 * (y >> 1);
-        uint8_t *d        = dst2 + dstStride2 *  y;
-        for (x = 0; x < w; x++)
-            d[2 * x] = d[2 * x + 1] = s2[x];
-    }
-}
-
-static inline void yvu9_to_yuy2_c(const uint8_t *src1, const uint8_t *src2,
-                                  const uint8_t *src3, uint8_t *dst,
-                                  int width, int height,
-                                  int srcStride1, int srcStride2,
-                                  int srcStride3, int dstStride)
-{
-    int x, y;
-    int w = width / 2;
-    int h = height;
-
-    for (y = 0; y < h; y++) {
-        const uint8_t *yp = src1 + srcStride1 *  y;
-        const uint8_t *up = src2 + srcStride2 * (y >> 2);
-        const uint8_t *vp = src3 + srcStride3 * (y >> 2);
-        uint8_t *d        = dst  + dstStride  *  y;
-        for (x = 0; x < w; x++) {
-            const int x2 = x << 2;
-            d[8 * x + 0] = yp[x2];
-            d[8 * x + 1] = up[x];
-            d[8 * x + 2] = yp[x2 + 1];
-            d[8 * x + 3] = vp[x];
-            d[8 * x + 4] = yp[x2 + 2];
-            d[8 * x + 5] = up[x];
-            d[8 * x + 6] = yp[x2 + 3];
-            d[8 * x + 7] = vp[x];
-        }
-    }
-}
-
 static void extract_even_c(const uint8_t *src, uint8_t *dst, int count)
 {
     dst   +=  count;
@@ -833,8 +698,8 @@ static void extract_even2avg_c(const uint8_t *src0, const uint8_t *src1,
     src1  +=  count * 4;
     count  = -count;
     while (count < 0) {
-        dst0[count] = (src0[4 * count + 0] + src1[4 * count + 0]) >> 1;
-        dst1[count] = (src0[4 * count + 2] + src1[4 * count + 2]) >> 1;
+        dst0[count] = (src0[4 * count + 0] + src1[4 * count + 0] + 1) >> 1;
+        dst1[count] = (src0[4 * count + 2] + src1[4 * count + 2] + 1) >> 1;
         count++;
     }
 }
@@ -865,8 +730,8 @@ static void extract_odd2avg_c(const uint8_t *src0, const uint8_t *src1,
     src0++;
     src1++;
     while (count < 0) {
-        dst0[count] = (src0[4 * count + 0] + src1[4 * count + 0]) >> 1;
-        dst1[count] = (src0[4 * count + 2] + src1[4 * count + 2]) >> 1;
+        dst0[count] = (src0[4 * count + 0] + src1[4 * count + 0] + 1) >> 1;
+        dst1[count] = (src0[4 * count + 2] + src1[4 * count + 2] + 1) >> 1;
         count++;
     }
 }
@@ -984,13 +849,10 @@ static av_cold void rgb2rgb_init_c(void)
     yv12touyvy         = yv12touyvy_c;
     yuv422ptoyuy2      = yuv422ptoyuy2_c;
     yuv422ptouyvy      = yuv422ptouyvy_c;
-    yuy2toyv12         = yuy2toyv12_c;
     planar2x           = planar2x_c;
     ff_rgb24toyv12     = ff_rgb24toyv12_c;
     interleaveBytes    = interleaveBytes_c;
     deinterleaveBytes  = deinterleaveBytes_c;
-    vu9_to_vu12        = vu9_to_vu12_c;
-    yvu9_to_yuy2       = yvu9_to_yuy2_c;
 
     uyvytoyuv420       = uyvytoyuv420_c;
     uyvytoyuv422       = uyvytoyuv422_c;

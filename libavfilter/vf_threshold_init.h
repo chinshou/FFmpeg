@@ -74,7 +74,7 @@ static void threshold16(const uint8_t *iin, const uint8_t *tthreshold,
     }
 }
 
-static av_unused void ff_threshold_init(ThresholdContext *s)
+av_unused static void ff_threshold_init(ThresholdContext *s)
 {
     if (s->depth == 8) {
         s->threshold = threshold8;
@@ -84,8 +84,10 @@ static av_unused void ff_threshold_init(ThresholdContext *s)
         s->bpc = 2;
     }
 
-#if ARCH_X86
+#if ARCH_X86 && HAVE_X86ASM
     ff_threshold_init_x86(s);
+#elif ARCH_AARCH64
+    ff_threshold_init_aarch64(s);
 #endif
 }
 

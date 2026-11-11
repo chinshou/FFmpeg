@@ -1,4 +1,4 @@
-39aceb753338756e780f067832f58e69 *tests/data/fate/vsynth2-roqvideo.roq
-92204 tests/data/fate/vsynth2-roqvideo.roq
-09a8944612ed507675e27ace78fd66e8 *tests/data/fate/vsynth2-roqvideo.out.rawvideo
-stddev:    4.90 PSNR: 34.32 MAXDIFF:   73 bytes:  7603200/   760320
+7eb634e57b13114e40e0b52f16e014b0 *tests/data/fate/vsynth2-roqvideo.roq
+91783 tests/data/fate/vsynth2-roqvideo.roq
+5c04ce7828401cfcdeb5c11011dbdcbd *tests/data/fate/vsynth2-roqvideo.out.rawvideo
+stddev:    4.87 PSNR: 34.38 MAXDIFF:   80 bytes:  7603200/   760320

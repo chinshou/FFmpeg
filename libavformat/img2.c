@@ -57,6 +57,7 @@
     TAG(TIFF,            tiff     ) \
     TAG(TIFF,            tif      ) \
     TAG(TIFF,            dng      ) \
+    TAG(RW2,             rw2      ) \
     TAG(SGI,             sgi      ) \
     TAG(PTX,             ptx      ) \
     TAG(PHOTOCD,         pcd      ) \
@@ -92,6 +93,7 @@
     TAG(GEM,             timg     ) \
     TAG(VBN,             vbn      ) \
     TAG(JPEGXL,          jxl      ) \
+    TAG(JPEGXS,          jxs      ) \
     TAG(QOI,             qoi      ) \
     TAG(RADIANCE_HDR,    hdr      ) \
     TAG(WBMP,            wbmp     ) \

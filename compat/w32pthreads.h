@@ -46,14 +46,14 @@
 #include "libavutil/time.h"
 #include "libavutil/wchar_filename.h"
 
-typedef struct pthread_t {
+typedef struct w32pthread_t {
     void *handle;
     void *(*func)(void* arg);
     void *arg;
     void *ret;
 } *pthread_t;
 
-/* use light weight mutex/condition variable API for Windows Vista and later */
+/* use light weight mutex/condition variable API */
 typedef SRWLOCK pthread_mutex_t;
 typedef CONDITION_VARIABLE pthread_cond_t;
 
@@ -63,16 +63,13 @@ typedef CONDITION_VARIABLE pthread_cond_t;
 #define InitializeCriticalSection(x) InitializeCriticalSectionEx(x, 0, 0)
 #define WaitForSingleObject(a, b) WaitForSingleObjectEx(a, b, FALSE)
 
-#define PTHREAD_CANCEL_ENABLE 1
-#define PTHREAD_CANCEL_DISABLE 0
-
 #if HAVE_WINRT
 #define THREADFUNC_RETTYPE DWORD
 #else
 #define THREADFUNC_RETTYPE unsigned
 #endif
 
-static av_unused THREADFUNC_RETTYPE
+av_unused static THREADFUNC_RETTYPE
 __stdcall attribute_align_arg win32thread_worker(void *arg)
 {
     pthread_t h = (pthread_t)arg;
@@ -80,12 +77,12 @@ __stdcall attribute_align_arg win32thread_worker(void *arg)
     return 0;
 }
 
-static av_unused int pthread_create(pthread_t *thread, const void *unused_attr,
+av_unused static int pthread_create(pthread_t *thread, const void *unused_attr,
                                     void *(*start_routine)(void*), void *arg)
 {
     pthread_t ret;
 
-    ret = av_mallocz(sizeof(*ret));
+    ret = (pthread_t)av_mallocz(sizeof(*ret));
     if (!ret)
         return EAGAIN;
 
@@ -109,7 +106,7 @@ static av_unused int pthread_create(pthread_t *thread, const void *unused_attr,
     return 0;
 }
 
-static av_unused int pthread_join(pthread_t thread, void **value_ptr)
+av_unused static int pthread_join(pthread_t thread, void **value_ptr)
 {
     DWORD ret = WaitForSingleObject(thread->handle, INFINITE);
     if (ret != WAIT_OBJECT_0) {
@@ -146,10 +143,15 @@ static inline int pthread_mutex_unlock(pthread_mutex_t *m)
     return 0;
 }
 
+static inline int pthread_mutex_trylock(pthread_mutex_t *m)
+{
+    return TryAcquireSRWLockExclusive(m) == 0 ? EBUSY : 0;
+}
+
 typedef INIT_ONCE pthread_once_t;
 #define PTHREAD_ONCE_INIT INIT_ONCE_STATIC_INIT
 
-static av_unused int pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
+av_unused static int pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
 {
     BOOL pending = FALSE;
     InitOnceBeginInitialize(once_control, 0, &pending, NULL);
@@ -202,11 +204,6 @@ static inline int pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *
 static inline int pthread_cond_signal(pthread_cond_t *cond)
 {
     WakeConditionVariable(cond);
-    return 0;
-}
-
-static inline int pthread_setcancelstate(int state, int *oldstate)
-{
     return 0;
 }
 

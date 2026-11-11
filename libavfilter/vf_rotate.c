@@ -288,7 +288,7 @@ static int config_props(AVFilterLink *outlink)
     double res;
     char *expr;
 
-    ret = ff_draw_init2(&rot->draw, inlink->format, inlink->colorspace, inlink->color_range, 0);
+    ret = ff_draw_init_from_link(&rot->draw, inlink, 0);
     if (ret < 0)
         return ret;
     ff_draw_color(&rot->draw, &rot->color, rot->fillcolor);
@@ -420,8 +420,8 @@ static int filter_slice(AVFilterContext *ctx, void *arg, int job, int nb_jobs)
     const int plane = td->plane;
     const int xi = td->xi, yi = td->yi;
     const int c = td->c, s = td->s;
-    const int start = (outh *  job   ) / nb_jobs;
-    const int end   = (outh * (job+1)) / nb_jobs;
+    const int start = ff_slice_pos(outh, job, nb_jobs);
+    const int end   = ff_slice_pos(outh, job + 1, nb_jobs);
     int xprime = td->xprime + start * s;
     int yprime = td->yprime + start * c;
     int i, j, x, y;

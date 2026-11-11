@@ -1157,8 +1157,11 @@ static int skipped_transform_tree_unit(VVCLocalContext *lc)
     const CodingUnit *cu   = lc->cu;
     int ret;
 
-    if (cu->tree_type != DUAL_TREE_CHROMA)
-        set_qp_y(lc, cu->x0, cu->y0, 0);
+    if (cu->tree_type != DUAL_TREE_CHROMA) {
+        ret = set_qp_y(lc, cu->x0, cu->y0, 0);
+        if (ret < 0)
+            return ret;
+    }
     if (rsps->sps_chroma_format_idc && cu->tree_type != DUAL_TREE_LUMA)
         set_qp_c(lc);
     ret = skipped_transform_tree(lc, cu->x0, cu->y0, cu->cb_width, cu->cb_height);
@@ -1312,10 +1315,13 @@ static void derive_mmvd(const VVCLocalContext *lc, MvField *mvf, const Mv *mmvd_
         mvf->mv[0].y += mmvd[0].y;
         mvf->mv[1].x += mmvd[1].x;
         mvf->mv[1].y += mmvd[1].y;
+        ff_vvc_clip_mv(&mvf->mv[0]);
+        ff_vvc_clip_mv(&mvf->mv[1]);
     } else {
         const int idx = mvf->pred_flag - PF_L0;
         mvf->mv[idx].x += mmvd_offset->x;
         mvf->mv[idx].y += mmvd_offset->y;
+        ff_vvc_clip_mv(&mvf->mv[idx]);
     }
 
 }
@@ -1613,6 +1619,7 @@ static void mvp_add_difference(MotionInfo *mi, const int num_cp_mv,
                 const Mv *mvd = &mvds[i][j];
                 mi->mv[i][j].x += mvd->x * (1 << amvr_shift);
                 mi->mv[i][j].y += mvd->y * (1 << amvr_shift);
+                ff_vvc_wrap_mv(&mi->mv[i][j]);
             }
         }
     }
@@ -1937,17 +1944,20 @@ static void palette_update_predictor(VVCLocalContext *lc, const bool local_dual_
     }
 }
 
-static void palette_qp(VVCLocalContext *lc, VVCTreeType tree_type, const bool escape_present)
+static int palette_qp(VVCLocalContext *lc, VVCTreeType tree_type, const bool escape_present)
 {
     const VVCFrameContext *fc     = lc->fc;
     const VVCPPS *pps             = fc->ps.pps;
     const H266RawSliceHeader *rsh = lc->sc->sh.r;
     const CodingUnit *cu          = lc->cu;
+    int ret;
 
     if (tree_type != DUAL_TREE_CHROMA) {
         const bool has_qp_delta = escape_present &&
             pps->r->pps_cu_qp_delta_enabled_flag && !lc->parse.is_cu_qp_delta_coded;
-        set_qp_y(lc, cu->x0, cu->y0, has_qp_delta);
+        ret = set_qp_y(lc, cu->x0, cu->y0, has_qp_delta);
+        if (ret < 0)
+            return ret;
     }
 
     if (tree_type != DUAL_TREE_LUMA) {
@@ -1955,6 +1965,8 @@ static void palette_qp(VVCLocalContext *lc, VVCTreeType tree_type, const bool es
             chroma_qp_offset_decode(lc, 0, 1);
         set_qp_c(lc);
     }
+
+    return 0;
 }
 
 #define PALETTE_SET_PIXEL(xc, yc, pix)                              \
@@ -2123,7 +2135,9 @@ static int hls_palette_coding(VVCLocalContext *lc, const VVCTreeType tree_type)
         transpose = ff_vvc_palette_transpose_flag(lc);
     }
 
-    palette_qp(lc, tree_type, escape_present);
+    ret = palette_qp(lc, tree_type, escape_present);
+    if (ret < 0)
+        return ret;
 
     index[0] = 0;
     for (int i = 0; i <= (tu->tbs[0].tb_width * tu->tbs[0].tb_height - 1) >> 4; i++) {
@@ -2816,7 +2830,9 @@ int ff_vvc_coding_tree_unit(VVCLocalContext *lc,
     lc->coeffs = fc->tab.coeffs + rs * ctb_size * VVC_MAX_SAMPLE_ARRAYS;
     lc->cu     = NULL;
 
-    ff_vvc_cabac_init(lc, ctu_idx, rx, ry);
+    ret = ff_vvc_cabac_init(lc, ctu_idx, rx, ry);
+    if (ret < 0)
+        return ret;
     ff_vvc_decode_neighbour(lc, x_ctb, y_ctb, rx, ry, rs);
     ret = hls_coding_tree_unit(lc, x_ctb, y_ctb, ctu_idx, rx, ry);
     if (ret < 0)
