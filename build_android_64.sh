@@ -1,6 +1,7 @@
 #!/bin/bash
 #NDK路径
-export ANDROID_NDK_ROOT=$HOME/Projects/android-ndk-r19c
+#export ANDROID_NDK_ROOT=$HOME/Projects/android-ndk-r19c
+export ANDROID_NDK_ROOT=$HOME/Projects/android-ndk-r20b
 export AOSP_TOOLCHAIN_SUFFIX=4.9
 export AOSP_API="android-23"
 #架构
@@ -57,10 +58,9 @@ echo $PKG_CONFIG_PATH
     --disable-indev=fbdev \
     --disable-protocol=libssh \
     --disable-outdevs \
-    --disable-postproc \
     --disable-decoder=h264_vdpau \
-    --disable-muxer=encx \
-    --disable-iconv --disable-muxer=encx_audio \
+    --disable-muxer=encx --disable-muxer=encx_audio \
+    --disable-iconv --disable-muxer=encx_audio  --disable-demuxer=encx --disable-demuxer=encx_audio  \
     --disable-indev=waveform  \
     --cross-prefix=$CROSS_COMPILE \
     --cc=$TOOLCHAIN/bin/aarch64-linux-android23-clang \
@@ -70,7 +70,7 @@ echo $PKG_CONFIG_PATH
     --enable-cross-compile \
     --sysroot=${SYSROOT} \
     --extra-cflags="-O3 -fpic $CFLAGS" \
-    --extra-ldflags=" -L$ARM_LIB -lz -lm -logg "
+    --extra-ldflags=" -L$ARM_LIB -lz -lm -logg -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 "
  
 #--enable-libvpx \
 #make clean

@@ -1,149 +1,110 @@
-#!/bin/sh
+#!/bin/bash
 
-#https://github.com/jiaoshenmene/FFmpeg-android-build-script/blob/master/build-ffmpeg.sh
-#设置你自己的NDK位置
-NDK_HOME=/home/hubdog/Projects/android-ndk-r17c
-ISYSROOT=$NDK_HOME/sysroot
-#设置你自己的平台，这上Mac上的，linux换成linux-x86_64
-NDK_HOST_PLATFORM=linux-x86_64
-ASM=$ISYSROOT/usr/include
+# --- 1. 配置区 (基于您的 NDK r20b 范例) ---
 
-ARCHS="armv7-a "
+# 【关键修改】: 使用您指定的 NDK r20b
+export NDK_HOME=$HOME/Projects/android-ndk-r20b
 
-COMPILE="y"
+# 设置目标 Android API 级别 (与您范例保持一致或更高)
+API=23
 
-PREFIX=android-build
-EXTRA_LDFLAGS="-pie -fuse-ld=bfd -L/home/hubdog/Projects/android-ndk-r9/sources/android/arm/lib -lz -lm -logg"
+# 设置编译产物的输出根目录 (FFmpeg 自身的库将安装在这里)
+PREFIX=$(pwd)/android-build
 
-COMMON_OPTIONS="
-    --target-os=android \
-    --disable-static \
-    --enable-shared \
-    --enable-small \
-    --disable-programs \
-    --disable-ffmpeg \
-    --disable-ffplay \
-    --disable-ffprobe \
-    --disable-postproc \
-    --disable-doc \
-    --disable-symver \
-    --disable-asm \
-    --enable-nonfree \
-    --enable-openssl \
-    --enable-libfreetype \
-    --enable-libspeex \
-    --enable-libopencore-amrnb --enable-version3 \
-    --enable-libopus \
-    --enable-mediacodec \
-    --disable-decoder=libvpx \
-    --enable-gpl --disable-iconv \
-    --enable-libx264 \
-    --enable-libmp3lame \
-    --enable-jni \
-    --pkg-config=pkg-config \
-    "
+# 设置编译工具链的主机平台
+HOST_PLATFORM=linux-x86_64
 
-function build_armeabi {
-    export PKG_CONFIG_PATH=/home/hubdog/Projects/android-ndk-r9/sources/android/arm/lib/pkgconfig/
-    ./configure \
-    --libdir=/home/hubdog/Projects/android-ndk-r9/sources/android/arm/lib \
-    --incdir=/home/hubdog/Projects/android-ndk-r9/sources/android/arm/include \
-    --pkgconfigdir=/home/hubdog/Projects/android-ndk-r9/sources/android/arm/lib/pkgconfig \
-    --arch=arm \
-    --cpu=armv7-a \
-    --cross-prefix="${NDK_HOME}/toolchains/arm-linux-androideabi-4.9/prebuilt/${NDK_HOST_PLATFORM}/bin/arm-linux-androideabi-" \
-    --sysroot="${NDK_HOME}/platforms/android-24/arch-arm/" \
-    --extra-cflags="-I${ASM}/arm-linux-androideabi -isysroot $ISYSROOT -D__ANDROID_API__=24 -I/home/hubdog/Projects/android-ndk-r9/sources/android/arm/include -march=armv7-a -mfloat-abi=softfp -mfpu=neon" \
-    --extra-ldflags="-L/home/hubdog/Projects/android-ndk-r9/sources/android/arm/lib -lz -lm -lmp3lame" \
-    ${COMMON_OPTIONS}
+# --- 2. 依赖库路径配置 (独立目录, 已从 android-ndk-r9 迁出) ---
+# 第三方依赖库 (x264/openssl/lame 等) 现在位于独立目录
+DEPS_BASE_PATH=/home/hubdog/Projects/android-deps-arm
+DEPS_LIB_PATH=$DEPS_BASE_PATH/lib
+DEPS_INCLUDE_PATH=$DEPS_BASE_PATH/include
+DEPS_PKG_CONFIG_PATH=$DEPS_BASE_PATH/lib/pkgconfig
+
+# --- 3. armv7-a 架构专属配置 (模仿您的 armv8 脚本) ---
+build_armv7_a() {
+    echo "--- Building for armv7-a using NDK r20b Clang toolchain ---"
     
-    sudo make clean
-    sudo make -j8 && make install
-};
-
-function build_armv8 {
-    ./configure \
-    --libdir=${PREFIX}/libs/arm64-v8a \
-    --incdir=${PREFIX}/includes/arm64-v8a \
-    --pkgconfigdir=${PREFIX}/pkgconfig/arm64-v8a \
-    --arch=aarch64 \
-    --cpu=armv8-a \
-    --cross-prefix="${NDK_HOME}/toolchains/aarch64-linux-android-4.9/prebuilt/${NDK_HOST_PLATFORM}/bin/aarch64-linux-android-" \
-    --sysroot="${NDK_HOME}/platforms/android-21/arch-arm64/" \
---extra-cflags="-I${ASM}/aarch64-linux-android -isysroot $ISYSROOT " \
-    --extra-ldexeflags=-pie \
-    ${COMMON_OPTIONS}
+    ARCH_NAME="armeabi-v7a"
+    OUTPUT_DIR=$PREFIX/$ARCH_NAME
+    
+    # 【关键修改】: 使用 NDK r20b 的 LLVM/Clang 工具链
+    TOOLCHAIN=$NDK_HOME/toolchains/llvm/prebuilt/$HOST_PLATFORM
+    
+    # 【关键修改】: 采用 NDK r20b 的编译器命名规则，适配 armv7-a
+    # 范例: aarch64-linux-android23-clang
+    # 适配: armv7a-linux-androideabi23-clang
+    CC=$TOOLCHAIN/bin/armv7a-linux-androideabi$API-clang
+    CXX=$TOOLCHAIN/bin/armv7a-linux-androideabi$API-clang++
+    
+    # 【关键修改】: 适配 armv7-a 的交叉编译工具链前缀
+    CROSS_PREFIX=$TOOLCHAIN/bin/arm-linux-androideabi-
+    
+    # 【关键修改】: 现代 NDK (r19+) 将 sysroot 放在工具链内部，这是最可靠的路径
+    SYSROOT=$TOOLCHAIN/sysroot
+    
+    # 设置 PKG_CONFIG_PATH 环境变量，指向 NDK r9 的路径
+    export PKG_CONFIG_PATH=$DEPS_PKG_CONFIG_PATH
+    
+    # 配置 CFLAGS 和 LDFLAGS，包含 NDK r9 的路径
+    CFLAGS="-fPIC -march=armv7-a -mfloat-abi=softfp -mfpu=neon -I$DEPS_INCLUDE_PATH -D__ANDROID_API__=$API"
+    # 16 KB page size 兼容: 将 ELF 段对齐提升到 16 KB, 避免 16 KB 页面设备上崩溃
+    LDFLAGS="-L$DEPS_LIB_PATH -lz -lm --target=armv7a-linux-androideabi$API -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"
+    
     make clean
-    make -j8 && make install
+
+    # 执行 configure
+    echo "Using Compiler: $CC"
+    echo "Using Sysroot: $SYSROOT"
+    echo "Using PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+    ./configure \
+        --prefix=$OUTPUT_DIR \
+        --target-os=android \
+        --arch=arm \
+        --cpu=armv7-a \
+        --enable-cross-compile \
+        \
+        --cc=$CC \
+        --cxx=$CXX \
+        --cross-prefix=$CROSS_PREFIX \
+        --sysroot=$SYSROOT \
+        \
+        --pkg-config=pkg-config \
+        \
+        --extra-cflags="$CFLAGS" \
+        --extra-ldflags="$LDFLAGS" \
+        \
+        --disable-static \
+        --enable-shared \
+        --enable-jni \
+        --enable-mediacodec \
+        --enable-small \
+        --disable-programs \
+        --disable-doc \
+        --disable-muxer=encx --disable-muxer=encx_audio \
+        --disable-iconv --disable-demuxer=encx --disable-demuxer=encx_audio \
+        --enable-nonfree \
+        --enable-gpl \
+        --enable-version3 \
+        --enable-openssl \
+        --enable-libx264 \
+        --enable-libmp3lame \
+        --enable-libfreetype \
+        --enable-libspeex \
+        --enable-libopencore-amrnb \
+        --enable-libopus
+
+    if [ $? -ne 0 ]; then
+        echo "Configure failed for armv7-a. Please check the logs."
+        exit 1
+    fi
+    
+    sudo make -j$(nproc) && sudo make install
+    
+    echo "--- Build for armv7-a finished successfully ---"
 }
 
-function build_x86 {
-    ./configure \
-    --libdir=${PREFIX}/libs/x86 \
-    --incdir=${PREFIX}/includes/x86 \
-    --pkgconfigdir=${PREFIX}/pkgconfig/x86 \
-    --arch=x86 \
-    --cpu=i686 \
-    --cross-prefix="${NDK_HOME}/toolchains/x86-4.9/prebuilt/${NDK_HOST_PLATFORM}/bin/i686-linux-android-" \
-    --sysroot="${NDK_HOME}/platforms/android-19/arch-x86/" \
---extra-cflags="-I${ASM}/i686-linux-android -isysroot $ISYSROOT " \
-    --extra-ldexeflags=-pie \
-    ${COMMON_OPTIONS}
-    make clean
-    make -j8 && make install
-};
-
-function build_x86_64 {
-    ./configure \
-    --libdir=${PREFIX}/libs/x86_64 \
-    --incdir=${PREFIX}/includes/x86_64 \
-    --pkgconfigdir=${PREFIX}/pkgconfig/x86_64 \
-    --arch=x86_64 \
-    --cpu=x86_64 \
-    --cross-prefix="${NDK_HOME}/toolchains/x86_64-4.9/prebuilt/${NDK_HOST_PLATFORM}/bin/x86_64-linux-android-" \
-    --sysroot="${NDK_HOME}/platforms/android-21/arch-x86_64/" \
---extra-cflags="-I${ASM}/x86_64-linux-android -isysroot $ISYSROOT " \
-    --extra-ldexeflags=-pie \
-    ${COMMON_OPTIONS}
-    make clean
-    make -j8 && make install
-};
-
-if [ "$*" ]
-then
-	ARCHS="$*"
-fi
-
-if [ "$COMPILE" ]
-then
-
-	CWD=`pwd`
-	for ARCH in $ARCHS
-	do
-		echo "building $ARCH..."
-        if [ "$ARCH" = "armv8-a" ]
-        then
-            build_armv8
-		fi
-
-        if [ "$ARCH" = "armv7-a" ]
-        then
-            build_armeabi
-
-		fi
-
-        if [ "$ARCH" = "x86_64" ]
-        then
-            build_x86
-		fi
-
-        if [ "$ARCH" = "i686" ]
-        then
-            build_x86_64
-
-		fi
-		
-	done
-fi
-
-echo Done
+# --- 4. 执行编译 ---
+mkdir -p $PREFIX
+build_armv7_a
+echo "Done."

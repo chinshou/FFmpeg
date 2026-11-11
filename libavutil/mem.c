@@ -37,8 +37,6 @@
 #include <malloc.h>
 #endif
 
-#include <windows.h>
-
 #include "attributes.h"
 #include "avassert.h"
 #include "dynarray.h"
